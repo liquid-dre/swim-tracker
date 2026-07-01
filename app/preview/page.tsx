@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -14,8 +14,11 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Kbd } from "@/components/ui/Kbd";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { TierBadge, type Tier } from "@/components/ui/TierBadge";
+import { notify } from "@/lib/notify";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 
 /*
   Design-system reference screen (Step 1.5). A realistic (but static) slice of the
@@ -60,29 +63,21 @@ const ROWS: Row[] = [
 ];
 
 export default function PreviewPage() {
-  const [reduced, setReduced] = useState(false);
+  const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [course, setCourse] = useState<"SCM" | "LCM">("LCM");
-
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(mq.matches);
-    const on = () => setReduced(mq.matches);
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, []);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-12">
-      {/* Title */}
-      <p className="text-sm text-ink-muted">Design system</p>
-      <h1 className="mt-1 text-xl font-semibold tracking-tight text-ink">
-        Swim Tracker component preview
-      </h1>
-      <p className="mt-2 max-w-[68ch] text-base text-ink-muted">
-        The living reference for tokens and the shared component vocabulary: cool slate
-        neutrals, one teal accent, green only for qualified, a tier scale that always pairs
-        colour with a label.
-      </p>
+      {/* Standard page top: shared PageHeader = AppBreadcrumb + title (Step 3.5). */}
+      <PageHeader
+        title="Component preview"
+        breadcrumb={[
+          { label: "Dashboard", href: "/" },
+          { label: "Design system", href: "/preview" },
+          { label: "Component preview" },
+        ]}
+        description="The living reference for tokens and the shared component vocabulary: cool slate neutrals, one teal accent, green only for qualified, a tier scale that always pairs colour with a label."
+      />
 
       {/* ── Toolbar: search (⌘K), course toggle, primary action (N) ─────────── */}
       <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -304,6 +299,60 @@ export default function PreviewPage() {
         </section>
       </div>
 
+      {/* ── Feedback & notifications (toasts) ──────────────────────────────── */}
+      <section className="mt-8 rounded-lg border border-border bg-surface p-6">
+        <h2 className="text-lg font-semibold tracking-tight text-ink">Notifications</h2>
+        <p className="mt-1 max-w-[68ch] text-sm text-ink-muted">
+          Every action speaks through <code className="text-ink">notify</code>: short past-tense
+          success, the server&apos;s own message on error. Semantic colour lives only in the
+          status icon. The last two buttons fire a throwaway async action to show
+          <code className="text-ink"> notify.promise</code> resolving loading → success / error.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button variant="secondary" size="sm" onClick={() => notify.success("Time saved")}>
+            Success
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => notify.error("Time must be a valid meet result")}
+          >
+            Error
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => notify.info("Showing LCM times only")}
+          >
+            Info
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() =>
+              notify.promise(fakeSave(true), {
+                loading: "Saving time…",
+                success: "Time saved",
+              })
+            }
+          >
+            Promise · resolves
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              notify.promise(fakeSave(false), {
+                loading: "Saving time…",
+                success: "Time saved",
+              })
+            }
+          >
+            Promise · rejects
+          </Button>
+        </div>
+      </section>
+
       {/* ── Tier scale legend ──────────────────────────────────────────────── */}
       <section className="mt-8 rounded-lg border border-border bg-surface p-6">
         <h2 className="text-lg font-semibold tracking-tight text-ink">Tier scale</h2>
@@ -324,6 +373,18 @@ export default function PreviewPage() {
       </section>
     </div>
   );
+}
+
+/* ── throwaway async action: proves notify.promise loading→success/error ── */
+
+function fakeSave(succeeds: boolean): Promise<void> {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      if (succeeds) resolve();
+      // The server would throw a real Error; notify maps its message.
+      else reject(new Error("Meet not found"));
+    }, 900);
+  });
 }
 
 /* ── icons & bits ──────────────────────────────────────────────────────── */

@@ -10,9 +10,12 @@
 
 import type * as admin from "../admin.js";
 import type * as auth from "../auth.js";
+import type * as authz from "../authz.js";
 import type * as events from "../events.js";
 import type * as http from "../http.js";
 import type * as profiles from "../profiles.js";
+import type * as squads from "../squads.js";
+import type * as swimmers from "../swimmers.js";
 
 import type {
   ApiFromModules,
@@ -23,9 +26,12 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   auth: typeof auth;
+  authz: typeof authz;
   events: typeof events;
   http: typeof http;
   profiles: typeof profiles;
+  squads: typeof squads;
+  swimmers: typeof swimmers;
 }>;
 
 /**

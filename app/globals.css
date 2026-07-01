@@ -1,6 +1,14 @@
 @import "tailwindcss";
 
 /*
+  One light theme in v1 (DESIGN.md). We keep shadcn's `dark:` variant CLASS-gated
+  (never media-gated) so any `dark:` utility that ships inside a shadcn component
+  stays inert — we never add the `.dark` class — instead of silently activating
+  under a user's OS dark-mode preference.
+*/
+@custom-variant dark (&:is(.dark *));
+
+/*
   Swim Tracker design tokens — see DESIGN.md (authoritative).
   Everything here is a semantic token; components consume these, never raw hex.
   Tailwind v4: @theme values are emitted as :root CSS vars AND generate utilities
@@ -86,6 +94,37 @@
   --dur-1: 120ms;
   --dur-2: 180ms;
   --dur-3: 240ms;
+
+  /* Sidebar sub-nav expand/collapse (Radix Collapsible). Height-only, eased;
+     the global prefers-reduced-motion rule zeroes it. */
+  --animate-collapsible-down: collapsible-down var(--dur-2) var(--ease-standard);
+  --animate-collapsible-up: collapsible-up var(--dur-2) var(--ease-standard);
+
+  /*
+    shadcn/ui compatibility layer. shadcn components ship referencing generic
+    semantic names (background/foreground/muted/popover/…). We alias those names
+    onto our DESIGN.md tokens so every shadcn component inherits OUR palette and
+    never its slate defaults. No new colours are introduced here — these are pure
+    references. (`border`, `ring`, `accent`, `radius-*` already exist above and are
+    reused as-is: our teal is shadcn's `accent`/`primary`.)
+  */
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-ink);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-ink);
+  --color-popover: var(--color-surface);
+  --color-popover-foreground: var(--color-ink);
+  --color-primary: var(--color-accent);
+  --color-primary-foreground: var(--color-accent-fg);
+  --color-secondary: var(--color-surface-2);
+  --color-secondary-foreground: var(--color-ink);
+  --color-muted: var(--color-surface-2);
+  --color-muted-foreground: var(--color-ink-muted);
+  --color-accent-foreground: var(--color-accent-fg);
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: var(--color-danger-fg);
+  --color-input: var(--color-border);
+  --radius: var(--radius-md);
 }
 
 @layer base {
@@ -128,6 +167,24 @@
   }
 }
 
+@keyframes collapsible-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+
+@keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -136,4 +193,38 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/*
+  shadcn Sidebar tokens (Step 3.6) — remapped from the CLI's slate HSL defaults
+  onto DESIGN.md tokens. The sidebar is the "second neutral layer": --surface-2,
+  a touch cooler/darker than the --bg content canvas, so it reads as a panel
+  without a heavy fill or shadow. Hover is a subtle neutral; the ACTIVE item uses
+  the single teal accent (applied in the nav component, not here). One light
+  theme — no dark block.
+*/
+:root {
+  --sidebar: var(--color-surface-2);
+  --sidebar-foreground: var(--color-ink);
+  --sidebar-primary: var(--color-accent);
+  --sidebar-primary-foreground: var(--color-accent-fg);
+  --sidebar-accent: var(--color-border);
+  --sidebar-accent-foreground: var(--color-ink);
+  --sidebar-border: var(--color-border);
+  --sidebar-ring: var(--color-ring);
+}
+
+/*
+  ---break---
+*/
+
+@theme inline {
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
 }
