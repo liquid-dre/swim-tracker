@@ -108,6 +108,7 @@
   --color-tier-l2-border: #b9e6fe;
 
   /* ---- Type scale (14px base — DESIGN.md §1) ---- */
+  --text-2xs: 0.7rem; /* micro-labels only: chart annotations, tier-gap hints */
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
   --text-base: 0.875rem;

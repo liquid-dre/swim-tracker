@@ -321,7 +321,7 @@ function WheelTooltip({
         <CutRow label="L2" ms={e.l2Ms} />
       </dl>
       {!e.fullCoverage && (
-        <p className="mt-1.5 text-[0.7rem] leading-tight text-ink-faint">
+        <p className="mt-1.5 text-2xs leading-tight text-ink-faint">
           Partial coverage — only the tiers shown have a cut here.
         </p>
       )}
