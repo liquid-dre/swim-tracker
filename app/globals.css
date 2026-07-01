@@ -86,6 +86,32 @@
   --dur-1: 120ms;
   --dur-2: 180ms;
   --dur-3: 240ms;
+
+  /*
+    shadcn/ui compatibility layer. shadcn components ship referencing generic
+    semantic names (background/foreground/muted/popover/…). We alias those names
+    onto our DESIGN.md tokens so every shadcn component inherits OUR palette and
+    never its slate defaults. No new colours are introduced here — these are pure
+    references. (`border`, `ring`, `accent`, `radius-*` already exist above and are
+    reused as-is: our teal is shadcn's `accent`/`primary`.)
+  */
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-ink);
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-ink);
+  --color-popover: var(--color-surface);
+  --color-popover-foreground: var(--color-ink);
+  --color-primary: var(--color-accent);
+  --color-primary-foreground: var(--color-accent-fg);
+  --color-secondary: var(--color-surface-2);
+  --color-secondary-foreground: var(--color-ink);
+  --color-muted: var(--color-surface-2);
+  --color-muted-foreground: var(--color-ink-muted);
+  --color-accent-foreground: var(--color-accent-fg);
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: var(--color-danger-fg);
+  --color-input: var(--color-border);
+  --radius: var(--radius-md);
 }
 
 @layer base {
