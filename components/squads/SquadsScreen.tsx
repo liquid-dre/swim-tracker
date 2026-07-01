@@ -7,6 +7,7 @@ import { MoreHorizontal, Plus, UsersRound } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +23,7 @@ import { SquadMembersSheet } from "./SquadMembersSheet";
 
 type FormTarget = EditableSquad | "new" | null;
 type MembersTarget = { _id: Id<"squads">; name: string } | null;
+type DeleteTarget = { _id: Id<"squads">; name: string } | null;
 
 export function SquadsScreen() {
   const squads = useQuery(api.squads.listSquads, {});
@@ -29,15 +31,15 @@ export function SquadsScreen() {
 
   const [formTarget, setFormTarget] = useState<FormTarget>(null);
   const [membersTarget, setMembersTarget] = useState<MembersTarget>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
 
   const loading = squads === undefined;
   const isEmpty = !loading && squads.length === 0;
 
-  async function onDelete(id: Id<"squads">) {
-    await notify.promise(deleteSquad({ squadId: id }), {
-      loading: "Deleting…",
-      success: "Squad deleted",
-    });
+  async function onConfirmDelete() {
+    if (!deleteTarget) return;
+    await deleteSquad({ squadId: deleteTarget._id });
+    notify.success("Squad deleted");
   }
 
   return (
@@ -55,7 +57,7 @@ export function SquadsScreen() {
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
         <table className="w-full text-base">
           <thead>
-            <tr className="bg-surface-2 text-left text-xs font-medium uppercase tracking-wide text-ink-muted">
+            <tr className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
               <th scope="col" className="px-4 py-2.5 font-medium sm:px-6">Squad</th>
               <th scope="col" className="hidden px-4 py-2.5 font-medium md:table-cell">Description</th>
               <th scope="col" className="px-4 py-2.5 font-medium">Members</th>
@@ -127,7 +129,9 @@ export function SquadsScreen() {
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           variant="destructive"
-                          onClick={() => onDelete(sq._id)}
+                          onClick={() =>
+                            setDeleteTarget({ _id: sq._id, name: sq.name })
+                          }
                         >
                           Delete squad
                         </DropdownMenuItem>
@@ -171,6 +175,23 @@ export function SquadsScreen() {
         onOpenChange={(o) => {
           if (!o) setMembersTarget(null);
         }}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) setDeleteTarget(null);
+        }}
+        title="Delete squad?"
+        description={
+          <>
+            Delete <span className="font-medium text-ink">{deleteTarget?.name}</span>?
+            Swimmers stay on the roster; only the squad and its memberships are
+            removed. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete squad"
+        onConfirm={onConfirmDelete}
       />
     </div>
   );

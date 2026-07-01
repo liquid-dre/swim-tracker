@@ -50,16 +50,19 @@ export function CoachDashboardScreen() {
   const profile = useCurrentProfile();
   const [tier, setTier] = useTargetTier();
 
-  // Greet by first name once known; stay generic while the profile loads so the
-  // header never flashes a placeholder name.
+  // Greet by first name once known. The greeting lives in the description, not
+  // the h1, so the primary heading stays stable ("Dashboard") and never flashes
+  // a placeholder while the profile loads.
   const firstName = profile?.name?.trim().split(/\s+/)[0];
 
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
-        title={firstName ? `Welcome back, ${firstName}` : "Dashboard"}
+        title="Dashboard"
         breadcrumb={trailForHref("/dashboard")}
-        description="Log a swim and jump into your squad's readiness. Times you log flow straight into progression, the status matrix and the road to every cut."
+        description={`${
+          firstName ? `Welcome back, ${firstName}. ` : ""
+        }Log a swim and jump into your squad's readiness. Times you log flow straight into progression, the status matrix and the road to every cut.`}
       />
 
       {/* Hero — log a time. The one action a coach reaches for most, poolside. */}

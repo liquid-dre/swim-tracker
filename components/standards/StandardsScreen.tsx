@@ -282,7 +282,7 @@ export function StandardsScreen() {
         <div className="custom-scrollbar overflow-x-auto">
           <table className="w-full min-w-[28rem] text-base">
             <thead>
-              <tr className="bg-surface-2 text-left text-xs font-medium uppercase tracking-wide text-ink-muted">
+              <tr className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
                 <th scope="col" className="px-4 py-2.5 font-medium sm:px-5">
                   Age
                 </th>

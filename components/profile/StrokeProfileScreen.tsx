@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { useContainerWidth } from "@/hooks/use-container-width";
 import { trailForHref } from "@/lib/nav";
 import { StrokeWheel } from "./StrokeWheel";
 import { STROKE_META, WHEEL_STROKE_ORDER, type ProfileEvent } from "./strokeProfile";
@@ -61,7 +62,17 @@ export function StrokeProfileScreen() {
   }
 
   const loading = data === undefined;
-  const wheelSize = selected.length > 1 ? 300 : 380;
+
+  // Clamp the single wheel to the space the panels row actually has so the fixed
+  // 380px SVG never overflows the gutter at ~375px. The panels row is full-width
+  // and stable (its width comes from the page, not the wheel), so measuring it
+  // avoids the shrink-to-fit feedback a per-card measurement would hit. In the
+  // compare grid each column is full-width below sm, where 300px already fits.
+  const [panelsRef, panelsWidth] = useContainerWidth(1024);
+  const wheelSize =
+    selected.length > 1
+      ? 300
+      : Math.max(240, Math.min(380, Math.floor(panelsWidth) - 40));
 
   return (
     <div className="flex flex-col gap-6">
@@ -136,6 +147,7 @@ export function StrokeProfileScreen() {
       ) : (
         <>
           <div
+            ref={panelsRef}
             className={
               selected.length > 1
                 ? "grid gap-5 sm:grid-cols-2 xl:grid-cols-3"

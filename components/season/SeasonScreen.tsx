@@ -525,7 +525,7 @@ function RankRow({
       </div>
 
       <div
-        className="hidden h-2 flex-1 overflow-hidden rounded-full bg-gray-100 sm:block"
+        className="h-2 min-w-16 flex-1 overflow-hidden rounded-full bg-gray-100"
         aria-hidden
       >
         <div
