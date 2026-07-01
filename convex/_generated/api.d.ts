@@ -14,6 +14,7 @@ import type * as authz from "../authz.js";
 import type * as events from "../events.js";
 import type * as http from "../http.js";
 import type * as profiles from "../profiles.js";
+import type * as results from "../results.js";
 import type * as squads from "../squads.js";
 import type * as swimmers from "../swimmers.js";
 
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   events: typeof events;
   http: typeof http;
   profiles: typeof profiles;
+  results: typeof results;
   squads: typeof squads;
   swimmers: typeof swimmers;
 }>;

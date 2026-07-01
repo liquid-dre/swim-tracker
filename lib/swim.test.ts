@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseTime,
   formatTime,
+  clockFromDigits,
   computeAge,
   computeAgeGroup,
   isValidEvent,
@@ -84,6 +85,35 @@ describe("formatTime", () => {
     expect(() => formatTime(-1)).toThrow();
     expect(() => formatTime(Number.NaN)).toThrow();
     expect(() => formatTime(Number.POSITIVE_INFINITY)).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clockFromDigits (Step 5) — poolside numeric entry
+// ---------------------------------------------------------------------------
+
+describe("clockFromDigits", () => {
+  it("right-fills digits calculator-style (last 2 = hundredths)", () => {
+    expect(clockFromDigits("10747")).toEqual({ minutes: 1, ss: "07", hh: "47" });
+    expect(clockFromDigits("3368")).toEqual({ minutes: 0, ss: "33", hh: "68" });
+    expect(clockFromDigits("54828")).toEqual({ minutes: 5, ss: "48", hh: "28" });
+    expect(clockFromDigits("5")).toEqual({ minutes: 0, ss: "00", hh: "05" });
+    expect(clockFromDigits("")).toEqual({ minutes: 0, ss: "00", hh: "00" });
+  });
+
+  it("strips non-digits so pasted times regroup identically", () => {
+    expect(clockFromDigits("1:07:47")).toEqual({ minutes: 1, ss: "07", hh: "47" });
+    expect(clockFromDigits("33,68")).toEqual({ minutes: 0, ss: "33", hh: "68" });
+    expect(clockFromDigits("5:48.28")).toEqual({ minutes: 5, ss: "48", hh: "28" });
+  });
+
+  it("caps at 6 digits (max 99:59:99) keeping the rightmost", () => {
+    expect(clockFromDigits("1234567")).toEqual({ minutes: 23, ss: "45", hh: "67" });
+  });
+
+  it("round-trips through parseTime for valid clocks", () => {
+    const { minutes, ss, hh } = clockFromDigits("10747");
+    expect(parseTime(`${minutes}:${ss}:${hh}`)).toBe(67470);
   });
 });
 

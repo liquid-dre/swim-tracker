@@ -1,10 +1,8 @@
-import { ComingSoon } from "@/components/shell/ComingSoon";
+import { LogScreen } from "@/components/log/LogScreen";
 
+// `today` is resolved once on the server so the date bounds and live
+// age-at-swim don't depend on an impure render clock.
 export default function LogPage() {
-  return (
-    <ComingSoon
-      href="/log"
-      description="Record a meet, time-trial, or practice result. The bulletproof m:ss:hh parser and course rules arrive with this screen."
-    />
-  );
+  const today = new Date().toISOString().slice(0, 10);
+  return <LogScreen today={today} />;
 }
