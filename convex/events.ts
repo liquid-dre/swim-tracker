@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { requireSignedIn } from "./authz";
 import { eventLabel } from "../lib/swim";
 
 // The strokes/distances/courses match the shared validators in schema.ts.
@@ -124,7 +124,9 @@ export const listActiveEvents = query({
     }),
   ),
   handler: async (ctx) => {
-    await requireCoach(ctx);
+    // Both roles: the whitelist is non-sensitive reference data, and a viewer's
+    // own progression picker needs it. Still requires a signed-in caller.
+    await requireSignedIn(ctx);
     // The whitelist is tiny and fixed (§4.3); a bounded read covers it.
     const events = await ctx.db.query("events").take(200);
     return events

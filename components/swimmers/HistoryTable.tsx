@@ -54,9 +54,12 @@ export function HistoryTable({
   onDelete,
 }: {
   rows: HistoryResult[];
-  onEdit: (row: HistoryResult) => void;
-  onDelete: (row: HistoryResult) => void;
+  // Omitted for a read-only viewer: no actions column, no edit/delete affordance.
+  onEdit?: (row: HistoryResult) => void;
+  onDelete?: (row: HistoryResult) => void;
 }) {
+  // Read-only when neither handler is supplied — the whole actions column drops.
+  const readOnly = !onEdit && !onDelete;
   const [eventFilter, setEventFilter] = useState<string>("ALL");
   const [courseFilter, setCourseFilter] = useState<CourseFilter>("ALL");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
@@ -182,9 +185,11 @@ export function HistoryTable({
                   />
                 </th>
                 <th scope="col" className="hidden px-4 py-2.5 font-medium md:table-cell">Meet</th>
-                <th scope="col" className="px-4 py-2.5 sm:px-6">
-                  <span className="sr-only">Actions</span>
-                </th>
+                {!readOnly && (
+                  <th scope="col" className="px-4 py-2.5 sm:px-6">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -204,12 +209,14 @@ export function HistoryTable({
                   <td className="hidden max-w-[22ch] truncate px-4 py-3 text-ink-muted md:table-cell">
                     {r.meetName ?? <span className="text-ink-faint">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-right sm:px-6">
-                    <RowActions
-                      onEdit={() => onEdit(r)}
-                      onDelete={() => onDelete(r)}
-                    />
-                  </td>
+                  {!readOnly && (
+                    <td className="px-4 py-3 text-right sm:px-6">
+                      <RowActions
+                        onEdit={() => onEdit?.(r)}
+                        onDelete={() => onDelete?.(r)}
+                      />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

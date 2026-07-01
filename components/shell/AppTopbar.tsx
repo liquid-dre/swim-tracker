@@ -24,7 +24,13 @@ import { useCurrentProfile } from "@/lib/useCurrentProfile";
 */
 export function AppTopbar() {
   const profile = useCurrentProfile();
-  const role: Role = profile?.role === "VIEWER" ? "VIEWER" : "COACH";
+  // Unknown until the profile resolves — don't label a loading viewer "Coach".
+  const role: Role | undefined =
+    profile === undefined
+      ? undefined
+      : profile?.role === "VIEWER"
+        ? "VIEWER"
+        : "COACH";
   const { signOut } = useAuthActions();
   const router = useRouter();
 
@@ -62,7 +68,7 @@ export function AppTopbar() {
                 {profile?.name ?? "Signed in"}
               </span>
               <span className="block truncate text-xs text-ink-muted">
-                {role === "COACH" ? "Coach" : "Viewer"}
+                {role ? (role === "COACH" ? "Coach" : "Viewer") : ""}
                 {profile?.email ? ` · ${profile.email}` : ""}
               </span>
             </DropdownMenuLabel>

@@ -19,9 +19,27 @@ export async function getProfile(
 }
 
 /**
+ * Assert the caller is signed in and return their profile (either role). Use for
+ * server functions that expose NON-swimmer-scoped, non-sensitive reference data
+ * both roles legitimately need — e.g. the event whitelist that powers a viewer's
+ * own progression picker. Never use this where the payload is swimmer-scoped or a
+ * write; those go through `requireSwimmerAccess` / `requireCoach`.
+ */
+export async function requireSignedIn(
+  ctx: QueryCtx | MutationCtx,
+): Promise<Doc<"profiles">> {
+  const profile = await getProfile(ctx);
+  if (profile === null) {
+    throw new Error("You are not signed in.");
+  }
+  return profile;
+}
+
+/**
  * Assert the caller is a signed-in COACH and return their profile. Coach-only
- * screens (swimmers, squads, standards, logging) gate every server function on
- * this. VIEWER-scoped access lands in Step 15.
+ * screens (swimmers, squads, standards, logging, cross-roster analysis) gate
+ * every server function on this. A VIEWER is rejected server-side (BRD §2): the
+ * client never gets to decide, so a hidden nav item is never the only guard.
  */
 export async function requireCoach(
   ctx: QueryCtx | MutationCtx,
@@ -61,6 +79,33 @@ export async function requireSwimmerAccess(
     .first();
   if (link === null) {
     throw new Error("You can only view your own swimmer.");
+  }
+  return profile;
+}
+
+/**
+ * Assert the caller MAY see EVERY swimmer in `swimmerIds`, returning their
+ * profile. Coaches pass unconditionally; a VIEWER must be linked to all of them,
+ * or the whole call is rejected — a group read can never smuggle in one swimmer
+ * the viewer isn't linked to (the progression chart's multi-select gate). The
+ * empty set is allowed (nothing to authorise).
+ */
+export async function requireSwimmersAccess(
+  ctx: QueryCtx | MutationCtx,
+  swimmerIds: Id<"swimmers">[],
+): Promise<Doc<"profiles">> {
+  const profile = await requireSignedIn(ctx);
+  if (profile.role === "COACH") return profile;
+
+  const links = await ctx.db
+    .query("swimmerAccess")
+    .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
+    .take(200);
+  const allowed = new Set(links.map((l) => l.swimmerId));
+  for (const id of swimmerIds) {
+    if (!allowed.has(id)) {
+      throw new Error("You can only view your own swimmer.");
+    }
   }
   return profile;
 }

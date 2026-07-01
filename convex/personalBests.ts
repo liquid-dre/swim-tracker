@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { requireSwimmerAccess } from "./authz";
 import {
   computePersonalBests,
   computeAge,
@@ -126,7 +126,9 @@ export const getPersonalBests = query({
   args: { swimmerId: v.id("swimmers") },
   returns: v.array(pbRow),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    // Coach → any swimmer; viewer → only their linked swimmer(s). Rejected
+    // server-side, so a direct function call can't read an unlinked swimmer.
+    await requireSwimmerAccess(ctx, args.swimmerId);
     const swimmer = await ctx.db.get(args.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
 
@@ -147,7 +149,9 @@ export const getSwimmerProfile = query({
     history: v.array(historyRow),
   }),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    // Coach → any swimmer; viewer → only their linked swimmer(s). The read is
+    // the same shape for both; write controls are gated separately (results.ts).
+    await requireSwimmerAccess(ctx, args.swimmerId);
 
     const swimmer = await ctx.db.get(args.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
