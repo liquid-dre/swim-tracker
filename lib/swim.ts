@@ -1123,3 +1123,199 @@ export function findAgeInversions(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// 9. Season improvement — time dropped over the season (BRD §5.12, Step 13)
+// ---------------------------------------------------------------------------
+//
+// "Who is responding to training." For each event a swimmer has raced this
+// season, measure the drop between their FIRST in-season MEET time (the
+// baseline) and their fastest in-season MEET time (their current best this
+// season). MEET times only — trials/practice never count (§4.6). Course is kept
+// STRICTLY separate (§4.2): each (distance, stroke, course) is its own event, so
+// an SCM and an LCM 100 Free are never averaged or compared together. A swimmer
+// with a single in-season MEET point can't have a drop measured → "insufficient
+// data" (never reported as 0%). All pure so the same rules run in the Convex
+// query and in unit tests. Times are integer ms; dates are ISO "YYYY-MM-DD" and
+// compared lexicographically (safe for that format).
+
+/**
+ * The season start for the DEFAULT rolling 12-month window: exactly one year
+ * before `todayIso`. UTC-based so a plain "YYYY-MM-DD" is timezone-stable; a
+ * Feb-29 today normalises to Mar-1 of the prior year (harmless for a window
+ * boundary). Used whenever the coach has not set an explicit season start.
+ */
+export function rollingSeasonStart(todayIso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(todayIso.trim());
+  if (!m) {
+    throw new Error(`rollingSeasonStart: invalid date "${todayIso}"`);
+  }
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  dt.setUTCFullYear(dt.getUTCFullYear() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+/** True when an ISO swim date falls on or after the season start (inclusive). */
+export function isInSeason(swimDateIso: string, seasonStartIso: string): boolean {
+  return swimDateIso >= seasonStartIso;
+}
+
+/** The minimal result fields the season-improvement derivation reads. */
+export type SeasonSwim = {
+  distance: Distance | number;
+  stroke: Stroke | string;
+  course: Course | string;
+  timeMs: number;
+  swimType: SwimType | string;
+  swimDate: string; // ISO "YYYY-MM-DD"
+};
+
+/** One event×course's in-season improvement for a swimmer (§5.12). */
+export type SeasonEventImprovement = {
+  distance: Distance;
+  stroke: Stroke;
+  course: Course;
+  label: string;
+  count: number; // number of in-season MEET times for this event×course
+  firstMs: number; // baseline — the earliest in-season MEET time
+  firstDate: string;
+  currentMs: number; // the fastest in-season MEET time (this season's best)
+  currentDate: string;
+  improvedMs: number | null; // firstMs − currentMs (≥ 0); null when insufficient
+  improvedPct: number | null; // improvedMs as % of the baseline, 2dp; null when insufficient
+  insufficient: boolean; // true when count < 2 — a drop can't be measured
+};
+
+/**
+ * Every event×course a swimmer has an in-season MEET time in, with its drop
+ * (§5.12). Groups the swimmer's swims by (distance, stroke, course) after
+ * keeping only in-season MEET swims, then for each group takes the baseline
+ * (earliest date; ties → the faster time, so a gain is never overstated) and
+ * the current best (fastest time; ties → the earlier date). A single-point group
+ * is returned flagged `insufficient` with null deltas, never 0%. Sorted 50→1500,
+ * then stroke, then course (LCM before SCM).
+ */
+export function computeSeasonImprovements(
+  swims: ReadonlyArray<SeasonSwim>,
+  seasonStartIso: string,
+): SeasonEventImprovement[] {
+  const groups = new Map<string, { timeMs: number; swimDate: string }[]>();
+  for (const s of swims) {
+    if (s.swimType !== "MEET") continue;
+    if (!isInSeason(s.swimDate, seasonStartIso)) continue;
+    const key = `${s.distance}|${s.stroke}|${s.course}`;
+    const pt = { timeMs: s.timeMs, swimDate: s.swimDate };
+    const arr = groups.get(key);
+    if (arr) arr.push(pt);
+    else groups.set(key, [pt]);
+  }
+
+  const out: SeasonEventImprovement[] = [];
+  for (const [key, pts] of groups) {
+    const [dStr, stroke, course] = key.split("|");
+    const distance = Number(dStr) as Distance;
+
+    // Baseline = earliest date (tie → faster time). Current = fastest time
+    // (tie → earlier date). Both walked in one pass over the group's points.
+    let first = pts[0];
+    let fastest = pts[0];
+    for (const p of pts) {
+      if (
+        p.swimDate < first.swimDate ||
+        (p.swimDate === first.swimDate && p.timeMs < first.timeMs)
+      ) {
+        first = p;
+      }
+      if (
+        p.timeMs < fastest.timeMs ||
+        (p.timeMs === fastest.timeMs && p.swimDate < fastest.swimDate)
+      ) {
+        fastest = p;
+      }
+    }
+
+    const insufficient = pts.length < 2;
+    const improvedMs = insufficient ? null : first.timeMs - fastest.timeMs;
+    const improvedPct =
+      improvedMs === null || first.timeMs <= 0
+        ? insufficient
+          ? null
+          : 0
+        : Math.round((improvedMs / first.timeMs) * 10000) / 100;
+
+    out.push({
+      distance,
+      stroke: stroke as Stroke,
+      course: course as Course,
+      label: eventLabel(distance, stroke),
+      count: pts.length,
+      firstMs: first.timeMs,
+      firstDate: first.swimDate,
+      currentMs: fastest.timeMs,
+      currentDate: fastest.swimDate,
+      improvedMs,
+      improvedPct,
+      insufficient,
+    });
+  }
+
+  out.sort((a, b) => {
+    const ka = eventSortKey(a.distance, a.stroke);
+    const kb = eventSortKey(b.distance, b.stroke);
+    if (ka !== kb) return ka - kb;
+    return a.course.localeCompare(b.course); // LCM before SCM
+  });
+
+  return out;
+}
+
+/** A swimmer's OVERALL season improvement, averaged across their events (§5.12). */
+export type OverallImprovement = {
+  eventsInSeason: number; // events with ≥ 1 in-season MEET time
+  eventsMeasured: number; // events with ≥ 2 (a drop could be measured)
+  avgImprovedPct: number | null; // mean of measured events' %, 2dp; null when none
+  totalImprovedMs: number | null; // sum of measured events' drops; null when none
+  best: SeasonEventImprovement | null; // the biggest-drop measured event, for context
+  insufficient: boolean; // true when no event had ≥ 2 in-season MEET times
+};
+
+/**
+ * Collapse a swimmer's per-event improvements (from `computeSeasonImprovements`)
+ * into one overall figure: the average % improvement across only the events that
+ * could actually be measured (≥ 2 in-season MEET times). A swimmer whose every
+ * event is a single point is `insufficient` with a null average — never 0%. The
+ * biggest-drop event is carried through as `best` for a one-line UI detail.
+ */
+export function computeOverallImprovement(
+  perEvent: ReadonlyArray<SeasonEventImprovement>,
+): OverallImprovement {
+  const measured = perEvent.filter((e) => !e.insufficient);
+  if (measured.length === 0) {
+    return {
+      eventsInSeason: perEvent.length,
+      eventsMeasured: 0,
+      avgImprovedPct: null,
+      totalImprovedMs: null,
+      best: null,
+      insufficient: true,
+    };
+  }
+
+  const sumPct = measured.reduce((s, e) => s + (e.improvedPct as number), 0);
+  const totalImprovedMs = measured.reduce(
+    (s, e) => s + (e.improvedMs as number),
+    0,
+  );
+  const best = measured.reduce((b, e) =>
+    (e.improvedPct as number) > (b.improvedPct as number) ? e : b,
+  );
+
+  return {
+    eventsInSeason: perEvent.length,
+    eventsMeasured: measured.length,
+    avgImprovedPct: Math.round((sumPct / measured.length) * 100) / 100,
+    totalImprovedMs,
+    best,
+    insufficient: false,
+  };
+}

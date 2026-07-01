@@ -23,12 +23,17 @@ import {
   computeCalibratedRadius,
   STROKE_RING_POS,
   STROKE_RADIUS_MAX,
+  rollingSeasonStart,
+  isInSeason,
+  computeSeasonImprovements,
+  computeOverallImprovement,
   type EventDef,
   type ResultForPB,
   type StandardCut,
   type Tier,
   type RawStandardRow,
   type AgeCut,
+  type SeasonSwim,
 } from "./swim";
 import { SAMPLE_STANDARDS } from "../convex/standardsSampleData";
 
@@ -918,5 +923,164 @@ describe("computeCalibratedRadius", () => {
     // …faster pushes outward, slower pulls inward.
     expect(computeCalibratedRadius(576000, cuts)!).toBeGreaterThan(STROKE_RING_POS.SANJ);
     expect(computeCalibratedRadius(624000, cuts)!).toBeLessThan(STROKE_RING_POS.SANJ);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Season improvement (BRD §5.12) — rolling window + per-event / overall drop
+// ---------------------------------------------------------------------------
+
+describe("rollingSeasonStart", () => {
+  it("is exactly one year before today", () => {
+    expect(rollingSeasonStart("2026-07-01")).toBe("2025-07-01");
+    expect(rollingSeasonStart("2026-01-15")).toBe("2025-01-15");
+  });
+
+  it("normalises a leap day to Mar 1 of the prior year", () => {
+    expect(rollingSeasonStart("2024-02-29")).toBe("2023-03-01");
+  });
+
+  it("throws on a non-ISO date", () => {
+    expect(() => rollingSeasonStart("nope")).toThrow();
+  });
+});
+
+describe("isInSeason", () => {
+  it("is inclusive of the season start and rejects earlier dates", () => {
+    expect(isInSeason("2025-07-01", "2025-07-01")).toBe(true);
+    expect(isInSeason("2025-12-31", "2025-07-01")).toBe(true);
+    expect(isInSeason("2025-06-30", "2025-07-01")).toBe(false);
+  });
+});
+
+describe("computeSeasonImprovements", () => {
+  const start = "2025-07-01";
+
+  function swim(
+    partial: Partial<SeasonSwim> & { timeMs: number; swimDate: string },
+  ): SeasonSwim {
+    return {
+      distance: 100,
+      stroke: "FREE",
+      course: "LCM",
+      swimType: "MEET",
+      ...partial,
+    };
+  }
+
+  it("measures the drop from first in-season meet to fastest in-season meet", () => {
+    const out = computeSeasonImprovements(
+      [
+        swim({ timeMs: 62000, swimDate: "2025-09-01" }), // baseline (earliest)
+        swim({ timeMs: 60000, swimDate: "2025-11-01" }), // fastest
+        swim({ timeMs: 61000, swimDate: "2025-12-01" }),
+      ],
+      start,
+    );
+    expect(out).toHaveLength(1);
+    const e = out[0];
+    expect(e.insufficient).toBe(false);
+    expect(e.count).toBe(3);
+    expect(e.firstMs).toBe(62000);
+    expect(e.currentMs).toBe(60000);
+    expect(e.improvedMs).toBe(2000);
+    // 2000 / 62000 = 3.2258% → 3.23
+    expect(e.improvedPct).toBeCloseTo(3.23, 2);
+  });
+
+  it("excludes practice/time-trial and pre-season swims", () => {
+    const out = computeSeasonImprovements(
+      [
+        swim({ timeMs: 65000, swimDate: "2025-05-01" }), // pre-season → ignored
+        swim({ timeMs: 61000, swimDate: "2025-08-01", swimType: "PRACTICE" }), // not MEET
+        swim({ timeMs: 63000, swimDate: "2025-08-15", swimType: "TIME_TRIAL" }), // not MEET
+        swim({ timeMs: 62000, swimDate: "2025-09-01" }), // only one qualifying MEET
+      ],
+      start,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].count).toBe(1);
+    expect(out[0].insufficient).toBe(true);
+    expect(out[0].improvedMs).toBeNull();
+    expect(out[0].improvedPct).toBeNull();
+  });
+
+  it("keeps SCM and LCM as separate events (never merged, §4.2)", () => {
+    const out = computeSeasonImprovements(
+      [
+        swim({ course: "LCM", timeMs: 62000, swimDate: "2025-08-01" }),
+        swim({ course: "LCM", timeMs: 60000, swimDate: "2025-10-01" }),
+        swim({ course: "SCM", timeMs: 59000, swimDate: "2025-08-01" }),
+        swim({ course: "SCM", timeMs: 58000, swimDate: "2025-10-01" }),
+      ],
+      start,
+    );
+    expect(out).toHaveLength(2);
+    const lcm = out.find((e) => e.course === "LCM")!;
+    const scm = out.find((e) => e.course === "SCM")!;
+    expect(lcm.improvedMs).toBe(2000);
+    expect(scm.improvedMs).toBe(1000);
+  });
+
+  it("reports a plateau (fastest is the first swim) as a real 0% drop, not insufficient", () => {
+    const out = computeSeasonImprovements(
+      [
+        swim({ timeMs: 60000, swimDate: "2025-08-01" }), // fastest AND earliest
+        swim({ timeMs: 61000, swimDate: "2025-10-01" }),
+      ],
+      start,
+    );
+    expect(out[0].insufficient).toBe(false);
+    expect(out[0].improvedMs).toBe(0);
+    expect(out[0].improvedPct).toBe(0);
+  });
+});
+
+describe("computeOverallImprovement", () => {
+  const start = "2025-07-01";
+
+  function swim(
+    distance: number,
+    course: "SCM" | "LCM",
+    timeMs: number,
+    swimDate: string,
+  ): SeasonSwim {
+    return { distance, stroke: "FREE", course, timeMs, swimType: "MEET", swimDate };
+  }
+
+  it("averages % improvement across only the measurable events", () => {
+    const perEvent = computeSeasonImprovements(
+      [
+        // 100 LCM: 62000 → 60000 = 3.2258% (measured)
+        swim(100, "LCM", 62000, "2025-08-01"),
+        swim(100, "LCM", 60000, "2025-10-01"),
+        // 200 LCM: 130000 → 127400 = 2.0% (measured)
+        swim(200, "LCM", 130000, "2025-08-01"),
+        swim(200, "LCM", 127400, "2025-10-01"),
+        // 400 LCM: single point → insufficient, excluded from the average
+        swim(400, "LCM", 300000, "2025-09-01"),
+      ],
+      start,
+    );
+    const overall = computeOverallImprovement(perEvent);
+    expect(overall.eventsInSeason).toBe(3);
+    expect(overall.eventsMeasured).toBe(2);
+    expect(overall.insufficient).toBe(false);
+    // Each event's pct rounds to 2dp first (3.23, 2.0); mean = 2.615 → 2.62.
+    expect(overall.avgImprovedPct).toBeCloseTo(2.62, 2);
+    expect(overall.totalImprovedMs).toBe(2000 + 2600);
+    expect(overall.best?.distance).toBe(100); // biggest %
+  });
+
+  it("is insufficient when every event has only one in-season meet", () => {
+    const perEvent = computeSeasonImprovements(
+      [swim(100, "LCM", 62000, "2025-08-01"), swim(200, "LCM", 130000, "2025-09-01")],
+      start,
+    );
+    const overall = computeOverallImprovement(perEvent);
+    expect(overall.eventsMeasured).toBe(0);
+    expect(overall.insufficient).toBe(true);
+    expect(overall.avgImprovedPct).toBeNull();
+    expect(overall.best).toBeNull();
   });
 });
