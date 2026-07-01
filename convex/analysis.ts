@@ -1,7 +1,11 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
-import { requireCoach, requireSwimmerAccess } from "./authz";
+import {
+  requireCoach,
+  requireSwimmerAccess,
+  requireSwimmersAccess,
+} from "./authz";
 import {
   computeAge,
   computeAgeGroup,
@@ -27,8 +31,9 @@ import {
 //   • getEventComparison — a leaderboard of headline MEET PBs for one event.
 //   • getProgression     — each swimmer's full time series for one event.
 // Both are pure reads; PBs are DERIVED here exactly as in personalBests.ts
-// (fastest MEET only; trials/practice never count). Coaches only for now —
-// viewer scoping lands in a later step (see authz.ts). Step 10 adds the LCM
+// (fastest MEET only; trials/practice never count). Comparison and the status
+// matrix / season ranking are coach-only (cross-roster, §5.9); progression and
+// road-to-qualify are role-scoped so a viewer sees their own. Step 10 adds the LCM
 // qualifying overlays: comparison rows carry their highest tier met, and
 // progression carries this event's cut rows for the chart to resolve per age.
 
@@ -248,6 +253,10 @@ export const getEventComparison = query({
 // current headline PB (fastest MEET) is marked so the chart can distinguish
 // them. One swimmer or a group — the client passes 1..N ids (a squad resolves
 // to its members client-side). Course is required (SCM/LCM never mixed).
+//
+// Access is role-scoped SERVER-SIDE (requireSwimmersAccess): a coach charts any
+// swimmers, a viewer only their own linked swimmer(s) — a mixed selection that
+// includes one unlinked swimmer is rejected outright, never silently trimmed.
 
 const progressionPoint = v.object({
   resultId: v.id("results"),
@@ -294,10 +303,13 @@ export const getProgression = query({
     standards: v.array(standardCut),
   }),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
-
     // De-dupe and cap so a squad with repeats or a huge selection stays bounded.
     const ids = [...new Set(args.swimmerIds)].slice(0, MAX_SERIES);
+
+    // Role gate: coach → any swimmer; viewer → only their linked swimmer(s), and
+    // the WHOLE call is rejected if any requested id isn't theirs (§5.9). A
+    // viewer's own progression (their own qualifying lines) flows through here.
+    await requireSwimmersAccess(ctx, ids);
 
     const series: Array<{
       swimmerId: Id<"swimmers">;
@@ -618,7 +630,8 @@ export const getQualificationMatrix = query({
 // rule, §4.9: SANJ has no 50s, L2 nothing above 200 m). Events sort closest-first
 // (ascending pctOfCut, so qualified float to the top); no-time events sort last
 // in canonical order so they read as a separate "not raced yet" list, never a
-// giant gap. Coach-only (viewer scoping is a later step). Bounded reads.
+// giant gap. Access is role-scoped server-side (requireSwimmerAccess): a coach
+// reads any swimmer, a viewer only their own linked swimmer(s). Bounded reads.
 
 const ROAD_STANDARDS_LIMIT = 5000;
 
@@ -654,7 +667,9 @@ export const getRoadToQualify = query({
     }),
   ),
   handler: async (ctx, { swimmerId, tier: targetTier }) => {
-    await requireCoach(ctx);
+    // Coach → any swimmer; viewer → only their linked swimmer(s). A viewer's own
+    // road-to-qualify (§5.9) is authorised here, server-side.
+    await requireSwimmerAccess(ctx, swimmerId);
 
     const swimmer = await ctx.db.get(swimmerId);
     if (swimmer === null) return null;

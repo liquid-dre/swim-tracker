@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { AppTopbar } from "@/components/shell/AppTopbar";
+import { RoleGuard } from "@/components/shell/RoleGuard";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 /*
@@ -24,7 +25,7 @@ export default async function AppLayout({
       <SidebarInset>
         <AppTopbar />
         <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">
-          {children}
+          <RoleGuard>{children}</RoleGuard>
         </div>
       </SidebarInset>
     </SidebarProvider>

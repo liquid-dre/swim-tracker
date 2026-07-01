@@ -50,9 +50,16 @@ const ACTIVE_BRAND =
 export function AppSidebar() {
   const pathname = usePathname();
   const profile = useCurrentProfile();
-  // Assume COACH until the profile resolves (and for the whole of this build).
-  const role: Role = profile?.role === "VIEWER" ? "VIEWER" : "COACH";
-  const nav = navForRole(role);
+  // Role drives which nav a user sees. While the profile is still resolving the
+  // role is unknown, so we render NO items rather than guess COACH — a viewer
+  // must never see the coach tree flash by (the content is held by RoleGuard).
+  const role: Role | undefined =
+    profile === undefined
+      ? undefined
+      : profile?.role === "VIEWER"
+        ? "VIEWER"
+        : "COACH";
+  const nav = role ? navForRole(role) : [];
 
   return (
     <Sidebar collapsible="icon">
@@ -169,7 +176,7 @@ function SidebarUser({
   role,
 }: {
   profile: ReturnType<typeof useCurrentProfile>;
-  role: Role;
+  role: Role | undefined;
 }) {
   const { signOut } = useAuthActions();
   const router = useRouter();
@@ -210,7 +217,7 @@ function SidebarUser({
               {profile?.name ?? "Loading…"}
             </span>
             <span className="truncate text-xs text-ink-muted">
-              {role === "COACH" ? "Coach" : "Viewer"}
+              {role ? (role === "COACH" ? "Coach" : "Viewer") : ""}
               {profile?.email ? ` · ${profile.email}` : ""}
             </span>
           </div>

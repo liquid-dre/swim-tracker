@@ -16,6 +16,7 @@ import { PbBoard } from "./PbBoard";
 import { ImprovementSummary } from "./ImprovementSummary";
 import { HistoryTable, type HistoryResult } from "./HistoryTable";
 import { ResultEditSheet } from "./ResultEditSheet";
+import { ViewerAccessSection } from "./ViewerAccessSection";
 
 /*
   Swimmer profile (Step 6, BRD §5.4). One screen, four reads: identity, the PB
@@ -96,6 +97,9 @@ export function SwimmerProfileScreen({
           onDelete={(row) => setDeleting(row)}
         />
       </Section>
+
+      <ViewerAccessSection swimmerId={swimmerId} swimmerName={swimmer.name} />
+
 
       {/* Edit — keyed per target so the form seeds from the row on open. */}
       <ResultEditSheet

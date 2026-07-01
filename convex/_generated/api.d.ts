@@ -21,6 +21,7 @@ import type * as settings from "../settings.js";
 import type * as squads from "../squads.js";
 import type * as standards from "../standards.js";
 import type * as standardsSampleData from "../standardsSampleData.js";
+import type * as swimmerAccess from "../swimmerAccess.js";
 import type * as swimmers from "../swimmers.js";
 
 import type {
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   squads: typeof squads;
   standards: typeof standards;
   standardsSampleData: typeof standardsSampleData;
+  swimmerAccess: typeof swimmerAccess;
   swimmers: typeof swimmers;
 }>;
 

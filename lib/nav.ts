@@ -11,6 +11,7 @@ import {
   Target,
   Timer,
   TrendingUp,
+  User,
   Users,
   UsersRound,
   Waves,
@@ -19,8 +20,10 @@ import {
 /*
   Navigation IA for the app shell (Step 3.6). Single source of truth for both the
   sidebar and (later) any command palette. Each entry declares an optional `roles`
-  allow-list; `navForRole` is the filter seam. Today everything is COACH; in Step
-  15 VIEWER collapses to its reduced set purely by this filter — no component edits.
+  allow-list; `navForRole` is the filter seam. As of Step 15 the whole coach tree
+  is `roles: ["COACH"]` and the VIEWER sees exactly one calm entry — their own
+  swimmer home (`/me`). The sidebar filters here; the server enforces the boundary
+  in every query/mutation regardless (see convex/authz.ts).
 */
 
 export type Role = "COACH" | "VIEWER";
@@ -48,11 +51,20 @@ export type NavNode =
 // children's (Waves / Gauge / Award) so the collapsed icon rail never shows a
 // parent and child with the same glyph.
 export const NAV: NavNode[] = [
-  { kind: "item", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  // Viewer home — the ONLY entry a viewer sees. Read-only, own swimmer(s) only.
+  { kind: "item", label: "My swimmer", href: "/me", icon: User, roles: ["VIEWER"] },
+  {
+    kind: "item",
+    label: "Dashboard",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+    roles: ["COACH"],
+  },
   {
     kind: "group",
     label: "Swimmers",
     icon: Waves,
+    roles: ["COACH"],
     items: [
       { label: "Roster", href: "/swimmers", icon: Users },
       { label: "Squads", href: "/squads", icon: UsersRound },
@@ -63,6 +75,7 @@ export const NAV: NavNode[] = [
     kind: "group",
     label: "Performance",
     icon: Gauge,
+    roles: ["COACH"],
     items: [
       { label: "Comparison", href: "/compare", icon: BarChart3 },
       { label: "Progression", href: "/progression", icon: LineChart },
@@ -74,13 +87,31 @@ export const NAV: NavNode[] = [
     kind: "group",
     label: "Qualifying",
     icon: Award,
+    roles: ["COACH"],
     items: [
       { label: "Status matrix", href: "/status", icon: Grid3x3 },
       { label: "Road to qualify", href: "/road", icon: Target },
-      { label: "Standards", href: "/standards", icon: Ruler, roles: ["COACH"] },
+      { label: "Standards", href: "/standards", icon: Ruler },
     ],
   },
 ];
+
+/** The landing route for a role after login / on redirect from a barred route. */
+export function homeForRole(role: Role): string {
+  return role === "VIEWER" ? "/me" : "/dashboard";
+}
+
+/**
+ * The route-access boundary, mirrored server-side in every Convex function. A
+ * VIEWER may only be under their own home (`/me`); a COACH owns everything else.
+ * `/me` is exclusively the viewer's, so a coach landing there is bounced home —
+ * this keeps the two experiences from bleeding into each other. Deny-by-default:
+ * a brand-new route is coach-only until it opts a viewer in here.
+ */
+export function isRouteAllowed(role: Role, pathname: string): boolean {
+  const underViewerHome = pathname === "/me" || pathname.startsWith("/me/");
+  return role === "VIEWER" ? underViewerHome : !underViewerHome;
+}
 
 function allowed(roles: Role[] | undefined, role: Role): boolean {
   return !roles || roles.includes(role);
