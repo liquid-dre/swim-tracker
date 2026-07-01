@@ -234,7 +234,7 @@ function WheelPanel({
             </p>
           )}
           {!compact && events.length > 0 && (
-            <p className="text-[0.7rem] leading-tight text-ink-faint">
+            <p className="text-2xs leading-tight text-ink-faint">
               Hover or focus a bar for the PB and every cut.
             </p>
           )}

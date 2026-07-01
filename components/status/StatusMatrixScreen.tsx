@@ -259,7 +259,7 @@ function MatrixCell({
           // marker, not a green "qualified" flourish: on an L2-only event (a 50)
           // this is entry level, so celebrating it would overstate readiness.
           <span
-            className="inline-flex items-center gap-1 text-[0.7rem] leading-none text-ink-faint"
+            className="inline-flex items-center gap-1 text-2xs leading-none text-ink-faint"
             aria-hidden
           >
             <span>✓</span>
@@ -268,7 +268,7 @@ function MatrixCell({
         ) : (
           nextTier &&
           gapMs !== null && (
-            <span className="inline-flex items-center gap-1 text-[0.7rem] leading-none text-ink-muted">
+            <span className="inline-flex items-center gap-1 text-2xs leading-none text-ink-muted">
               <span aria-hidden className="text-ink-faint">
                 ▾
               </span>

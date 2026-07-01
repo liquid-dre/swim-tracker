@@ -581,7 +581,7 @@ function TierOverlayLegend({
               strokeDasharray={TIER_STYLE[e.tier].dash}
             />
           </svg>
-          <span aria-hidden style={{ color: e.color }} className="text-[0.7rem] leading-none">
+          <span aria-hidden style={{ color: e.color }} className="text-2xs leading-none">
             {e.glyph}
           </span>
           <span className="font-medium text-ink">{e.label}</span>

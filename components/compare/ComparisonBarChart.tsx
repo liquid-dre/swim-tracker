@@ -181,7 +181,7 @@ export function ComparisonTierLegend({ tiers }: { tiers: Tier[] }) {
               className="size-2.5 rounded-sm"
               style={{ background: st.color }}
             />
-            <span aria-hidden style={{ color: st.color }} className="text-[0.7rem] leading-none">
+            <span aria-hidden style={{ color: st.color }} className="text-2xs leading-none">
               {st.glyph}
             </span>
             <span className="font-medium text-ink">{st.label}</span>
