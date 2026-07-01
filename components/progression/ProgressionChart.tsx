@@ -4,6 +4,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -13,12 +14,14 @@ import {
 
 import {
   computeAge,
+  computeQualifyProjection,
   formatTime,
   pickApplicableStandards,
+  type QualifyProjection,
   type StandardCut,
   type Tier,
 } from "@/lib/swim";
-import { formatShortDate } from "@/lib/format";
+import { formatMonthYear, formatSeconds, formatShortDate } from "@/lib/format";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import {
   CHART,
@@ -43,6 +46,15 @@ import {
   swim plotted on the fast side of a line (above it, since the axis is inverted)
   has met that tier. For a group the lines only appear when every swimmer shares
   one exact age (and gender) — otherwise a single line would be a lie.
+
+  Step 14 adds the time-to-qualify projection (single swimmer, LCM, one target
+  tier — §5.6). All the judgement is the pure `computeQualifyProjection`; here we
+  only draw its result: a MUTED, dashed continuation of the recent meet trend to
+  where it meets the target cut, marked with an estimated month. It is deliberately
+  quieter than the real series so it never competes with logged data, and it is
+  always chaperoned by the mandatory "estimate only" caveat. When the guard rails
+  refuse a projection (too few meets, no downward trend, beyond 12 months, already
+  qualified) we draw nothing and say why instead.
 */
 
 export type ProgressionPoint = {
@@ -76,11 +88,15 @@ export function ProgressionChart({
   single,
   course,
   standards,
+  projectionTier = null,
 }: {
   series: ProgressionSeries[];
   single: boolean;
   course: "SCM" | "LCM";
   standards: StandardRow[];
+  // The target tier for the time-to-qualify projection (§5.6). Non-null only for
+  // a single swimmer on LCM; the projection draws toward this tier's cut.
+  projectionTier?: Tier | null;
 }) {
   const reduced = usePrefersReducedMotion();
 
@@ -98,8 +114,17 @@ export function ProgressionChart({
   const allT = data.flatMap((s) => s.points.map((p) => p.t));
   const tMin = Math.min(...allT);
   const tMax = Math.max(...allT);
+
+  // Time-to-qualify projection (§5.6) — single swimmer + LCM + a chosen tier.
+  const projection = buildProjection(series, standards, single, course, projectionTier);
+  const projected = projection?.status === "projected" ? projection : null;
+
+  // The projection crosses in the FUTURE, past the last real swim, so the x-axis
+  // has to stretch to reach it (the overlay still spans only the real range).
+  const domainTMax = projected ? Math.max(tMax, projected.toT) : tMax;
   // A one-day pad keeps single-date series from collapsing onto the axis edge.
-  const tPad = tMin === tMax ? 86_400_000 : Math.round((tMax - tMin) * 0.04);
+  const tSpan = domainTMax - tMin;
+  const tPad = tSpan === 0 ? 86_400_000 : Math.round(tSpan * 0.04);
 
   // Qualifying-cut overlay — LCM only (§4.9). Drawn across the real swim range
   // (not the padding), so the birthday steps line up with the plotted swims and
@@ -107,12 +132,16 @@ export function ProgressionChart({
   const overlay =
     course === "LCM" ? buildTierOverlay(series, standards, single, tMin, tMax) : null;
 
-  // Fold the drawn cut values into the y-domain so a cut faster or slower than
-  // every swim still shows — the gap to the next tier is the point of the view.
+  // Fold the drawn cut values (and the projection's endpoints) into the y-domain
+  // so a cut faster or slower than every swim still shows — the gap to the next
+  // tier is the point of the view.
   const cutYs = overlay ? overlay.lines.map((l) => l.y) : [];
-  const yLo = Math.min(...allTimes, ...cutYs);
-  const yHi = Math.max(...allTimes, ...cutYs);
+  const projYs = projected ? [projected.fromMs, projected.toMs] : [];
+  const yLo = Math.min(...allTimes, ...cutYs, ...projYs);
+  const yHi = Math.max(...allTimes, ...cutYs, ...projYs);
   const yPad = Math.max(500, Math.round((yHi - yLo) * 0.12));
+
+  const projColor = projectionTier ? TIER_STYLE[projectionTier].color : CHART.accent;
 
   // The chart is SVG; give assistive tech a plain-language read of each line.
   const summary = series
@@ -138,7 +167,7 @@ export function ProgressionChart({
             <XAxis
               type="number"
               dataKey="t"
-              domain={[tMin - tPad, tMax + tPad]}
+              domain={[tMin - tPad, domainTMax + tPad]}
               tickFormatter={msToShort}
               tick={{ fill: CHART.tick, fontSize: 11 }}
               tickLine={false}
@@ -176,6 +205,47 @@ export function ProgressionChart({
                 ifOverflow="extendDomain"
               />
             ))}
+            {/* Projection (§5.6): a muted, dashed continuation of the recent
+                trend to where it meets the cut. Rendered under the real series so
+                logged swims always sit on top and read as the primary data. */}
+            {projected && (
+              <>
+                {/* A faint level guide extends the target cut out to the crossing
+                    so the eye sees the dashed trend "arrive" at the line. */}
+                <ReferenceLine
+                  segment={[
+                    { x: tMax, y: projected.toMs },
+                    { x: projected.toT, y: projected.toMs },
+                  ]}
+                  stroke={projColor}
+                  strokeWidth={1}
+                  strokeDasharray="1 5"
+                  strokeOpacity={0.3}
+                  ifOverflow="extendDomain"
+                />
+                <ReferenceLine
+                  segment={[
+                    { x: projected.fromT, y: projected.fromMs },
+                    { x: projected.toT, y: projected.toMs },
+                  ]}
+                  stroke={projColor}
+                  strokeWidth={1.75}
+                  strokeDasharray="2 4"
+                  strokeOpacity={0.55}
+                  ifOverflow="extendDomain"
+                />
+                <ReferenceDot
+                  x={projected.toT}
+                  y={projected.toMs}
+                  r={3.5}
+                  fill="var(--color-gray-25)"
+                  stroke={projColor}
+                  strokeWidth={1.5}
+                  strokeOpacity={0.9}
+                  ifOverflow="extendDomain"
+                />
+              </>
+            )}
             {data.map((s) => (
               <Line
                 key={s.name}
@@ -199,7 +269,129 @@ export function ProgressionChart({
         <TierOverlayLegend entries={overlay.legend} single={single} />
       )}
 
+      {projection && projectionTier && (
+        <ProjectionNote projection={projection} tier={projectionTier} color={projColor} />
+      )}
+
       <Legend series={data} single={single} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Time-to-qualify projection (Step 14, §5.6)
+// ---------------------------------------------------------------------------
+//
+// Pure glue: resolve the swimmer's exact-age cut for the chosen tier, then hand
+// their meet times to `computeQualifyProjection`, which owns every guard rail
+// (≥ 4 meets, a real downward trend, the ~12-month horizon). Projection is a
+// single-swimmer, LCM-only affair; anything else returns null and draws nothing.
+
+function buildProjection(
+  series: ProgressionSeries[],
+  standards: StandardRow[],
+  single: boolean,
+  course: "SCM" | "LCM",
+  tier: Tier | null,
+): QualifyProjection | null {
+  if (!single || course !== "LCM" || tier === null || series.length === 0) {
+    return null;
+  }
+  const s = series[0];
+  const today = todayIso();
+  const rows = standards.filter((r) => r.gender === s.gender);
+  const cuts = pickApplicableStandards(rows, computeAge(s.dob, today));
+  const cutMs = cuts[tier] ?? null;
+  const meets = s.points
+    .filter((p) => p.isMeet)
+    .map((p) => ({ swimDate: p.swimDate, timeMs: p.timeMs }));
+  return computeQualifyProjection(meets, cutMs, today);
+}
+
+const TIER_LABEL: Record<Tier, string> = {
+  LEVEL_2: "Level 2",
+  LEVEL_3: "Level 3",
+  SANJ: "SANJ",
+};
+
+// A monthly drop reads more naturally to a coach than ms-per-day; slope is
+// negative (improving), so negate to state it as time gained.
+function monthlyDrop(slopeMsPerDay: number): string {
+  return formatSeconds(-slopeMsPerDay * (365.25 / 12));
+}
+
+function ProjectionNote({
+  projection,
+  tier,
+  color,
+}: {
+  projection: QualifyProjection;
+  tier: Tier;
+  color: string;
+}) {
+  const label = TIER_LABEL[tier];
+
+  // The projected case is the only one that draws a line — so it, and only it,
+  // carries the mandatory "estimate only" caveat right beside the estimate.
+  if (projection.status === "projected") {
+    return (
+      <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
+          <span className="inline-flex items-center gap-1.5">
+            <svg aria-hidden width="18" height="8" viewBox="0 0 18 8">
+              <line
+                x1="0"
+                y1="4"
+                x2="18"
+                y2="4"
+                stroke={color}
+                strokeWidth="1.75"
+                strokeDasharray="2 4"
+                strokeOpacity="0.7"
+              />
+            </svg>
+            <span className="font-medium text-ink">Projected {label}</span>
+          </span>
+          <span className="text-ink-muted">
+            on track for{" "}
+            <span className="time tnum text-ink">{formatTime(projection.cutMs)}</span>{" "}
+            around{" "}
+            <span className="font-medium text-ink">
+              {formatMonthYear(projection.etaIso)}
+            </span>
+            <span className="text-ink-faint">
+              {" "}
+              · ~{monthlyDrop(projection.slopeMsPerDay)}s/month
+            </span>
+          </span>
+        </div>
+        <p className="text-xs italic text-ink-muted">
+          Estimate only: assumes the recent rate continues. Not a guaranteed date.
+        </p>
+      </div>
+    );
+  }
+
+  // Every other outcome draws nothing; say plainly why, in the same quiet voice.
+  const reason: string =
+    projection.status === "no_cut"
+      ? `No ${label} cut for this event at this age, so there's nothing to project.`
+      : projection.status === "already_qualified"
+        ? `Already meets the ${label} cut (${formatTime(projection.cutMs)}); no projection needed.`
+        : projection.status === "not_enough_data"
+          ? `Not enough meet times to project ${label}: ${projection.meetCount} of 4 needed.`
+          : projection.status === "no_trend"
+            ? `No clear downward trend in recent meets, so no ${label} estimate is shown.`
+            : `${label} is beyond 12 months at the current rate, too far out to estimate.`;
+
+  const positive = projection.status === "already_qualified";
+  return (
+    <div className="flex items-center gap-2 border-t border-border pt-3 text-xs">
+      {positive ? (
+        <span className="font-medium text-success-ink">{reason}</span>
+      ) : (
+        <span className="text-ink-muted">{reason}</span>
+      )}
     </div>
   );
 }

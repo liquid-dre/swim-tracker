@@ -8,6 +8,8 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { TargetTierToggle } from "@/components/qualifying/TargetTierToggle";
+import { useTargetTier } from "@/lib/useTargetTier";
 import { trailForHref } from "@/lib/nav";
 import { formatTime, type Course, type Stroke } from "@/lib/swim";
 import { EventPicker, type EventValue } from "@/components/analysis/EventPicker";
@@ -33,6 +35,7 @@ export function ProgressionScreen() {
   const events = useQuery(api.events.listActiveEvents, {});
 
   const [mode, setMode] = useState<Mode>("one");
+  const [projectionTier, setProjectionTier] = useTargetTier();
   const [singleId, setSingleId] = useState<Id<"swimmers"> | "">("");
   const [groupIds, setGroupIds] = useState<Id<"swimmers">[]>([]);
   const [squadFilter, setSquadFilter] = useState<string>("ALL");
@@ -205,11 +208,33 @@ export function ProgressionScreen() {
 
           {single && <SingleSummary series={withData[0]} />}
 
+          {/* Projection control (§5.6) — single swimmer on LCM only, since the
+              qualifying cuts it projects toward are long-course only (§4.9). */}
+          {single && data.event.course === "LCM" && (
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg bg-surface-2 px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-ink">
+                  Project time to qualify
+                </p>
+                <p className="text-xs text-ink-muted">
+                  Extend the recent meet trend toward a target cut.
+                </p>
+              </div>
+              <TargetTierToggle
+                value={projectionTier}
+                onChange={setProjectionTier}
+              />
+            </div>
+          )}
+
           <ProgressionChart
             series={withData}
             single={single}
             course={data.event.course}
             standards={data.standards}
+            projectionTier={
+              single && data.event.course === "LCM" ? projectionTier : null
+            }
           />
         </section>
       )}
