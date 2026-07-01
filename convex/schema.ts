@@ -120,4 +120,13 @@ export default defineSchema({
     .index("by_event", ["swimmerId", "distance", "stroke", "course"])
     .index("by_event_global", ["distance", "stroke", "course"])
     .index("by_date", ["swimDate"]),
+
+  // Coach app settings — a single, club-wide singleton row (BRD §5.12, Step 13).
+  // `key` is always "app" so the row is found/upserted by a stable lookup. Season
+  // ranking reads `seasonStart` here; unset (or no row) => the default rolling
+  // 12-month window is used instead.
+  settings: defineTable({
+    key: v.string(), // always "app" — the singleton discriminator
+    seasonStart: v.optional(v.string()), // ISO "YYYY-MM-DD"; unset => rolling 12mo
+  }).index("by_key", ["key"]),
 });

@@ -7,14 +7,18 @@ import {
   computeAgeGroup,
   computeCalibratedRadius,
   computeMatrixCell,
+  computeOverallImprovement,
   computePersonalBests,
+  computeSeasonImprovements,
   eventLabel,
   eventSortKey,
   highestTierMet,
   pickApplicableStandards,
   resolveStandardTime,
+  rollingSeasonStart,
   tierCoversEvent,
   type ResultForPB,
+  type SeasonSwim,
   type StandardCut,
   type Tier,
 } from "../lib/swim";
@@ -926,3 +930,302 @@ export const getStrokeProfile = query({
     };
   },
 });
+
+// ---------------------------------------------------------------------------
+// getSeasonImprovement — rank swimmers by time dropped this season (BRD §5.12)
+// ---------------------------------------------------------------------------
+//
+// "Who is responding to training." Two modes over MEET times only (§4.6):
+//   • event   — pick one (distance, stroke, course); rank swimmers by the drop
+//               between their FIRST in-season meet time and their fastest
+//               in-season meet time in that exact event. Course is REQUIRED and
+//               never mixed (§4.2).
+//   • overall — rank swimmers by their AVERAGE % improvement across every event
+//               they raced this season (each course counted as its own event).
+//
+// The season window is the coach's `seasonStart` app-setting, resolved here: an
+// explicit value if the caller passes one, else the stored setting, else the
+// default rolling 12-month window. The effective start is returned so the screen
+// can label it and re-compute reactively when the coach changes it. A swimmer
+// with a single in-season point can't have a drop measured → `insufficient`,
+// never 0% (§5.12). All the judgement is the pure `computeSeasonImprovements` /
+// `computeOverallImprovement`; here we only load, scope, and shape. Coach-only
+// (viewers have no season ranking, §5.9). Bounded reads throughout.
+
+const SEASON_EVENT_RESULTS_LIMIT = 8000;
+const SEASON_ALL_RESULTS_LIMIT = 20000;
+const SEASON_SWIMMERS_LIMIT = 1000;
+
+const seasonEventDetail = v.object({
+  distance,
+  stroke,
+  course,
+  label: v.string(),
+});
+
+// One ranked swimmer. Fields split by mode: `event` carries a single event's
+// drop; `overall` carries the cross-event average. The unused block is null.
+const seasonRow = v.object({
+  swimmerId: v.id("swimmers"),
+  name: v.string(),
+  gender,
+  age: v.number(),
+  active: v.boolean(),
+  insufficient: v.boolean(), // single in-season point (event) / no measurable event (overall)
+  // Event mode (null in overall mode):
+  event: v.union(
+    v.object({
+      count: v.number(),
+      firstMs: v.number(),
+      firstDate: v.string(),
+      currentMs: v.number(),
+      currentDate: v.string(),
+      improvedMs: v.union(v.number(), v.null()),
+      improvedPct: v.union(v.number(), v.null()),
+    }),
+    v.null(),
+  ),
+  // Overall mode (null in event mode):
+  overall: v.union(
+    v.object({
+      eventsInSeason: v.number(),
+      eventsMeasured: v.number(),
+      avgImprovedPct: v.union(v.number(), v.null()),
+      totalImprovedMs: v.union(v.number(), v.null()),
+      bestLabel: v.union(v.string(), v.null()),
+      bestImprovedPct: v.union(v.number(), v.null()),
+    }),
+    v.null(),
+  ),
+});
+
+export const getSeasonImprovement = query({
+  args: {
+    mode: v.union(v.literal("event"), v.literal("overall")),
+    distance: v.optional(distance),
+    stroke: v.optional(stroke),
+    course: v.optional(course),
+    // Explicit override; when omitted the stored setting (or rolling default) wins.
+    seasonStart: v.optional(v.string()),
+  },
+  returns: v.object({
+    mode: v.union(v.literal("event"), v.literal("overall")),
+    seasonStart: v.string(), // the EFFECTIVE window start actually used
+    source: v.union(
+      v.literal("explicit"),
+      v.literal("custom"),
+      v.literal("rolling"),
+    ),
+    event: v.union(seasonEventDetail, v.null()), // event mode only
+    rows: v.array(seasonRow),
+  }),
+  handler: async (ctx, args) => {
+    await requireCoach(ctx);
+
+    // Resolve the season window: an explicit arg wins, then the stored setting,
+    // then the rolling 12-month default. The effective start drives everything.
+    const today = new Date().toISOString().slice(0, 10);
+    let seasonStart: string;
+    let source: "explicit" | "custom" | "rolling";
+    if (args.seasonStart !== undefined) {
+      seasonStart = args.seasonStart;
+      source = "explicit";
+    } else {
+      const settings = await ctx.db
+        .query("settings")
+        .withIndex("by_key", (q) => q.eq("key", "app"))
+        .unique();
+      if (settings?.seasonStart) {
+        seasonStart = settings.seasonStart;
+        source = "custom";
+      } else {
+        seasonStart = rollingSeasonStart(today);
+        source = "rolling";
+      }
+    }
+
+    // Load each swimmer's identity once, on demand, memoised across rows.
+    const swimmerCache = new Map<
+      Id<"swimmers">,
+      { name: string; gender: "M" | "F"; age: number; active: boolean } | null
+    >();
+    async function loadSwimmer(id: Id<"swimmers">) {
+      if (swimmerCache.has(id)) return swimmerCache.get(id)!;
+      const s = await ctx.db.get(id);
+      const shaped = s
+        ? {
+            name: s.name,
+            gender: s.gender,
+            age: computeAge(s.dob, today),
+            active: s.active,
+          }
+        : null;
+      swimmerCache.set(id, shaped);
+      return shaped;
+    }
+
+    // -----------------------------------------------------------------------
+    // Event mode — one (distance, stroke, course); drop per swimmer.
+    // -----------------------------------------------------------------------
+    if (args.mode === "event") {
+      // Without a complete event selection there is nothing to rank yet.
+      if (
+        args.distance === undefined ||
+        args.stroke === undefined ||
+        args.course === undefined
+      ) {
+        return { mode: "event" as const, seasonStart, source, event: null, rows: [] };
+      }
+
+      const results = await ctx.db
+        .query("results")
+        .withIndex("by_event_global", (q) =>
+          q
+            .eq("distance", args.distance!)
+            .eq("stroke", args.stroke!)
+            .eq("course", args.course!),
+        )
+        .take(SEASON_EVENT_RESULTS_LIMIT);
+
+      // Group this event's swims by swimmer for the pure derivation.
+      const bySwimmer = new Map<Id<"swimmers">, SeasonSwim[]>();
+      for (const r of results) {
+        const arr = bySwimmer.get(r.swimmerId);
+        const swim: SeasonSwim = {
+          distance: r.distance,
+          stroke: r.stroke,
+          course: r.course,
+          timeMs: r.timeMs,
+          swimType: r.swimType,
+          swimDate: r.swimDate,
+        };
+        if (arr) arr.push(swim);
+        else bySwimmer.set(r.swimmerId, [swim]);
+      }
+
+      const rows = [];
+      for (const [swimmerId, swims] of bySwimmer) {
+        const improvements = computeSeasonImprovements(swims, seasonStart);
+        // Exactly one group (one event×course) — or none, if no in-season meet.
+        const imp = improvements[0];
+        if (!imp) continue; // no in-season meet time for this event → not ranked
+        const swimmer = await loadSwimmer(swimmerId);
+        if (!swimmer) continue; // orphaned results → skip
+
+        rows.push({
+          swimmerId,
+          name: swimmer.name,
+          gender: swimmer.gender,
+          age: swimmer.age,
+          active: swimmer.active,
+          insufficient: imp.insufficient,
+          event: {
+            count: imp.count,
+            firstMs: imp.firstMs,
+            firstDate: imp.firstDate,
+            currentMs: imp.currentMs,
+            currentDate: imp.currentDate,
+            improvedMs: imp.improvedMs,
+            improvedPct: imp.improvedPct,
+          },
+          overall: null,
+        });
+      }
+
+      sortSeasonRows(rows, (r) => r.event?.improvedPct ?? null);
+
+      return {
+        mode: "event" as const,
+        seasonStart,
+        source,
+        event: {
+          distance: args.distance,
+          stroke: args.stroke,
+          course: args.course,
+          label: eventLabel(args.distance, args.stroke),
+        },
+        rows,
+      };
+    }
+
+    // -----------------------------------------------------------------------
+    // Overall mode — average % improvement across every event this season.
+    // -----------------------------------------------------------------------
+    // Scan just the in-season slice via the date index, then group by swimmer.
+    const results = await ctx.db
+      .query("results")
+      .withIndex("by_date", (q) => q.gte("swimDate", seasonStart))
+      .take(SEASON_ALL_RESULTS_LIMIT);
+
+    const bySwimmer = new Map<Id<"swimmers">, SeasonSwim[]>();
+    for (const r of results) {
+      if (r.swimType !== "MEET") continue; // MEET only (§4.6)
+      const arr = bySwimmer.get(r.swimmerId);
+      const swim: SeasonSwim = {
+        distance: r.distance,
+        stroke: r.stroke,
+        course: r.course,
+        timeMs: r.timeMs,
+        swimType: r.swimType,
+        swimDate: r.swimDate,
+      };
+      if (arr) arr.push(swim);
+      else bySwimmer.set(r.swimmerId, [swim]);
+    }
+
+    const rows = [];
+    let processed = 0;
+    for (const [swimmerId, swims] of bySwimmer) {
+      if (processed >= SEASON_SWIMMERS_LIMIT) break;
+      processed += 1;
+
+      const improvements = computeSeasonImprovements(swims, seasonStart);
+      if (improvements.length === 0) continue; // no in-season meet at all → not ranked
+      const overall = computeOverallImprovement(improvements);
+      const swimmer = await loadSwimmer(swimmerId);
+      if (!swimmer) continue;
+
+      rows.push({
+        swimmerId,
+        name: swimmer.name,
+        gender: swimmer.gender,
+        age: swimmer.age,
+        active: swimmer.active,
+        insufficient: overall.insufficient,
+        event: null,
+        overall: {
+          eventsInSeason: overall.eventsInSeason,
+          eventsMeasured: overall.eventsMeasured,
+          avgImprovedPct: overall.avgImprovedPct,
+          totalImprovedMs: overall.totalImprovedMs,
+          // Course kept in the label — SCM/LCM are separate events (§4.2), so a
+          // bare "100 Free" would be ambiguous about which one led the average.
+          bestLabel: overall.best
+            ? `${overall.best.label} ${overall.best.course}`
+            : null,
+          bestImprovedPct: overall.best?.improvedPct ?? null,
+        },
+      });
+    }
+
+    sortSeasonRows(rows, (r) => r.overall?.avgImprovedPct ?? null);
+
+    return { mode: "overall" as const, seasonStart, source, event: null, rows };
+  },
+});
+
+// Rank by improvement DESCENDING (biggest drop first). Insufficient-data
+// swimmers always sink below everyone with a real figure; ties (and the
+// insufficient group) break by name for a stable order.
+function sortSeasonRows<T extends { name: string; insufficient: boolean }>(
+  rows: T[],
+  pct: (row: T) => number | null,
+): void {
+  rows.sort((a, b) => {
+    if (a.insufficient !== b.insufficient) return a.insufficient ? 1 : -1;
+    const pa = pct(a);
+    const pb = pct(b);
+    if (pa !== null && pb !== null && pa !== pb) return pb - pa;
+    return a.name.localeCompare(b.name);
+  });
+}

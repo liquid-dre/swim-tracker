@@ -17,6 +17,7 @@ import type * as http from "../http.js";
 import type * as personalBests from "../personalBests.js";
 import type * as profiles from "../profiles.js";
 import type * as results from "../results.js";
+import type * as settings from "../settings.js";
 import type * as squads from "../squads.js";
 import type * as standards from "../standards.js";
 import type * as standardsSampleData from "../standardsSampleData.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   personalBests: typeof personalBests;
   profiles: typeof profiles;
   results: typeof results;
+  settings: typeof settings;
   squads: typeof squads;
   standards: typeof standards;
   standardsSampleData: typeof standardsSampleData;
