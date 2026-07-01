@@ -1,0 +1,41 @@
+# Claude Code — COMMIT .claude/skills/, .claude/settings.json, CLAUDE.md, DESIGN.md
+# so the design skills + project rules travel with any clone. Ignore ONLY
+# machine-local files:
+.claude/settings.local.json
+.claude/*.local.json
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# next.js
+/.next/
+/out/
+/build
+next-env.d.ts
+
+# testing
+/coverage
+
+# convex
+.convex
+
+# env files
+.env*
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo

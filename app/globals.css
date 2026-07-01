@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+/*
+  Swim Tracker design tokens — see DESIGN.md (authoritative).
+  Everything here is a semantic token; components consume these, never raw hex.
+  Tailwind v4: @theme values are emitted as :root CSS vars AND generate utilities
+  (bg-*, text-*, border-*, ring-*, font-*, rounded-*).
+*/
+@theme {
+  /* Surfaces */
+  --color-bg: oklch(0.985 0.004 258);
+  --color-surface: oklch(0.998 0.002 258);
+  --color-surface-2: oklch(0.965 0.005 258);
+  --color-border: oklch(0.912 0.006 258);
+  --color-border-strong: oklch(0.84 0.008 258);
+
+  /* Ink ramp */
+  --color-ink: oklch(0.24 0.014 258);
+  --color-ink-muted: oklch(0.46 0.012 258);
+  --color-ink-faint: oklch(0.56 0.01 258);
+
+  /* Accent — the only one (deep teal) */
+  --color-accent: oklch(0.46 0.09 199);
+  --color-accent-hover: oklch(0.4 0.09 199);
+  --color-accent-strong: oklch(0.38 0.09 199);
+  --color-accent-subtle: oklch(0.95 0.03 199);
+  --color-accent-fg: oklch(0.99 0 0);
+  --color-ring: oklch(0.55 0.11 199);
+
+  /* Success / qualified — green, qualified state ONLY */
+  --color-success: oklch(0.47 0.12 152);
+  --color-success-fg: oklch(0.99 0 0);
+  --color-success-ink: oklch(0.4 0.1 150);
+  --color-success-subtle: oklch(0.94 0.04 152);
+
+  /* Warning / error */
+  --color-warning-ink: oklch(0.48 0.1 60);
+  --color-warning-subtle: oklch(0.93 0.06 70);
+  --color-danger: oklch(0.5 0.18 27);
+  --color-danger-fg: oklch(0.99 0 0);
+  --color-danger-ink: oklch(0.47 0.16 27);
+  --color-danger-subtle: oklch(0.95 0.04 25);
+
+  /* Tier scale (SANJ > LEVEL_3 > LEVEL_2 > none). Never colour-only. */
+  --color-tier-sanj: oklch(0.74 0.12 82);
+  --color-tier-sanj-bg: oklch(0.92 0.055 84);
+  --color-tier-sanj-ink: oklch(0.42 0.075 66);
+  --color-tier-sanj-border: oklch(0.82 0.07 78);
+
+  --color-tier-l3: oklch(0.55 0.1 250);
+  --color-tier-l3-bg: oklch(0.93 0.035 250);
+  --color-tier-l3-ink: oklch(0.42 0.06 255);
+  --color-tier-l3-border: oklch(0.85 0.04 252);
+
+  --color-tier-l2: oklch(0.55 0.02 258);
+  --color-tier-l2-bg: oklch(0.93 0.008 258);
+  --color-tier-l2-ink: oklch(0.42 0.012 258);
+  --color-tier-l2-border: oklch(0.86 0.008 258);
+
+  --color-tier-none: oklch(0.62 0.006 258);
+
+  /* Type */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Shadows (borders first; shadows sparing) */
+  --shadow-sm: 0 1px 2px oklch(0.25 0.02 258 / 0.05);
+  --shadow-md: 0 4px 12px oklch(0.25 0.02 258 / 0.06);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --dur-3: 240ms;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.5;
+  }
+
+  /* Visible focus for keyboard users on every interactive element. */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::selection {
+    background: var(--color-accent-subtle);
+  }
+}
+
+@layer utilities {
+  /* Swim times & numeric cells: mono + tabular so m:ss:hh columns align. */
+  .time {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
