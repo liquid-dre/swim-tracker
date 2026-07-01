@@ -20,6 +20,9 @@ import {
   parseStandardsCsv,
   findAgeInversions,
   cutAgeOrder,
+  computeCalibratedRadius,
+  STROKE_RING_POS,
+  STROKE_RADIUS_MAX,
   type EventDef,
   type ResultForPB,
   type StandardCut,
@@ -846,5 +849,74 @@ describe("findAgeInversions — younger cut faster than older", () => {
     expect(cutAgeOrder({ age: 10, isCatchAllYoung: true, isCatchAllOld: false })).toBe(9.5);
     expect(cutAgeOrder({ age: 17, isCatchAllYoung: false, isCatchAllOld: true })).toBe(17.5);
     expect(cutAgeOrder({ age: 13, isCatchAllYoung: false, isCatchAllOld: false })).toBe(13);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeCalibratedRadius (Step 12.5, §4.9) — the stroke-profile radial metric
+// ---------------------------------------------------------------------------
+
+describe("computeCalibratedRadius", () => {
+  // A representative full-coverage event (Girls 100 Free, age 14 in the sample):
+  // SANJ 1:00.00 < L3 1:03.00 < L2 1:06.00.
+  const full = { l2Ms: 66000, l3Ms: 63000, sanjMs: 60000 };
+
+  it("returns null without a PB or without any cut", () => {
+    expect(computeCalibratedRadius(null, full)).toBeNull();
+    expect(
+      computeCalibratedRadius(60000, { l2Ms: null, l3Ms: null, sanjMs: null }),
+    ).toBeNull();
+  });
+
+  it("lands exactly on a ring when the PB equals that tier's cut", () => {
+    expect(computeCalibratedRadius(66000, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_2);
+    expect(computeCalibratedRadius(63000, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
+    expect(computeCalibratedRadius(60000, full)).toBeCloseTo(STROKE_RING_POS.SANJ);
+  });
+
+  it("crossing the SANJ ring == beating the SANJ cut (the headline invariant)", () => {
+    // One hundredth under the SANJ cut sits just past the outer ring.
+    expect(computeCalibratedRadius(59990, full)!).toBeGreaterThan(STROKE_RING_POS.SANJ);
+    // One hundredth over sits just inside it.
+    expect(computeCalibratedRadius(60010, full)!).toBeLessThan(STROKE_RING_POS.SANJ);
+  });
+
+  it("interpolates linearly between adjacent rings", () => {
+    // Midway (ms) between L2 and L3 → midway (radius) between rings 1 and 2.
+    expect(computeCalibratedRadius(64500, full)).toBeCloseTo(1.5);
+    // Midway between L3 and SANJ → radius 2.5.
+    expect(computeCalibratedRadius(61500, full)).toBeCloseTo(2.5);
+  });
+
+  it("extrapolates past the outer ring when faster than SANJ", () => {
+    // 1s under SANJ, using the L3→SANJ slope (1 ring / 3000 ms): 2 + 4000/3000.
+    expect(computeCalibratedRadius(59000, full)).toBeCloseTo(3 + 1 / 3);
+  });
+
+  it("caps the extrapolated radius at STROKE_RADIUS_MAX", () => {
+    // An absurdly fast time can't run off the canvas.
+    expect(computeCalibratedRadius(1000, full)).toBe(STROKE_RADIUS_MAX);
+  });
+
+  it("clamps to the centre when slower than the L2 (inner) cut", () => {
+    expect(computeCalibratedRadius(90000, full)).toBe(0);
+  });
+
+  it("handles partial coverage with a gap between anchors (L2 + SANJ only)", () => {
+    // 200 Fly-style: L2 and SANJ exist, no L3. The line still passes through
+    // both rings, so the (absent) middle ring radius falls halfway in time.
+    const cuts = { l2Ms: 66000, l3Ms: null, sanjMs: 60000 };
+    expect(computeCalibratedRadius(66000, cuts)).toBeCloseTo(1); // L2 ring
+    expect(computeCalibratedRadius(60000, cuts)).toBeCloseTo(3); // SANJ ring
+    expect(computeCalibratedRadius(63000, cuts)).toBeCloseTo(2); // halfway → mid radius
+  });
+
+  it("places a single-anchor spoke by direction, exact at its own ring", () => {
+    // 800 Free-style: SANJ only. At the cut the radius is exactly the SANJ ring…
+    const cuts = { l2Ms: null, l3Ms: null, sanjMs: 600000 };
+    expect(computeCalibratedRadius(600000, cuts)).toBeCloseTo(STROKE_RING_POS.SANJ);
+    // …faster pushes outward, slower pulls inward.
+    expect(computeCalibratedRadius(576000, cuts)!).toBeGreaterThan(STROKE_RING_POS.SANJ);
+    expect(computeCalibratedRadius(624000, cuts)!).toBeLessThan(STROKE_RING_POS.SANJ);
   });
 });

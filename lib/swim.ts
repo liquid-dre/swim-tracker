@@ -722,6 +722,107 @@ export function computeMatrixCell(
 }
 
 // ---------------------------------------------------------------------------
+// 8e. Stroke profile — per-event CALIBRATED radial metric (Step 12.5, §4.9)
+// ---------------------------------------------------------------------------
+//
+// The stroke-profile wheel draws one bar per event around a circle. Raw times
+// CANNOT share a radial axis (a 30 s 50 and a 9:00 800 would be incomparable),
+// so each event's PB is mapped onto a PER-EVENT calibrated scale anchored to
+// that event's own L2/L3/SANJ cuts:
+//
+//     L2 cut  -> inner ring   (radius 1)
+//     L3 cut  -> middle ring  (radius 2)
+//     SANJ cut-> outer ring   (radius 3)
+//     centre  -> radius 0
+//
+// OUTWARD = FASTER. The returned value is in RING UNITS (unitless), so the
+// wheel can place fixed pixel ring radii and every swimmer shares one scale.
+// It is piecewise-linear between the anchors that exist, extrapolating beyond
+// the fastest/slowest anchor along the nearest segment. Faster than SANJ pushes
+// past the outer ring; slower than L2 falls toward the centre (clamped there).
+//
+// CRUCIAL invariant (acceptance): at a tier's exact cut the radius equals that
+// tier's ring position exactly, so "the bar crosses the SANJ ring" is TRUE iff
+// the PB beats the SANJ cut — regardless of how the between-ring slope is drawn.
+
+/** Fixed ring positions (radius units) for the three tiers. */
+export const STROKE_RING_POS: Record<Tier, number> = {
+  LEVEL_2: 1,
+  LEVEL_3: 2,
+  SANJ: 3,
+};
+
+/** Centre of the wheel (a PB slower than every cut clamps here). */
+export const STROKE_RADIUS_MIN = 0;
+/** How far a PB faster than SANJ may extrapolate past the outer ring. */
+export const STROKE_RADIUS_MAX = 3.5;
+
+// When a spoke has only ONE tier cut there is no second anchor to define a
+// slope, so the bar is placed with a synthetic unit: one ring-unit = this
+// fraction of the cut time. This only affects magnitude AWAY from that single
+// ring; the crossing AT the ring is still exact (radius === ring pos at the cut).
+const SINGLE_ANCHOR_UNIT_FRACTION = 0.04;
+
+/** The three (possibly absent) cuts for one event, already resolved to an age. */
+export type ProfileCuts = {
+  l2Ms: number | null;
+  l3Ms: number | null;
+  sanjMs: number | null;
+};
+
+/**
+ * Map a headline PB onto its event's calibrated radial scale (ring units), or
+ * null when there is no PB or no cut to anchor against. See the section header
+ * for the full contract; the short version:
+ *   - returns exactly the ring position when pb equals that tier's cut,
+ *   - interpolates linearly between adjacent anchors,
+ *   - extrapolates past the extremes (clamped to [0, STROKE_RADIUS_MAX]).
+ */
+export function computeCalibratedRadius(
+  pbMs: number | null,
+  cuts: ProfileCuts,
+): number | null {
+  if (pbMs === null) return null;
+
+  // Anchors present, ordered inner -> outer (ring pos ascending => cut ms
+  // descending, since a harder tier is a faster cut).
+  const anchors: Array<{ r: number; t: number }> = [];
+  if (cuts.l2Ms !== null) anchors.push({ r: STROKE_RING_POS.LEVEL_2, t: cuts.l2Ms });
+  if (cuts.l3Ms !== null) anchors.push({ r: STROKE_RING_POS.LEVEL_3, t: cuts.l3Ms });
+  if (cuts.sanjMs !== null) anchors.push({ r: STROKE_RING_POS.SANJ, t: cuts.sanjMs });
+  if (anchors.length === 0) return null;
+
+  const clamp = (r: number) =>
+    Math.max(STROKE_RADIUS_MIN, Math.min(STROKE_RADIUS_MAX, r));
+
+  // Single anchor: synthetic slope so the bar still reads direction + rough
+  // magnitude. Crossing at the ring stays exact.
+  if (anchors.length === 1) {
+    const a = anchors[0];
+    const unit = a.t * SINGLE_ANCHOR_UNIT_FRACTION;
+    if (unit <= 0) return clamp(a.r);
+    return clamp(a.r + (a.t - pbMs) / unit);
+  }
+
+  // >= 2 anchors: piecewise-linear in (t -> r). `onSegment(i)` maps pb using the
+  // line through anchors[i] and anchors[i+1]; it passes through both exactly.
+  const n = anchors.length;
+  const onSegment = (i: number): number => {
+    const denom = anchors[i].t - anchors[i + 1].t;
+    if (denom === 0) return anchors[i].r; // degenerate (equal cuts) — no slope
+    const slope = (anchors[i + 1].r - anchors[i].r) / denom;
+    return anchors[i].r + (anchors[i].t - pbMs) * slope;
+  };
+
+  if (pbMs >= anchors[0].t) return clamp(onSegment(0)); // slower than slowest cut
+  if (pbMs <= anchors[n - 1].t) return clamp(onSegment(n - 2)); // faster than fastest
+  for (let i = 0; i < n - 1; i++) {
+    if (pbMs <= anchors[i].t && pbMs >= anchors[i + 1].t) return clamp(onSegment(i));
+  }
+  return clamp(onSegment(0)); // unreachable, keeps the type total
+}
+
+// ---------------------------------------------------------------------------
 // 8b. importStandards — pure validation/parsing of the coach's cleaned CSV rows
 // ---------------------------------------------------------------------------
 //

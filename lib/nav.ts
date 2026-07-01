@@ -6,6 +6,7 @@ import {
   Grid3x3,
   LayoutDashboard,
   LineChart,
+  Radar,
   Ruler,
   Target,
   Timer,
@@ -65,6 +66,7 @@ export const NAV: NavNode[] = [
     items: [
       { label: "Comparison", href: "/compare", icon: BarChart3 },
       { label: "Progression", href: "/progression", icon: LineChart },
+      { label: "Stroke profile", href: "/stroke-profile", icon: Radar },
       { label: "Season improvement", href: "/season", icon: TrendingUp },
     ],
   },

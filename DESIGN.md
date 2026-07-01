@@ -67,6 +67,23 @@ badge carries a text label** (`SANJ` / `L3` / `L2`), per the domain rules.
 }
 ```
 
+## 3b. Stroke identity palette (categorical — the stroke-profile wheel)
+Five **categorical** hues that group events by stroke (never a scale, never ranked). Used only where
+a view groups by stroke — chiefly the radial stroke-profile wheel, where each stroke forms a
+contiguous coloured arc. Chosen to stay clear of the `--tier-*` (gold/indigo/sky) and semantic
+(green/red/amber) signals so a stroke arc is never mistaken for a tier or a status. In the wheel the
+three reference rings stay **neutral grey** — colour encodes **stroke only**; a text label always
+accompanies the swatch (legend), so it is never colour-only.
+```css
+@theme {
+  --color-stroke-free:   #0e9384;  /* teal    — Free */
+  --color-stroke-back:   #7839ee;  /* violet  — Back */
+  --color-stroke-breast: #dd2590;  /* magenta — Breast */
+  --color-stroke-fly:    #e04f16;  /* orange  — Fly */
+  --color-stroke-im:     #1570ef;  /* blue    — IM */
+}
+```
+
 ## 4. shadcn/ui variable mapping (`:root` + `.dark`)
 So shadcn components (sidebar, breadcrumb, sonner, buttons, inputs) inherit this palette instead of
 their defaults. Map, don't fight.

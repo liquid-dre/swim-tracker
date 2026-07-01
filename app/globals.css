@@ -85,6 +85,17 @@
   --color-tier-none: #98a2b3; /* gray-400 — no standard met */
   --color-qualified: #12b76a; /* success green — qualified states ONLY */
 
+  /* ---- Stroke identity palette (DESIGN.md §3b) — categorical, NOT a scale ----
+     Five distinct hues that group the wheel's bars into contiguous stroke arcs.
+     Deliberately clear of the --tier-* (gold/indigo/sky) and semantic
+     (green/red/amber) signals so a stroke arc never reads as a tier or a state.
+     The stroke-profile rings stay NEUTRAL grey — colour here means STROKE only. */
+  --color-stroke-free: #0e9384; /* teal */
+  --color-stroke-back: #7839ee; /* violet */
+  --color-stroke-breast: #dd2590; /* magenta */
+  --color-stroke-fly: #e04f16; /* burnt orange */
+  --color-stroke-im: #1570ef; /* blue */
+
   /* Derived tier badge tints (bg / ink / border) — a11y-tuned label colours. */
   --color-tier-sanj-bg: #fffaeb;
   --color-tier-sanj-ink: #b54708;
