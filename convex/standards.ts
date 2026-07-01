@@ -112,6 +112,17 @@ async function upsertPreparedStandards(
 async function loadEvents(ctx: MutationCtx): Promise<EventDef[]> {
   // The whitelist is tiny and fixed (§4.3); a bounded read covers it.
   const events = await ctx.db.query("events").take(200);
+  // Guard the setup order: standards are validated AGAINST this whitelist, so
+  // an empty table would reject every row as "not a valid LCM event" — a
+  // misleading wall of per-row errors that hides the real cause. Fail once,
+  // clearly, pointing at the fix.
+  if (events.length === 0) {
+    throw new Error(
+      "The event whitelist is empty — seed it before importing standards. " +
+        "Run the events:seedEvents mutation (Convex dashboard → Functions, " +
+        "or `npx convex run events:seedEvents`), then try again.",
+    );
+  }
   return events.map((e) => ({
     distance: e.distance,
     stroke: e.stroke,
