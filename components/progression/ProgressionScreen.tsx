@@ -17,7 +17,8 @@ import { ProgressionChart } from "./ProgressionChart";
   Progression view (Step 7, BRD §5.6). One swimmer OR a group (squad or ad-hoc
   multi-select) + an event. The chart plots every logged swim over time with an
   inverted y-axis so improvement reads upward; one line per swimmer for a group.
-  Standards overlays are Step 10 — no qualifying lines yet.
+  On LCM the chart overlays the applicable L2/L3/SANJ cuts for the swimmer's
+  exact age (Step 10, §4.9); SCM shows none.
 */
 
 // One line per swimmer stops being legible past a dozen; cap selection to match
@@ -204,7 +205,12 @@ export function ProgressionScreen() {
 
           {single && <SingleSummary series={withData[0]} />}
 
-          <ProgressionChart series={withData} single={single} />
+          <ProgressionChart
+            series={withData}
+            single={single}
+            course={data.event.course}
+            standards={data.standards}
+          />
         </section>
       )}
     </div>
