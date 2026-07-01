@@ -7,6 +7,9 @@ import {
   prepareStandardImport,
   pickApplicableStandards,
   resolveStandardTime,
+  isValidEvent,
+  tierCoversEvent,
+  eventLabel,
   type EventDef,
   type PreparedStandard,
   type RawStandardRow,
@@ -189,6 +192,159 @@ export const importSampleStandards = internalMutation({
       rejectedCount: rejected.length,
       rejected: rejected.map((r) => ({ index: r.index, reason: r.reason })),
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Coach standards editor — list + single-cut mutations (§5.8, §5.9, Step 9).
+// ---------------------------------------------------------------------------
+//
+// These power the /standards screen. Every edit is the single source of truth
+// for every chart and the status matrix — no cut value is hard-coded anywhere.
+// Coach-only, like the whole screen.
+
+const standardShape = v.object({
+  _id: v.id("standards"),
+  tier: tierValidator,
+  gender: genderValidator,
+  distance: distanceValidator,
+  stroke: strokeValidator,
+  age: v.number(),
+  isCatchAllYoung: v.boolean(),
+  isCatchAllOld: v.boolean(),
+  timeMs: v.number(),
+});
+
+/** listStandards — every cut, for the coach editor to filter/group client-side. */
+export const listStandards = query({
+  args: {},
+  returns: v.array(standardShape),
+  handler: async (ctx) => {
+    await requireCoach(ctx);
+    // The full table is small (a few hundred rows); a bounded read covers it.
+    const rows = await ctx.db.query("standards").take(2000);
+    return rows.map((r) => ({
+      _id: r._id,
+      tier: r.tier,
+      gender: r.gender,
+      distance: r.distance,
+      stroke: r.stroke,
+      age: r.age,
+      isCatchAllYoung: r.isCatchAllYoung,
+      isCatchAllOld: r.isCatchAllOld,
+      timeMs: r.timeMs,
+    }));
+  },
+});
+
+// Shared domain validation for a single cut (mirrors prepareStandardImport's
+// rules): LCM event, tier coverage, sane age, one catch-all flag at most, and a
+// positive integer-ms time. Throws with a coach-readable message on any breach.
+function assertValidCut(
+  cut: {
+    tier: Doc<"standards">["tier"];
+    gender: Doc<"standards">["gender"];
+    distance: Doc<"standards">["distance"];
+    stroke: Doc<"standards">["stroke"];
+    age: number;
+    isCatchAllYoung: boolean;
+    isCatchAllOld: boolean;
+    timeMs: number;
+  },
+  events: EventDef[],
+): void {
+  if (cut.isCatchAllYoung && cut.isCatchAllOld) {
+    throw new Error("A cut can't be both a youngest and an oldest catch-all.");
+  }
+  if (!Number.isInteger(cut.age) || cut.age <= 0 || cut.age > 100) {
+    throw new Error(`Invalid age "${cut.age}".`);
+  }
+  if (!Number.isInteger(cut.timeMs) || cut.timeMs <= 0) {
+    throw new Error("Enter a valid time.");
+  }
+  if (!isValidEvent(cut.distance, cut.stroke, "LCM", events)) {
+    throw new Error(`${eventLabel(cut.distance, cut.stroke)} is not a long-course event.`);
+  }
+  if (!tierCoversEvent(cut.tier, cut.distance, cut.stroke)) {
+    throw new Error(
+      `That tier has no cut for ${eventLabel(cut.distance, cut.stroke)}.`,
+    );
+  }
+}
+
+/** createStandard — add a single missing cut (§5.8). Coach-only. */
+export const createStandard = mutation({
+  args: {
+    tier: tierValidator,
+    gender: genderValidator,
+    distance: distanceValidator,
+    stroke: strokeValidator,
+    age: v.number(),
+    isCatchAllYoung: v.boolean(),
+    isCatchAllOld: v.boolean(),
+    timeMs: v.number(),
+  },
+  returns: v.id("standards"),
+  handler: async (ctx, args) => {
+    await requireCoach(ctx);
+    const events = await loadEvents(ctx);
+    assertValidCut(args, events);
+
+    // A cut's identity is (tier, gender, distance, stroke, age) — never dupe it.
+    const siblings = await ctx.db
+      .query("standards")
+      .withIndex("by_lookup", (q) =>
+        q
+          .eq("gender", args.gender)
+          .eq("distance", args.distance)
+          .eq("stroke", args.stroke)
+          .eq("tier", args.tier),
+      )
+      .take(200);
+    if (siblings.some((s) => s.age === args.age)) {
+      throw new Error(
+        "A cut already exists for that age and tier — edit it instead.",
+      );
+    }
+
+    return await ctx.db.insert("standards", {
+      tier: args.tier,
+      gender: args.gender,
+      distance: args.distance,
+      stroke: args.stroke,
+      age: args.age,
+      isCatchAllYoung: args.isCatchAllYoung,
+      isCatchAllOld: args.isCatchAllOld,
+      timeMs: args.timeMs,
+    });
+  },
+});
+
+/** updateStandard — edit a cut's time (§5.8). The one field a coach corrects. */
+export const updateStandard = mutation({
+  args: { standardId: v.id("standards"), timeMs: v.number() },
+  returns: v.null(),
+  handler: async (ctx, { standardId, timeMs }) => {
+    await requireCoach(ctx);
+    const existing = await ctx.db.get(standardId);
+    if (!existing) throw new Error("That cut no longer exists.");
+    if (!Number.isInteger(timeMs) || timeMs <= 0) {
+      throw new Error("Enter a valid time.");
+    }
+    await ctx.db.patch(standardId, { timeMs });
+    return null;
+  },
+});
+
+/** deleteStandard — remove a cut (§5.8). Idempotent. */
+export const deleteStandard = mutation({
+  args: { standardId: v.id("standards") },
+  returns: v.null(),
+  handler: async (ctx, { standardId }) => {
+    await requireCoach(ctx);
+    const existing = await ctx.db.get(standardId);
+    if (existing) await ctx.db.delete(standardId);
+    return null;
   },
 });
 

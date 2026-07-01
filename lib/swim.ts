@@ -764,3 +764,183 @@ export function prepareStandardImport(
 
   return { accepted, rejected };
 }
+
+// ---------------------------------------------------------------------------
+// 8c. parseStandardsCsv — coerce the raw CSV text into typed rows (Step 9)
+// ---------------------------------------------------------------------------
+//
+// The CSV gives STRINGS. `importStandards` wants real types: distance/age as
+// numbers and the two catch-all flags as real booleans (the literal string
+// "false" is truthy in JS and would silently break catch-all resolution — the
+// exact trap called out in §5.8). This parser does that coercion up front and
+// sends any row it cannot coerce to a rejected report with a reason — it never
+// guesses. Enum-, coverage- and time-parsing live server-side in
+// `prepareStandardImport`; those rejects merge with these on the screen.
+
+/** The 8 columns of the cleaned CSV, in order (§11a). */
+export const STANDARDS_CSV_COLUMNS = [
+  "tier",
+  "gender",
+  "distance",
+  "stroke",
+  "age",
+  "isCatchAllYoung",
+  "isCatchAllOld",
+  "time",
+] as const;
+
+/**
+ * A CSV row after coercion — distance/age are real numbers and the catch-all
+ * flags real booleans, exactly the shape `importStandards` accepts (a stricter
+ * `RawStandardRow`, which types those loosely for its own reporting).
+ */
+export type StandardImportRow = {
+  tier: string;
+  gender: string;
+  distance: number;
+  stroke: string;
+  age: number;
+  isCatchAllYoung: boolean;
+  isCatchAllOld: boolean;
+  time: string;
+};
+
+/** A row that survived coercion, tagged with its 1-based source line. */
+export type ParsedCsvRow = { row: StandardImportRow; line: number };
+
+/** A row we could not coerce: kept with its source line + a human reason. */
+export type CsvReject = { line: number; reason: string; raw: string };
+
+/** Strict boolean coercion: only "true"/"false" (any case). Anything else → null. */
+function coerceBool(value: string): boolean | null {
+  const v = value.trim().toLowerCase();
+  if (v === "true") return true;
+  if (v === "false") return false;
+  return null;
+}
+
+/**
+ * Parse the coach's cleaned CSV text into typed rows ready for
+ * `importStandards`, plus a rejected report. A leading `tier,gender,…` header
+ * row is detected and skipped; blank lines are ignored. Each data line must
+ * have exactly 8 comma-separated cells; distance/age must be whole numbers on
+ * the whitelist, the two flags must be "true"/"false", and time must be
+ * non-empty. Everything else (tier/gender/stroke enums, coverage, the time
+ * format itself) is validated downstream and reported there.
+ */
+export function parseStandardsCsv(text: string): {
+  rows: ParsedCsvRow[];
+  rejected: CsvReject[];
+} {
+  const rows: ParsedCsvRow[] = [];
+  const rejected: CsvReject[] = [];
+  let sawFirstNonEmpty = false;
+
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = i + 1;
+    if (raw.trim() === "") return; // ignore blank lines
+
+    const cells = raw.split(",").map((c) => c.trim());
+
+    // The first non-empty line may be the header — detect and skip it once.
+    if (!sawFirstNonEmpty) {
+      sawFirstNonEmpty = true;
+      if (cells[0].toLowerCase() === "tier") return;
+    }
+
+    const reject = (reason: string) => rejected.push({ line, reason, raw });
+
+    if (cells.length !== 8) {
+      return reject(`expected 8 columns, got ${cells.length}`);
+    }
+
+    const [tier, gender, distanceStr, stroke, ageStr, youngStr, oldStr, time] =
+      cells;
+
+    const distance = Number(distanceStr);
+    if (distanceStr === "" || !Number.isInteger(distance)) {
+      return reject(`distance "${distanceStr}" is not a whole number`);
+    }
+    const age = Number(ageStr);
+    if (ageStr === "" || !Number.isInteger(age)) {
+      return reject(`age "${ageStr}" is not a whole number`);
+    }
+
+    const isCatchAllYoung = coerceBool(youngStr);
+    if (isCatchAllYoung === null) {
+      return reject(`isCatchAllYoung "${youngStr}" must be true or false`);
+    }
+    const isCatchAllOld = coerceBool(oldStr);
+    if (isCatchAllOld === null) {
+      return reject(`isCatchAllOld "${oldStr}" must be true or false`);
+    }
+
+    if (time === "") return reject("time is empty");
+
+    rows.push({
+      line,
+      row: { tier, gender, distance, stroke, age, isCatchAllYoung, isCatchAllOld, time },
+    });
+  });
+
+  return { rows, rejected };
+}
+
+// ---------------------------------------------------------------------------
+// 8d. Monotonicity — surface (don't block) a younger cut faster than an older
+// ---------------------------------------------------------------------------
+//
+// Within one (tier, gender, event) the cut should get FASTER (smaller ms) as
+// age rises. A younger age whose cut is faster than an older age's is almost
+// always a typo (§5.8, §11a) — but the one known real inversion (L2 F 200
+// Breast, 15 faster than 16) means we WARN, never block.
+
+/** The cut fields the monotonicity check reads (a single tier's column). */
+export type AgeCut = {
+  age: number;
+  isCatchAllYoung: boolean;
+  isCatchAllOld: boolean;
+  timeMs: number;
+};
+
+/** A younger cut found faster than the next older one, by index into the input. */
+export type AgeInversion = { youngerIdx: number; olderIdx: number };
+
+/**
+ * Position of a cut on the age axis. A youngest catch-all ("10&U") sits just
+ * below its bound and an oldest catch-all ("17-19") just above its bound, so a
+ * catch-all orders correctly against the exact ages around it.
+ */
+export function cutAgeOrder(c: {
+  age: number;
+  isCatchAllYoung: boolean;
+  isCatchAllOld: boolean;
+}): number {
+  if (c.isCatchAllYoung) return c.age - 0.5;
+  if (c.isCatchAllOld) return c.age + 0.5;
+  return c.age;
+}
+
+/**
+ * Adjacent-pair monotonicity check over ONE tier's cuts for a single event.
+ * Orders by age, then reports each neighbouring pair where the younger cut is
+ * strictly faster than the older (an inversion). Equal times are fine (a
+ * plateau). Indices refer to the input array so callers can flag exact rows.
+ */
+export function findAgeInversions(
+  cuts: ReadonlyArray<AgeCut>,
+): AgeInversion[] {
+  const ordered = cuts
+    .map((c, idx) => ({ idx, key: cutAgeOrder(c), timeMs: c.timeMs }))
+    .sort((a, b) => a.key - b.key);
+
+  const out: AgeInversion[] = [];
+  for (let i = 1; i < ordered.length; i++) {
+    const younger = ordered[i - 1];
+    const older = ordered[i];
+    if (younger.timeMs < older.timeMs) {
+      out.push({ youngerIdx: younger.idx, olderIdx: older.idx });
+    }
+  }
+  return out;
+}
