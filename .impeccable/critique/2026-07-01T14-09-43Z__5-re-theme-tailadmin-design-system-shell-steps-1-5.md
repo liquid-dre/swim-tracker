@@ -101,8 +101,8 @@ labels so meaning survives colour-blindness. No red flag.
 - `Segmented` active segment is a raised white pill on gray-100 (TailAdmin pattern),
   distinct from the brand-filled chip pickers — intentional, reads clearly.
 - Placeholders now use gray-500 (AA) rather than the lighter gray-400 default.
-- Legacy `--shadow-sm/--shadow-md` kept as aliases onto `--shadow-theme-*` so no
-  stray `shadow-[var(--shadow-*)]` call broke during the swap.
+- Legacy `--shadow-sm` / `--shadow-md` custom properties kept as aliases onto the
+  shadow-theme scale so no stray arbitrary-shadow call broke during the swap.
 
 ## Questions to Consider
 
