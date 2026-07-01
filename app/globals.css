@@ -1,76 +1,102 @@
 @import "tailwindcss";
 
 /*
-  One light theme in v1 (DESIGN.md). We keep shadcn's `dark:` variant CLASS-gated
-  (never media-gated) so any `dark:` utility that ships inside a shadcn component
-  stays inert — we never add the `.dark` class — instead of silently activating
-  under a user's OS dark-mode preference.
+  Dark variant stays CLASS-gated (never media-gated): shadcn `dark:` utilities
+  are inert unless the `.dark` class is present. Light is the default (DESIGN.md
+  §7); the `.dark` token block below exists so a theme toggle can land later with
+  no rework.
 */
 @custom-variant dark (&:is(.dark *));
 
 /*
-  Swim Tracker design tokens — see DESIGN.md (authoritative).
-  Everything here is a semantic token; components consume these, never raw hex.
-  Tailwind v4: @theme values are emitted as :root CSS vars AND generate utilities
-  (bg-*, text-*, border-*, ring-*, font-*, rounded-*).
+  Swim Tracker design system — see DESIGN.md (authoritative). TailAdmin-style
+  admin aesthetic: soft off-white canvas, white cards with soft layered shadows,
+  an indigo brand accent, Untitled-UI grays, the Outfit typeface.
+
+  This @theme block is the raw PALETTE (§2 ramp + §3 tiers + shadows + type).
+  It never changes between light/dark. The semantic layer (surfaces, ink, shadcn
+  and sidebar tokens) lives in :root / .dark below and is exposed through
+  @theme inline, so those flip under `.dark`.
 */
 @theme {
-  /* Surfaces */
-  --color-bg: oklch(0.985 0.004 258);
-  --color-surface: oklch(0.998 0.002 258);
-  --color-surface-2: oklch(0.965 0.005 258);
-  --color-border: oklch(0.912 0.006 258);
-  --color-border-strong: oklch(0.84 0.008 258);
+  /* ---- Typeface (Outfit via next/font) ---- */
+  --font-outfit: var(--font-outfit-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-outfit);
+  --font-mono: ui-monospace, "SF Mono", "SFMono-Regular", monospace;
 
-  /* Ink ramp */
-  --color-ink: oklch(0.24 0.014 258);
-  --color-ink-muted: oklch(0.46 0.012 258);
-  --color-ink-faint: oklch(0.56 0.01 258);
+  /* ---- Brand — the signature indigo accent (DESIGN.md §2) ---- */
+  --color-brand-25: #f2f7ff;
+  --color-brand-50: #ecf3ff;
+  --color-brand-100: #dde9ff;
+  --color-brand-200: #c2d6ff;
+  --color-brand-300: #9cb9ff;
+  --color-brand-400: #7592ff;
+  --color-brand-500: #465fff;
+  --color-brand-600: #3641f5;
+  --color-brand-700: #2a31d8;
+  --color-brand-800: #252dae;
+  --color-brand-900: #262e89;
+  --color-brand-950: #161950;
 
-  /* Accent — the only one (deep teal) */
-  --color-accent: oklch(0.46 0.09 199);
-  --color-accent-hover: oklch(0.4 0.09 199);
-  --color-accent-strong: oklch(0.38 0.09 199);
-  --color-accent-subtle: oklch(0.95 0.03 199);
-  --color-accent-fg: oklch(0.99 0 0);
-  --color-ring: oklch(0.55 0.11 199);
+  /* ---- Neutrals (Untitled-UI gray) ---- */
+  --color-gray-25: #fcfcfd;
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f2f4f7;
+  --color-gray-200: #e4e7ec;
+  --color-gray-300: #d0d5dd;
+  --color-gray-400: #98a2b3;
+  --color-gray-500: #667085;
+  --color-gray-600: #475467;
+  --color-gray-700: #344054;
+  --color-gray-800: #1d2939;
+  --color-gray-900: #101828;
+  --color-gray-950: #0c111d;
+  --color-gray-dark: #1a2231;
 
-  /* Success / qualified — green, qualified state ONLY */
-  --color-success: oklch(0.47 0.12 152);
-  --color-success-fg: oklch(0.99 0 0);
-  --color-success-ink: oklch(0.4 0.1 150);
-  --color-success-subtle: oklch(0.94 0.04 152);
+  /* ---- Semantic ---- */
+  --color-success-50: #ecfdf3;
+  --color-success-500: #12b76a;
+  --color-success-600: #039855;
+  --color-error-50: #fef3f2;
+  --color-error-500: #f04438;
+  --color-error-600: #d92d20;
+  --color-warning-50: #fffaeb;
+  --color-warning-500: #f79009;
+  --color-warning-600: #dc6803;
+  --color-blue-light-50: #f0f9ff;
+  --color-blue-light-500: #0ba5ec;
+  --color-blue-light-600: #0086c9;
 
-  /* Warning / error */
-  --color-warning-ink: oklch(0.48 0.1 60);
-  --color-warning-subtle: oklch(0.93 0.06 70);
-  --color-danger: oklch(0.5 0.18 27);
-  --color-danger-fg: oklch(0.99 0 0);
-  --color-danger-ink: oklch(0.47 0.16 27);
-  --color-danger-subtle: oklch(0.95 0.04 25);
+  /* ---- Soft layered shadows (the "TailAdmin" depth) ---- */
+  --shadow-theme-xs: 0 1px 2px 0 rgba(16, 24, 40, 0.05);
+  --shadow-theme-sm: 0 1px 3px 0 rgba(16, 24, 40, 0.1), 0 1px 2px 0 rgba(16, 24, 40, 0.06);
+  --shadow-theme-md: 0 4px 8px -2px rgba(16, 24, 40, 0.1), 0 2px 4px -2px rgba(16, 24, 40, 0.06);
+  --shadow-theme-lg: 0 12px 16px -4px rgba(16, 24, 40, 0.08), 0 4px 6px -2px rgba(16, 24, 40, 0.03);
+  --shadow-focus-ring: 0 0 0 4px rgba(70, 95, 255, 0.12);
 
-  /* Tier scale (SANJ > LEVEL_3 > LEVEL_2 > none). Never colour-only. */
-  --color-tier-sanj: oklch(0.74 0.12 82);
-  --color-tier-sanj-bg: oklch(0.92 0.055 84);
-  --color-tier-sanj-ink: oklch(0.42 0.075 66);
-  --color-tier-sanj-border: oklch(0.82 0.07 78);
+  /* Back-compat aliases for the two legacy shadow names still referenced. */
+  --shadow-sm: var(--shadow-theme-sm);
+  --shadow-md: var(--shadow-theme-md);
 
-  --color-tier-l3: oklch(0.55 0.1 250);
-  --color-tier-l3-bg: oklch(0.93 0.035 250);
-  --color-tier-l3-ink: oklch(0.42 0.06 255);
-  --color-tier-l3-border: oklch(0.85 0.04 252);
+  /* ---- App-semantic tier tokens (DESIGN.md §3) — never colour-only ---- */
+  --color-tier-sanj: #f79009; /* warning/gold — top (hardest) */
+  --color-tier-l3: #465fff; /* brand indigo — mid */
+  --color-tier-l2: #0086c9; /* deep sky — entry */
+  --color-tier-none: #98a2b3; /* gray-400 — no standard met */
+  --color-qualified: #12b76a; /* success green — qualified states ONLY */
 
-  --color-tier-l2: oklch(0.55 0.02 258);
-  --color-tier-l2-bg: oklch(0.93 0.008 258);
-  --color-tier-l2-ink: oklch(0.42 0.012 258);
-  --color-tier-l2-border: oklch(0.86 0.008 258);
+  /* Derived tier badge tints (bg / ink / border) — a11y-tuned label colours. */
+  --color-tier-sanj-bg: #fffaeb;
+  --color-tier-sanj-ink: #b54708;
+  --color-tier-sanj-border: #fedf89;
+  --color-tier-l3-bg: #ecf3ff;
+  --color-tier-l3-ink: #3641f5;
+  --color-tier-l3-border: #c2d6ff;
+  --color-tier-l2-bg: #f0f9ff;
+  --color-tier-l2-ink: #0086c9;
+  --color-tier-l2-border: #b9e6fe;
 
-  --color-tier-none: oklch(0.62 0.006 258);
-
-  /* Type */
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
-
+  /* ---- Type scale (14px base — DESIGN.md §1) ---- */
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
   --text-base: 0.875rem;
@@ -79,16 +105,12 @@
   --text-xl: 1.375rem;
   --text-2xl: 1.75rem;
 
-  /* Radius */
+  /* ---- Radius (controls rounded-lg; cards rounded-2xl) ---- */
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
 
-  /* Shadows (borders first; shadows sparing) */
-  --shadow-sm: 0 1px 2px oklch(0.25 0.02 258 / 0.05);
-  --shadow-md: 0 4px 12px oklch(0.25 0.02 258 / 0.06);
-
-  /* Motion */
+  /* ---- Motion ---- */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   --dur-1: 120ms;
@@ -96,35 +118,191 @@
   --dur-3: 240ms;
 
   /* Sidebar sub-nav expand/collapse (Radix Collapsible). Height-only, eased;
-     the global prefers-reduced-motion rule zeroes it. */
+     the prefers-reduced-motion rule zeroes it. */
   --animate-collapsible-down: collapsible-down var(--dur-2) var(--ease-standard);
   --animate-collapsible-up: collapsible-up var(--dur-2) var(--ease-standard);
+}
 
-  /*
-    shadcn/ui compatibility layer. shadcn components ship referencing generic
-    semantic names (background/foreground/muted/popover/…). We alias those names
-    onto our DESIGN.md tokens so every shadcn component inherits OUR palette and
-    never its slate defaults. No new colours are introduced here — these are pure
-    references. (`border`, `ring`, `accent`, `radius-*` already exist above and are
-    reused as-is: our teal is shadcn's `accent`/`primary`.)
-  */
-  --color-background: var(--color-bg);
-  --color-foreground: var(--color-ink);
-  --color-card: var(--color-surface);
-  --color-card-foreground: var(--color-ink);
-  --color-popover: var(--color-surface);
-  --color-popover-foreground: var(--color-ink);
-  --color-primary: var(--color-accent);
-  --color-primary-foreground: var(--color-accent-fg);
-  --color-secondary: var(--color-surface-2);
-  --color-secondary-foreground: var(--color-ink);
-  --color-muted: var(--color-surface-2);
-  --color-muted-foreground: var(--color-ink-muted);
-  --color-accent-foreground: var(--color-accent-fg);
-  --color-destructive: var(--color-danger);
-  --color-destructive-foreground: var(--color-danger-fg);
-  --color-input: var(--color-border);
-  --radius: var(--radius-md);
+/*
+  Semantic + shadcn + sidebar layer. Raw CSS vars so `.dark` can override them;
+  @theme inline (below) turns each into a utility. Light values first.
+
+  - Component vocabulary (bg / surface / ink / border / accent-subtle …) maps our
+    older token names onto the DESIGN.md ramp so existing markup inherits the new
+    palette. The primary accent itself is used as literal `brand-*` in components.
+  - shadcn/ui variables (DESIGN.md §4) so sidebar, dropdown, breadcrumb, sonner,
+    buttons and inputs inherit this palette instead of slate defaults.
+*/
+:root {
+  --radius: 0.75rem;
+
+  /* Component surfaces / ink */
+  --bg: var(--color-gray-50);
+  --surface: #ffffff;
+  --surface-2: var(--color-gray-100);
+  --border: var(--color-gray-200);
+  --border-strong: var(--color-gray-300);
+  --ink: var(--color-gray-800);
+  --ink-muted: var(--color-gray-500);
+  /* Tertiary text still clears AA (gray-500, 4.97:1); gray-400 is reserved for
+     icons / borders / placeholder decoration, which don't carry meaning alone. */
+  --ink-faint: var(--color-gray-500);
+
+  /* Accent-subtle tint + ring (accent proper is literal brand-500 in markup) */
+  --accent-subtle: var(--color-brand-50);
+  --accent-strong: var(--color-brand-500);
+  --ring-color: var(--color-brand-500);
+
+  /* Semantic ink/tints */
+  --success: var(--color-success-500);
+  --success-fg: #ffffff;
+  --success-ink: var(--color-success-600);
+  --success-subtle: var(--color-success-50);
+  --warning-ink: var(--color-warning-600);
+  --warning-subtle: var(--color-warning-50);
+  --danger: var(--color-error-500);
+  --danger-fg: #ffffff;
+  --danger-ink: var(--color-error-600);
+  --danger-subtle: var(--color-error-50);
+
+  /* shadcn/ui (DESIGN.md §4) */
+  --background: var(--color-gray-50);
+  --foreground: var(--color-gray-900);
+  --card: #ffffff;
+  --card-foreground: var(--color-gray-900);
+  --popover: #ffffff;
+  --popover-foreground: var(--color-gray-900);
+  --primary: var(--color-brand-500);
+  --primary-foreground: #ffffff;
+  --secondary: var(--color-gray-100);
+  --secondary-foreground: var(--color-gray-700);
+  --muted: var(--color-gray-50);
+  --muted-foreground: var(--color-gray-500);
+  --accent: var(--color-brand-50); /* nav/hover tint = brand-50 */
+  --accent-foreground: var(--color-brand-500);
+  --destructive: var(--color-error-500);
+  --destructive-foreground: #ffffff;
+  --input: var(--color-gray-200);
+  --ring: var(--color-brand-500);
+
+  /* Sidebar — white panel on the gray-50 canvas; hover neutral, active = brand
+     tint (applied in the nav component). */
+  --sidebar: #ffffff;
+  --sidebar-foreground: var(--color-gray-800);
+  --sidebar-primary: var(--color-brand-500);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--color-gray-100);
+  --sidebar-accent-foreground: var(--color-gray-800);
+  --sidebar-border: var(--color-gray-200);
+  --sidebar-ring: var(--color-brand-500);
+}
+
+.dark {
+  --bg: var(--color-gray-900);
+  --surface: var(--color-gray-dark);
+  --surface-2: var(--color-gray-800);
+  --border: var(--color-gray-800);
+  --border-strong: var(--color-gray-700);
+  --ink: var(--color-gray-50);
+  --ink-muted: var(--color-gray-400);
+  --ink-faint: var(--color-gray-500);
+  --accent-subtle: var(--color-brand-800);
+  --accent-strong: var(--color-brand-300);
+  --ring-color: var(--color-brand-500);
+
+  --success: var(--color-success-500);
+  --success-ink: #6ce9a6;
+  --success-subtle: #05361f;
+  --warning-ink: #fdb022;
+  --warning-subtle: #3a2803;
+  --danger: var(--color-error-500);
+  --danger-ink: #fda29b;
+  --danger-subtle: #3a0b09;
+
+  --background: var(--color-gray-900);
+  --foreground: var(--color-gray-50);
+  --card: var(--color-gray-dark);
+  --card-foreground: var(--color-gray-50);
+  --popover: var(--color-gray-dark);
+  --popover-foreground: var(--color-gray-50);
+  --primary: var(--color-brand-500);
+  --primary-foreground: #ffffff;
+  --secondary: var(--color-gray-800);
+  --secondary-foreground: var(--color-gray-200);
+  --muted: var(--color-gray-800);
+  --muted-foreground: var(--color-gray-400);
+  --accent: var(--color-brand-800);
+  --accent-foreground: var(--color-brand-200);
+  --destructive: var(--color-error-500);
+  --destructive-foreground: #ffffff;
+  --input: var(--color-gray-800);
+  --ring: var(--color-brand-500);
+
+  --sidebar: var(--color-gray-dark);
+  --sidebar-foreground: var(--color-gray-100);
+  --sidebar-primary: var(--color-brand-500);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--color-gray-800);
+  --sidebar-accent-foreground: var(--color-gray-100);
+  --sidebar-border: var(--color-gray-800);
+  --sidebar-ring: var(--color-brand-500);
+}
+
+/*
+  Expose the semantic layer as Tailwind utilities (inline → resolves the raw var
+  at use-site, so `.dark` overrides take effect). shadcn components consume the
+  --color-* names; our markup consumes bg-surface / text-ink / border-border etc.
+*/
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-strong: var(--accent-strong);
+  --color-ring: var(--ring-color);
+
+  --color-success: var(--success);
+  --color-success-fg: var(--success-fg);
+  --color-success-ink: var(--success-ink);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning-ink: var(--warning-ink);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-ink: var(--danger-ink);
+  --color-danger-subtle: var(--danger-subtle);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
 }
 
 @layer base {
@@ -141,29 +319,54 @@
     line-height: 1.5;
   }
 
-  /* Visible focus for keyboard users on every interactive element. */
+  /* Brand-tinted focus ring for keyboard users (DESIGN.md §5). */
   :focus-visible {
-    outline: 2px solid var(--color-ring);
+    outline: 2px solid var(--color-brand-500);
     outline-offset: 2px;
     border-radius: var(--radius-sm);
   }
 
   ::selection {
-    background: var(--color-accent-subtle);
+    background: var(--color-brand-100);
   }
 }
 
 @layer utilities {
-  /* Swim times & numeric cells: mono + tabular so m:ss:hh columns align. */
+  /* Swim times & numeric cells: tabular figures so m:ss:hh columns align.
+     Outfit renders these; no separate mono face (DESIGN.md §1). */
+  .tnums,
+  .tnum,
   .time {
-    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  .time {
     font-weight: 500;
     letter-spacing: -0.01em;
   }
 
-  .tnum {
-    font-variant-numeric: tabular-nums;
+  /* Thin custom scrollbar (DESIGN.md §5) — sidebar + horizontal table scroll. */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-gray-200) transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background-color: var(--color-gray-200);
+  }
+  .dark .custom-scrollbar {
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  }
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.1);
   }
 }
 
@@ -193,38 +396,4 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/*
-  shadcn Sidebar tokens (Step 3.6) — remapped from the CLI's slate HSL defaults
-  onto DESIGN.md tokens. The sidebar is the "second neutral layer": --surface-2,
-  a touch cooler/darker than the --bg content canvas, so it reads as a panel
-  without a heavy fill or shadow. Hover is a subtle neutral; the ACTIVE item uses
-  the single teal accent (applied in the nav component, not here). One light
-  theme — no dark block.
-*/
-:root {
-  --sidebar: var(--color-surface-2);
-  --sidebar-foreground: var(--color-ink);
-  --sidebar-primary: var(--color-accent);
-  --sidebar-primary-foreground: var(--color-accent-fg);
-  --sidebar-accent: var(--color-border);
-  --sidebar-accent-foreground: var(--color-ink);
-  --sidebar-border: var(--color-border);
-  --sidebar-ring: var(--color-ring);
-}
-
-/*
-  ---break---
-*/
-
-@theme inline {
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 }

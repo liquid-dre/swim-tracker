@@ -45,10 +45,10 @@ export function RosterTable({
   const isEmpty = !loading && rows.length === 0;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-surface">
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
       <table className="w-full text-base">
         <thead>
-          <tr className="bg-surface-2 text-left text-xs font-medium uppercase tracking-wide text-ink-muted">
+          <tr className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
             <th scope="col" className="px-4 py-2.5 font-medium sm:px-6">Swimmer</th>
             <th scope="col" className="px-4 py-2.5 font-medium">Age</th>
             <th scope="col" className="hidden px-4 py-2.5 font-medium sm:table-cell">Gender</th>

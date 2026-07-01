@@ -52,7 +52,7 @@ export function SquadsScreen() {
         }
       />
 
-      <div className="overflow-hidden rounded-lg border border-border bg-surface">
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
         <table className="w-full text-base">
           <thead>
             <tr className="bg-surface-2 text-left text-xs font-medium uppercase tracking-wide text-ink-muted">
@@ -93,7 +93,7 @@ export function SquadsScreen() {
                     <button
                       type="button"
                       onClick={() => setMembersTarget({ _id: sq._id, name: sq.name })}
-                      className="tnum inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-ring"
+                      className="tnum inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <UsersRound className="size-3.5" />
                       {sq.memberCount}

@@ -87,7 +87,7 @@ export function SquadMembersSheet({
                 const id = e.target.value as Id<"swimmers">;
                 if (id) void add(id);
               }}
-              className="h-9 rounded-md border border-border bg-surface px-2 text-base text-ink outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-border-strong focus:border-border-strong disabled:opacity-50"
+              className="h-9 rounded-lg border border-gray-300 bg-white px-2 text-base text-ink outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50"
             >
               <option value="" disabled>
                 {addable.length === 0

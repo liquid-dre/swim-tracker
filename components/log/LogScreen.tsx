@@ -236,7 +236,7 @@ export function LogScreen({ today }: { today: string }) {
                     value={swimmerId}
                     onChange={(e) => setSwimmerId(e.target.value as Id<"swimmers">)}
                     disabled={loading}
-                    className="h-11 w-full appearance-none rounded-md border border-border bg-surface px-3 pr-9 text-base text-ink outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-border-strong focus:border-border-strong disabled:opacity-50"
+                    className="h-11 w-full appearance-none rounded-lg border border-gray-300 bg-white px-3 pr-9 text-base text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50"
                   >
                     <option value="" disabled>
                       {loading ? "Loading swimmers…" : "Select a swimmer"}
@@ -438,10 +438,10 @@ function ChipGroup({
             aria-checked={active}
             onClick={() => onChange(opt.value)}
             className={
-              "h-11 min-w-11 rounded-md border px-4 text-base font-medium tabular-nums outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
+              "h-11 min-w-11 rounded-lg border px-4 text-base font-medium tabular-nums outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
               (active
-                ? "border-accent bg-accent-subtle text-accent-strong"
-                : "border-border bg-surface text-ink-muted hover:border-border-strong hover:text-ink")
+                ? "border-brand-500 bg-brand-50 text-brand-500"
+                : "border-gray-300 bg-white text-gray-500 hover:border-gray-400 hover:text-gray-800")
             }
           >
             {opt.label}
@@ -462,8 +462,8 @@ function RecentList({
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-sm font-medium text-ink-muted">Logged this session</h2>
-      <div className="overflow-hidden rounded-lg border border-border bg-surface">
-        <ul className="divide-y divide-border">
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
+        <ul className="divide-y divide-gray-100">
           {entries.map((r) => (
             <li key={r.id} className="flex items-center gap-3 px-4 py-3">
               <div className="min-w-0 flex-1">
@@ -499,7 +499,7 @@ function RecentList({
 
 function EmptyRoster() {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-surface px-6 py-14 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-2xl border border-gray-200 bg-white shadow-theme-sm px-6 py-14 text-center">
       <Timer aria-hidden className="size-6 text-ink-faint" strokeWidth={1.75} />
       <div className="space-y-1">
         <p className="text-sm font-medium text-ink">No active swimmers yet</p>

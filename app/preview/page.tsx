@@ -76,7 +76,7 @@ export default function PreviewPage() {
           { label: "Design system", href: "/preview" },
           { label: "Component preview" },
         ]}
-        description="The living reference for tokens and the shared component vocabulary: cool slate neutrals, one teal accent, green only for qualified, a tier scale that always pairs colour with a label."
+        description="The living reference for tokens and the shared component vocabulary: soft off-white canvas, Untitled-UI grays, one indigo brand accent, green only for qualified, a tier scale that always pairs colour with a label."
       />
 
       {/* ── Toolbar: search (⌘K), course toggle, primary action (N) ─────────── */}
@@ -87,7 +87,7 @@ export default function PreviewPage() {
             type="search"
             placeholder="Search swimmers"
             aria-label="Search swimmers"
-            className="h-9 w-full rounded-md border border-border bg-surface pl-9 pr-14 text-base text-ink placeholder:text-ink-muted outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-border-strong focus:border-border-strong"
+            className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-14 text-base text-ink placeholder:text-ink-muted outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
           />
           <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
             <Kbd>⌘K</Kbd>
@@ -110,7 +110,7 @@ export default function PreviewPage() {
       </div>
 
       {/* ── The single anchor: a swimmer's headline PB ─────────────────────── */}
-      <section className="mt-6 rounded-lg border border-border bg-surface p-6">
+      <section className="mt-6 rounded-2xl border border-gray-200 bg-white shadow-theme-sm p-6">
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div>
             <div className="flex items-center gap-2 text-sm text-ink-muted">
@@ -141,7 +141,7 @@ export default function PreviewPage() {
       </section>
 
       {/* ── Progression chart card ─────────────────────────────────────────── */}
-      <section className="mt-8 rounded-lg border border-border bg-surface p-6">
+      <section className="mt-8 rounded-2xl border border-gray-200 bg-white shadow-theme-sm p-6">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-ink">Progression</h2>
@@ -194,10 +194,10 @@ export default function PreviewPage() {
               <Line
                 type="monotone"
                 dataKey="ms"
-                stroke="var(--color-accent)"
+                stroke="var(--color-brand-500)"
                 strokeWidth={2}
                 dot={<SwimDot />}
-                activeDot={{ r: 5, fill: "var(--color-accent)", stroke: "var(--color-surface)", strokeWidth: 2 }}
+                activeDot={{ r: 5, fill: "var(--color-brand-500)", stroke: "var(--color-surface)", strokeWidth: 2 }}
                 isAnimationActive={!reduced}
                 animationDuration={600}
                 animationEasing="ease-out"
@@ -208,7 +208,7 @@ export default function PreviewPage() {
       </section>
 
       {/* ── Data table with tabular swim times ─────────────────────────────── */}
-      <section className="mt-8 overflow-hidden rounded-lg border border-border bg-surface">
+      <section className="mt-8 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
         <div className="border-b border-border px-6 py-4">
           <h2 className="text-lg font-semibold tracking-tight text-ink">Squad · qualification</h2>
           <p className="text-sm text-ink-muted">Headline meet PBs and highest tier met (LCM).</p>
@@ -228,7 +228,7 @@ export default function PreviewPage() {
           </thead>
           <tbody>
             {ROWS.map((r, i) => (
-              <tr key={r.name} className={`border-t border-border ${i === 0 ? "bg-accent-subtle" : ""}`}>
+              <tr key={r.name} className={`border-t border-border ${i === 0 ? "bg-brand-50" : ""}`}>
                 <td className="px-6 py-3 font-medium text-ink">{r.name}</td>
                 <td className="px-4 py-3 tnum text-ink-muted">{r.age}</td>
                 <td className="px-4 py-3 text-ink-muted">{r.event}</td>
@@ -260,7 +260,7 @@ export default function PreviewPage() {
 
       {/* ── Component swatches: buttons + a "Log result" form ──────────────── */}
       <div className="mt-8 grid gap-8 md:grid-cols-2">
-        <section className="rounded-lg border border-border bg-surface p-6">
+        <section className="rounded-2xl border border-gray-200 bg-white shadow-theme-sm p-6">
           <h2 className="text-lg font-semibold tracking-tight text-ink">Buttons</h2>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <Button variant="primary">Log result</Button>
@@ -279,7 +279,7 @@ export default function PreviewPage() {
         </section>
 
         {/* Form shell: Save/Cancel footer demonstrates control + freedom. */}
-        <section className="rounded-lg border border-border bg-surface p-6">
+        <section className="rounded-2xl border border-gray-200 bg-white shadow-theme-sm p-6">
           <h2 className="text-lg font-semibold tracking-tight text-ink">Log result</h2>
           <div className="mt-4 flex flex-col gap-4">
             <Input label="Meet name" placeholder="e.g. SA National Champs" defaultValue="" />
@@ -300,7 +300,7 @@ export default function PreviewPage() {
       </div>
 
       {/* ── Feedback & notifications (toasts) ──────────────────────────────── */}
-      <section className="mt-8 rounded-lg border border-border bg-surface p-6">
+      <section className="mt-8 rounded-2xl border border-gray-200 bg-white shadow-theme-sm p-6">
         <h2 className="text-lg font-semibold tracking-tight text-ink">Notifications</h2>
         <p className="mt-1 max-w-[68ch] text-sm text-ink-muted">
           Every action speaks through <code className="text-ink">notify</code>: short past-tense
@@ -354,7 +354,7 @@ export default function PreviewPage() {
       </section>
 
       {/* ── Tier scale legend ──────────────────────────────────────────────── */}
-      <section className="mt-8 rounded-lg border border-border bg-surface p-6">
+      <section className="mt-8 rounded-2xl border border-gray-200 bg-white shadow-theme-sm p-6">
         <h2 className="text-lg font-semibold tracking-tight text-ink">Tier scale</h2>
         <p className="mt-1 text-sm text-ink-muted">
           Hardest to easiest. Every badge pairs colour with a label and a glyph, so it reads in
@@ -438,10 +438,10 @@ function ChartLegend() {
   return (
     <div className="flex items-center gap-4 text-xs text-ink-muted">
       <span className="inline-flex items-center gap-1.5">
-        <span className="size-2.5 rounded-full bg-accent" aria-hidden /> Meet
+        <span className="size-2.5 rounded-full bg-brand-500" aria-hidden /> Meet
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <span className="size-2.5 rounded-full border-2 border-accent bg-surface" aria-hidden /> Practice
+        <span className="size-2.5 rounded-full border-2 border-brand-500 bg-white" aria-hidden /> Practice
       </span>
     </div>
   );
@@ -457,8 +457,8 @@ function SwimDot({ cx, cy, payload }: DotProps) {
       cx={cx}
       cy={cy}
       r={4}
-      fill={isMeet ? "var(--color-accent)" : "var(--color-surface)"}
-      stroke="var(--color-accent)"
+      fill={isMeet ? "var(--color-brand-500)" : "var(--color-surface)"}
+      stroke="var(--color-brand-500)"
       strokeWidth={2}
     />
   );
@@ -470,7 +470,7 @@ function ChartTooltip({ active, payload }: TooltipProps) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
   return (
-    <div className="rounded-md border border-border bg-surface px-3 py-2 shadow-[var(--shadow-md)]">
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-theme-md">
       <div className="time text-base text-ink">{fmtAxis(p.ms)}</div>
       <div className="mt-0.5 text-xs text-ink-muted">
         {p.label} · {p.type === "MEET" ? "Meet" : "Practice"}
