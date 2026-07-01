@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { MoreHorizontal, Plus, UserPlus } from "lucide-react";
 
 import type { Id } from "@/convex/_generated/dataModel";
@@ -70,9 +71,15 @@ export function RosterTable({
                 className="border-t border-border transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2"
               >
                 <td className="px-4 py-3 sm:px-6">
-                  <span className={s.active ? "font-medium text-ink" : "font-medium text-ink-muted"}>
+                  <Link
+                    href={`/swimmers/${s._id}`}
+                    className={
+                      "rounded-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring " +
+                      (s.active ? "text-ink" : "text-ink-muted")
+                    }
+                  >
                     {s.name}
-                  </span>
+                  </Link>
                 </td>
                 <td className="tnum px-4 py-3 text-ink-muted">{s.age}</td>
                 <td className="hidden px-4 py-3 text-ink-muted sm:table-cell">

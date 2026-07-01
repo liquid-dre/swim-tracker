@@ -1,21 +1,12 @@
 import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
 import { requireCoach } from "./authz";
+import { eventLabel } from "../lib/swim";
 
 // The strokes/distances/courses match the shared validators in schema.ts.
 type Stroke = "FREE" | "BACK" | "BREAST" | "FLY" | "IM";
 type Distance = 50 | 100 | 200 | 400 | 800 | 1500;
 type Course = "SCM" | "LCM";
-
-// Human label for a stroke, per BRD (§4.3): "Free", "Back", "Breast",
-// "Fly", "IM". Used to build event labels like "100 IM" / "800 Free".
-const STROKE_LABEL: Record<Stroke, string> = {
-  FREE: "Free",
-  BACK: "Back",
-  BREAST: "Breast",
-  FLY: "Fly",
-  IM: "IM",
-};
 
 type SeedEvent = {
   distance: Distance;
@@ -59,10 +50,6 @@ const EVENTS: SeedEvent[] = [
   // 1500 — FREE only, SCM + LCM.
   { distance: 1500, stroke: "FREE", allowedCourses: BOTH },
 ];
-
-function eventLabel(distance: Distance, stroke: Stroke): string {
-  return `${distance} ${STROKE_LABEL[stroke]}`;
-}
 
 // Idempotent seed of the event whitelist (BRD §4.3). Run once from the Convex
 // dashboard; running it again is a no-op for events that already exist, so it
