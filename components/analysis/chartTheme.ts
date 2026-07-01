@@ -19,6 +19,31 @@ export const CHART = {
 /** One-time load animation, off under `prefers-reduced-motion`. */
 export const CHART_ANIM_MS = 420;
 
+// Qualifying-tier overlay tokens (Step 10, DESIGN.md §3). Tiers are NEVER
+// colour-only: every line/bar carries the short label + glyph below, matching
+// the TierBadge vocabulary (SANJ ◆ > L3 ● > L2 ○) so the chart reads in
+// greyscale and under colour-blindness. No new colours — these resolve to the
+// --tier-* CSS variables already defined in globals.css.
+export type OverlayTier = "SANJ" | "LEVEL_3" | "LEVEL_2";
+
+export const TIER_STYLE: Record<
+  OverlayTier,
+  { color: string; label: string; glyph: string; dash: string }
+> = {
+  // Dash patterns give the lines a second, greyscale-legible signal beyond
+  // colour (hardest = longest dash): SANJ ▬ , L3 ▭ , L2 ┈ .
+  SANJ: { color: "var(--color-tier-sanj)", label: "SANJ", glyph: "◆", dash: "7 4" },
+  LEVEL_3: { color: "var(--color-tier-l3)", label: "L3", glyph: "●", dash: "4 3" },
+  LEVEL_2: { color: "var(--color-tier-l2)", label: "L2", glyph: "○", dash: "1 3" },
+};
+
+/** Hardest → easiest, matching TIER_ORDER in lib/swim (§4.9). */
+export const OVERLAY_TIER_ORDER: ReadonlyArray<OverlayTier> = [
+  "SANJ",
+  "LEVEL_3",
+  "LEVEL_2",
+];
+
 // Qualitative palette for multi-swimmer progression, drawn only from existing
 // tokens. The first entry is the brand accent, so a single swimmer is fully
 // on-system; extra hues are added only as more swimmers are selected.

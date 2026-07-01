@@ -9,19 +9,29 @@ import { api } from "@/convex/_generated/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { trailForHref } from "@/lib/nav";
-import { formatTime, DEFAULT_AGE_BANDS, type Course, type Stroke } from "@/lib/swim";
+import { formatTime, type Course, type Stroke, type Tier } from "@/lib/swim";
 import { formatShortDate, formatSeconds } from "@/lib/format";
 import { EventPicker, type EventValue } from "@/components/analysis/EventPicker";
-import { ComparisonBarChart } from "./ComparisonBarChart";
+import {
+  ComparisonBarChart,
+  ComparisonTierLegend,
+  type ComparisonCut,
+} from "./ComparisonBarChart";
 
 /*
   Comparison view (Step 7, BRD §5.5). Pick an event (distance + stroke + course —
-  course required, §4.8), optionally filter by gender and age band, and see every
+  course required, §4.8), optionally filter by gender and exact age, and see every
   swimmer's headline MEET PB as a sortable leaderboard and a horizontal bar chart.
-  Fastest first. Standards overlays are Step 10 — no qualifying lines here yet.
+  Fastest first.
+
+  Step 10 overlay (LCM only, §4.9): pin one exact age + gender to draw the
+  L2/L3/SANJ cuts as vertical threshold lines; on "all ages" the lines are
+  suppressed and every bar is coloured by the hardest tier its PB meets. Standards
+  are exact-single-year (never the two-year band) and long-course only.
 */
 
 type GenderFilter = "ALL" | "M" | "F";
+type AgeFilter = "ALL" | number;
 type SortField = "time" | "name" | "age";
 type SortDir = "asc" | "desc";
 
@@ -34,7 +44,7 @@ export function CompareScreen() {
     course: null,
   });
   const [gender, setGender] = useState<GenderFilter>("ALL");
-  const [ageGroup, setAgeGroup] = useState<string>("ALL");
+  const [ageFilter, setAgeFilter] = useState<AgeFilter>("ALL");
   const [sortField, setSortField] = useState<SortField>("time");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -49,12 +59,62 @@ export function CompareScreen() {
           stroke: event.stroke as Stroke,
           course: event.course as Course,
           gender: gender === "ALL" ? undefined : gender,
-          ageGroup: ageGroup === "ALL" ? undefined : ageGroup,
         }
       : "skip",
   );
 
-  const rows = useMemo(() => data?.rows ?? [], [data]);
+  // Every matching row (one gender filter applied server-side). Exact-age
+  // filtering is client-side so the age menu can list only the ages present.
+  const allRows = useMemo(() => data?.rows ?? [], [data]);
+
+  const ages = useMemo(
+    () => [...new Set(allRows.map((r) => r.age))].sort((a, b) => a - b),
+    [allRows],
+  );
+
+  // A stale age (e.g. after switching gender) falls back to "all ages".
+  const effectiveAge: AgeFilter =
+    ageFilter !== "ALL" && ages.includes(ageFilter) ? ageFilter : "ALL";
+
+  const rows = useMemo(
+    () =>
+      effectiveAge === "ALL"
+        ? allRows
+        : allRows.filter((r) => r.age === effectiveAge),
+    [allRows, effectiveAge],
+  );
+
+  // Vertical cut lines: LCM, one pinned exact age AND one gender (a single cut
+  // is only unambiguous then — cuts differ by both). Uses the exact-age resolver.
+  const isLcm = event.course === "LCM";
+  const showLines = isLcm && effectiveAge !== "ALL" && gender !== "ALL";
+  const applicable = useQuery(
+    api.standards.getApplicableStandards,
+    showLines && complete
+      ? {
+          gender: gender as "M" | "F",
+          distance: event.distance as 50 | 100 | 200 | 400 | 800 | 1500,
+          stroke: event.stroke as Stroke,
+          age: effectiveAge as number,
+        }
+      : "skip",
+  );
+
+  const cuts: ComparisonCut[] = useMemo(() => {
+    if (!showLines || !applicable) return [];
+    const out: ComparisonCut[] = [];
+    (["LEVEL_2", "LEVEL_3", "SANJ"] as const).forEach((tier) => {
+      const timeMs = applicable[tier];
+      if (timeMs !== undefined) out.push({ tier, timeMs });
+    });
+    return out;
+  }, [showLines, applicable]);
+
+  const barTiers: Tier[] = useMemo(
+    () =>
+      [...new Set(rows.map((r) => r.highestTier).filter((t): t is Tier => t !== null))],
+    [rows],
+  );
 
   const sorted = useMemo(() => {
     const out = [...rows];
@@ -111,7 +171,7 @@ export function CompareScreen() {
         <div className="flex flex-col gap-5">
           {/* Filters */}
           <div className="flex flex-wrap items-center gap-3">
-            <AgeSelect value={ageGroup} onChange={setAgeGroup} />
+            <AgeSelect value={effectiveAge} ages={ages} onChange={setAgeFilter} />
             <div className="ml-auto">
               <Segmented
                 ariaLabel="Filter by gender"
@@ -141,7 +201,21 @@ export function CompareScreen() {
                   </h2>
                   <p className="text-xs text-ink-faint">Shorter bar = faster</p>
                 </div>
-                <ComparisonBarChart rows={sorted} />
+                <ComparisonBarChart
+                  rows={sorted}
+                  cuts={showLines ? cuts : []}
+                  overlay={isLcm}
+                />
+                {isLcm && (barTiers.length > 0 || (effectiveAge !== "ALL" && !showLines)) && (
+                  <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border pt-3">
+                    <ComparisonTierLegend tiers={barTiers} />
+                    {effectiveAge !== "ALL" && !showLines && (
+                      <p className="text-xs text-ink-faint">
+                        Pick a gender to draw the cut lines for age {effectiveAge}.
+                      </p>
+                    )}
+                  </div>
+                )}
               </section>
 
               {/* Leaderboard */}
@@ -254,23 +328,29 @@ export function CompareScreen() {
 
 function AgeSelect({
   value,
+  ages,
   onChange,
 }: {
-  value: string;
-  onChange: (v: string) => void;
+  value: "ALL" | number;
+  ages: number[];
+  onChange: (v: "ALL" | number) => void;
 }) {
   return (
     <div className="relative">
       <select
-        aria-label="Filter by age group"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        // Standards match a swimmer's EXACT single-year age (§4.9), never a
+        // two-year band — so the filter offers exact ages, driven by the data.
+        aria-label="Filter by exact age"
+        value={value === "ALL" ? "ALL" : String(value)}
+        onChange={(e) =>
+          onChange(e.target.value === "ALL" ? "ALL" : Number(e.target.value))
+        }
         className="h-9 appearance-none rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-sm text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
       >
         <option value="ALL">All ages</option>
-        {DEFAULT_AGE_BANDS.map((b) => (
-          <option key={b.label} value={b.label}>
-            {b.label}
+        {ages.map((a) => (
+          <option key={a} value={a}>
+            Age {a}
           </option>
         ))}
       </select>

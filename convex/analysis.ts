@@ -1,16 +1,24 @@
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import { requireCoach } from "./authz";
-import { computeAge, computeAgeGroup, eventLabel } from "../lib/swim";
+import {
+  computeAge,
+  computeAgeGroup,
+  eventLabel,
+  highestTierMet,
+  pickApplicableStandards,
+  type Tier,
+} from "../lib/swim";
 
 // Base analysis reads (BRD §5.5–5.6, Step 7). Two derived views over `results`:
 //   • getEventComparison — a leaderboard of headline MEET PBs for one event.
 //   • getProgression     — each swimmer's full time series for one event.
 // Both are pure reads; PBs are DERIVED here exactly as in personalBests.ts
 // (fastest MEET only; trials/practice never count). Coaches only for now —
-// viewer scoping lands in a later step (see authz.ts). NO standards yet: the
-// qualifying overlays are Step 10.
+// viewer scoping lands in a later step (see authz.ts). Step 10 adds the LCM
+// qualifying overlays: comparison rows carry their highest tier met, and
+// progression carries this event's cut rows for the chart to resolve per age.
 
 // A comparison scans every swim for one (distance, stroke, course) across the
 // whole club; a progression scans one swimmer's swims for one event. Both are
@@ -42,6 +50,11 @@ const distance = v.union(
   v.literal(1500),
 );
 const gender = v.union(v.literal("M"), v.literal("F"));
+const tier = v.union(
+  v.literal("LEVEL_2"),
+  v.literal("LEVEL_3"),
+  v.literal("SANJ"),
+);
 const swimType = v.union(
   v.literal("MEET"),
   v.literal("TIME_TRIAL"),
@@ -75,6 +88,9 @@ const comparisonRow = v.object({
   timeMs: v.number(),
   swimDate: v.string(),
   meetName: v.union(v.string(), v.null()),
+  // Hardest qualifying tier this headline PB meets, at the swimmer's EXACT age
+  // (§4.9). LCM only — always null on SCM (standards are long-course, §4.2).
+  highestTier: v.union(tier, v.null()),
 });
 
 export const getEventComparison = query({
@@ -126,6 +142,29 @@ export const getEventComparison = query({
 
     const today = new Date().toISOString().slice(0, 10);
 
+    // Standards are LCM-only (§4.2, §4.9). On LCM, colour each bar by the
+    // hardest tier its PB meets AT THE SWIMMER'S EXACT AGE — so we resolve cuts
+    // per (gender, exact age) from this event's cut rows, loaded once per gender.
+    const cutsByGender = new Map<"M" | "F", Doc<"standards">[]>();
+    async function loadCuts(g: "M" | "F"): Promise<Doc<"standards">[]> {
+      const cached = cutsByGender.get(g);
+      if (cached) return cached;
+      const loaded =
+        args.course === "LCM"
+          ? await ctx.db
+              .query("standards")
+              .withIndex("by_event", (q) =>
+                q
+                  .eq("gender", g)
+                  .eq("distance", args.distance)
+                  .eq("stroke", args.stroke),
+              )
+              .take(500)
+          : [];
+      cutsByGender.set(g, loaded);
+      return loaded;
+    }
+
     const rows: Array<{
       swimmerId: Id<"swimmers">;
       name: string;
@@ -136,6 +175,7 @@ export const getEventComparison = query({
       timeMs: number;
       swimDate: string;
       meetName: string | null;
+      highestTier: Tier | null;
     }> = [];
 
     for (const [swimmerId, best] of bestBySwimmer) {
@@ -146,16 +186,24 @@ export const getEventComparison = query({
       const band = computeAgeGroup(swimmer.dob, today);
       if (args.ageGroup && band !== args.ageGroup) continue;
 
+      const age = computeAge(swimmer.dob, today);
+      let highestTier: Tier | null = null;
+      if (args.course === "LCM") {
+        const cuts = pickApplicableStandards(await loadCuts(swimmer.gender), age);
+        highestTier = highestTierMet(best.timeMs, cuts);
+      }
+
       rows.push({
         swimmerId,
         name: swimmer.name,
         gender: swimmer.gender,
-        age: computeAge(swimmer.dob, today),
+        age,
         ageGroup: band,
         active: swimmer.active,
         timeMs: best.timeMs,
         swimDate: best.swimDate,
         meetName: best.meetName,
+        highestTier,
       });
     }
 
@@ -202,8 +250,21 @@ const progressionSeries = v.object({
   swimmerId: v.id("swimmers"),
   name: v.string(),
   gender,
+  dob: v.string(), // ISO — lets the chart step tier cuts across a birthday (§4.9)
   pbTimeMs: v.union(v.number(), v.null()), // null => no MEET swim yet
   points: v.array(progressionPoint),
+});
+
+// One qualifying cut row for the charted event (§4.9). LCM only — the chart
+// resolves these to the swimmer's EXACT age (stepping across birthdays) rather
+// than the server picking a single age, so a multi-year time series is honest.
+const standardCut = v.object({
+  gender,
+  tier,
+  age: v.number(),
+  isCatchAllYoung: v.boolean(),
+  isCatchAllOld: v.boolean(),
+  timeMs: v.number(),
 });
 
 export const getProgression = query({
@@ -216,6 +277,9 @@ export const getProgression = query({
   returns: v.object({
     event: eventSummary,
     series: v.array(progressionSeries),
+    // The charted event's cut rows for the genders in this selection (LCM only;
+    // empty on SCM). The chart resolves them to each swimmer's exact age.
+    standards: v.array(standardCut),
   }),
   handler: async (ctx, args) => {
     await requireCoach(ctx);
@@ -227,6 +291,7 @@ export const getProgression = query({
       swimmerId: Id<"swimmers">;
       name: string;
       gender: "M" | "F";
+      dob: string;
       pbTimeMs: number | null;
       points: Array<{
         resultId: Id<"results">;
@@ -288,12 +353,48 @@ export const getProgression = query({
         swimmerId: id,
         name: swimmer.name,
         gender: swimmer.gender,
+        dob: swimmer.dob,
         pbTimeMs: pb ? pb.timeMs : null,
         points,
       });
     }
 
     series.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Overlay cuts (§4.9) are LCM-only. Load this event's cut rows for just the
+    // genders present in the selection — the chart resolves them per swimmer.
+    const standards: Array<{
+      gender: "M" | "F";
+      tier: Tier;
+      age: number;
+      isCatchAllYoung: boolean;
+      isCatchAllOld: boolean;
+      timeMs: number;
+    }> = [];
+    if (args.course === "LCM") {
+      const genders = [...new Set(series.map((s) => s.gender))];
+      for (const g of genders) {
+        const cuts = await ctx.db
+          .query("standards")
+          .withIndex("by_event", (q) =>
+            q
+              .eq("gender", g)
+              .eq("distance", args.distance)
+              .eq("stroke", args.stroke),
+          )
+          .take(500);
+        for (const c of cuts) {
+          standards.push({
+            gender: c.gender,
+            tier: c.tier,
+            age: c.age,
+            isCatchAllYoung: c.isCatchAllYoung,
+            isCatchAllOld: c.isCatchAllOld,
+            timeMs: c.timeMs,
+          });
+        }
+      }
+    }
 
     return {
       event: {
@@ -303,6 +404,7 @@ export const getProgression = query({
         label: eventLabel(args.distance, args.stroke),
       },
       series,
+      standards,
     };
   },
 });
