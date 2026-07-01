@@ -1,149 +1,120 @@
-# Design
+# Swim Tracker — Design System (DESIGN.md)
 
-Modern, minimalist coaching tool. Cool near-monochrome on soft off-white, exactly one
-teal accent, a semantic tier scale that never relies on colour alone. Product register:
-dense and scannable, one visual anchor per screen. Tokens are authoritative — components
-consume `var(--token)` / the Tailwind utilities generated from them; **no raw hex, no ad-hoc
-fonts, ever.** Colours are OKLCH.
+Design language derived from the TailAdmin reference the coach chose: a clean, professional
+admin aesthetic — soft off-white canvas, white cards with soft layered shadows, an indigo brand
+accent, Untitled-UI grays, and the **Outfit** typeface. This file is the single source of truth
+for tokens. **No ad-hoc hex or fonts in components** — use these tokens only.
 
-Living reference screen: `app/preview/page.tsx` (route `/preview`).
+Impeccable still governs craft: this is the *system*, and `/impeccable critique` enforces
+consistency, hierarchy, and spacing **within** it (≥ 35/40). If a critique dings the intentional
+soft shadows or cards themselves, that's a style choice we are keeping — fix real inconsistencies,
+don't strip the system to chase points.
 
 ---
 
-## Theme
+## 1. Typeface
+- **Outfit** (Google, via `next/font/google`), latin subset. Set on `<body>`.
+- Base body text **14px** (`text-sm`). Muted body copy uses `gray-500`; primary text `gray-800/900`.
+- **Swim times always use tabular figures:** `font-variant-numeric: tabular-nums` (a `.tnums`
+  utility) so columns of `m:ss:hh` align. Non-negotiable on every time cell, PB, and gap value.
 
-- **One light theme.** Soft off-white canvas (never pure `#fff`), near-ink text (never pure
-  `#000`), cool slate neutrals with a faint blue cast (hue ≈ 258). No auto dark mode in v1.
-- **Colour strategy: Restrained.** Tinted neutrals + one accent. Accent + semantic colours
-  together cover well under 10% of any screen.
-- **One anchor per screen.** The PB / the gap / the trend is the single focal point; all else
-  is support.
+## 2. Colour ramp (Tailwind v4 `@theme` — put in globals.css)
+```css
+@import 'tailwindcss';
+@custom-variant dark (&:is(.dark *));
 
-## Colour palette (OKLCH semantic tokens)
+@theme {
+  --font-outfit: Outfit, sans-serif;
 
-### Neutrals — surfaces
-| Token | OKLCH | Use |
-|---|---|---|
-| `--bg` | `0.985 0.004 258` | app canvas (soft off-white) |
-| `--surface` | `0.998 0.002 258` | cards, panels, table body |
-| `--surface-2` | `0.965 0.005 258` | toolbars, table header, zebra, subtle fills |
-| `--border` | `0.912 0.006 258` | hairline dividers, input borders |
-| `--border-strong` | `0.84 0.008 258` | emphasised borders, focused inputs |
+  /* Brand — the signature indigo accent */
+  --color-brand-25:#f2f7ff; --color-brand-50:#ecf3ff; --color-brand-100:#dde9ff;
+  --color-brand-200:#c2d6ff; --color-brand-300:#9cb9ff; --color-brand-400:#7592ff;
+  --color-brand-500:#465fff; --color-brand-600:#3641f5; --color-brand-700:#2a31d8;
+  --color-brand-800:#252dae; --color-brand-900:#262e89; --color-brand-950:#161950;
 
-### Neutrals — text (the ink ramp)
-| Token | OKLCH | Use | Contrast on `--bg` |
-|---|---|---|---|
-| `--ink` | `0.24 0.014 258` | primary text, headings, times | ~13:1 |
-| `--ink-muted` | `0.46 0.012 258` | secondary text, labels, captions | ~4.7:1 (AA body) |
-| `--ink-faint` | `0.56 0.010 258` | tertiary marks; ≥14px / non-body only | ~3.2:1 |
+  /* Neutrals (Untitled-UI gray) */
+  --color-gray-25:#fcfcfd; --color-gray-50:#f9fafb; --color-gray-100:#f2f4f7;
+  --color-gray-200:#e4e7ec; --color-gray-300:#d0d5dd; --color-gray-400:#98a2b3;
+  --color-gray-500:#667085; --color-gray-600:#475467; --color-gray-700:#344054;
+  --color-gray-800:#1d2939; --color-gray-900:#101828; --color-gray-950:#0c111d;
+  --color-gray-dark:#1a2231;
 
-### Accent — exactly ONE (deep teal). Primary actions, active nav, focus, primary data line.
-| Token | OKLCH | Use |
-|---|---|---|
-| `--accent` | `0.46 0.09 199` | primary button bg, links, primary chart line |
-| `--accent-hover` | `0.40 0.09 199` | hover/active of accent |
-| `--accent-strong` | `0.38 0.09 199` | accent text on `--accent-subtle` |
-| `--accent-subtle` | `0.95 0.03 199` | active-nav / selected-row tint |
-| `--accent-fg` | `0.99 0 0` | text/icons on `--accent` (white, ≥4.5:1) |
-| `--ring` | `0.55 0.11 199` | focus ring (2px, 2px offset) |
+  /* Semantic */
+  --color-success-50:#ecfdf3; --color-success-500:#12b76a; --color-success-600:#039855;
+  --color-error-50:#fef3f2;   --color-error-500:#f04438;   --color-error-600:#d92d20;
+  --color-warning-50:#fffaeb; --color-warning-500:#f79009; --color-warning-600:#dc6803;
+  --color-blue-light-500:#0ba5ec; --color-blue-light-600:#0086c9;
 
-### Success / qualified — a single clear green, used ONLY for a qualified state.
-| Token | OKLCH | Use |
-|---|---|---|
-| `--success` | `0.47 0.12 152` | "Qualified" solid marker bg |
-| `--success-fg` | `0.99 0 0` | text on `--success` |
-| `--success-ink` | `0.40 0.10 150` | qualified text on light |
-| `--success-subtle` | `0.94 0.04 152` | qualified row/badge tint |
+  /* Soft layered shadows (the "TailAdmin" depth) */
+  --shadow-theme-xs: 0 1px 2px 0 rgba(16,24,40,.05);
+  --shadow-theme-sm: 0 1px 3px 0 rgba(16,24,40,.1), 0 1px 2px 0 rgba(16,24,40,.06);
+  --shadow-theme-md: 0 4px 8px -2px rgba(16,24,40,.1), 0 2px 4px -2px rgba(16,24,40,.06);
+  --shadow-theme-lg: 0 12px 16px -4px rgba(16,24,40,.08), 0 4px 6px -2px rgba(16,24,40,.03);
+  --shadow-focus-ring: 0 0 0 4px rgba(70,95,255,.12);
+}
+```
 
-### Warning / error — standard semantic, sparing.
-| Token | OKLCH | Use |
-|---|---|---|
-| `--warning-ink` | `0.48 0.10 60` | caution text |
-| `--warning-subtle` | `0.93 0.06 70` | caution tint |
-| `--danger` | `0.50 0.18 27` | destructive button bg |
-| `--danger-fg` | `0.99 0 0` | text on `--danger` |
-| `--danger-ink` | `0.47 0.16 27` | inline error text on light |
-| `--danger-subtle` | `0.95 0.04 25` | error field tint |
+## 3. App-semantic tokens (qualifying tiers)
+Mapped onto the reference palette so they harmonise. **Tiers are never colour-only — every tier
+badge carries a text label** (`SANJ` / `L3` / `L2`), per the domain rules.
+```css
+:root {
+  --tier-sanj:  #f79009;  /* warning/gold — top (hardest) */
+  --tier-l3:    #465fff;  /* brand indigo — mid */
+  --tier-l2:    #0086c9;  /* deep sky — entry */
+  --tier-none:  #98a2b3;  /* gray-400 — no standard met */
+  --qualified:  #12b76a;  /* success green — used ONLY for qualified states */
+}
+```
 
-### Tier scale — ordered SANJ > LEVEL_3 > LEVEL_2 > none (hardest → easiest → unranked).
-**Never colour-only.** Every tier badge also carries a text label AND a shape glyph, so it
-reads in greyscale and under colour-blindness. `-bg`/`-ink`/`-border` build the badge; the
-base token colours the chart reference line / dot.
+## 4. shadcn/ui variable mapping (`:root` + `.dark`)
+So shadcn components (sidebar, breadcrumb, sonner, buttons, inputs) inherit this palette instead of
+their defaults. Map, don't fight.
+```css
+:root {
+  --radius: 0.75rem;                 /* cards use rounded-2xl; controls rounded-lg */
+  --background:#f9fafb; --foreground:#101828;
+  --card:#ffffff;       --card-foreground:#101828;
+  --popover:#ffffff;    --popover-foreground:#101828;
+  --primary:#465fff;    --primary-foreground:#ffffff;
+  --secondary:#f2f4f7;  --secondary-foreground:#344054;
+  --muted:#f9fafb;      --muted-foreground:#667085;
+  --accent:#ecf3ff;     --accent-foreground:#465fff;   /* nav/hover tint = brand-50 */
+  --destructive:#f04438;--destructive-foreground:#ffffff;
+  --border:#e4e7ec;     --input:#e4e7ec;  --ring:#465fff;
+}
+.dark {
+  --background:#101828; --foreground:#f9fafb;
+  --card:#1a2231;       --card-foreground:#f9fafb;
+  --popover:#1a2231;    --popover-foreground:#f9fafb;
+  --primary:#465fff;    --primary-foreground:#ffffff;
+  --secondary:#1d2939;  --secondary-foreground:#e4e7ec;
+  --muted:#1d2939;      --muted-foreground:#98a2b3;
+  --accent:#252dae;     --accent-foreground:#c2d6ff;
+  --border:#1d2939;     --input:#1d2939;  --ring:#465fff;
+}
+```
 
-| Tier | base | `-bg` | `-ink` | `-border` | glyph |
-|---|---|---|---|---|---|
-| `--tier-sanj` (top, warm gold) | `0.74 0.12 82` | `0.92 0.055 84` | `0.42 0.075 66` | `0.82 0.07 78` | ◆ filled diamond |
-| `--tier-l3` (mid, cool blue) | `0.55 0.10 250` | `0.93 0.035 250` | `0.42 0.06 255` | `0.85 0.04 252` | ● filled circle |
-| `--tier-l2` (entry, slate) | `0.55 0.02 258` | `0.93 0.008 258` | `0.42 0.012 258` | `0.86 0.008 258` | ○ ring |
-| `--tier-none` (unranked grey) | `0.62 0.006 258` | — (ghost) | `--ink-muted` | dashed `--border` | – em dash |
+## 5. Component conventions (match the reference)
+- **Card:** `rounded-2xl border border-gray-200 bg-white shadow-theme-sm` (dark: `border-gray-800 bg-gray-dark`). Padding `p-5`/`p-6`. **No card-in-card** — one card, internal sections divided by `border-gray-100`.
+- **Table:** header row `bg-gray-50 text-gray-500 text-xs uppercase`; row borders `border-gray-200`; body text `text-gray-700 text-sm`; **time columns right-aligned + tabular-nums**. Horizontal scroll uses the thin `custom-scrollbar`.
+- **Sidebar (shell):** `290px` expanded / `90px` icon rail. Menu item `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium`. **Active** = `bg-brand-50 text-brand-500` with `text-brand-500` icon; inactive = `text-gray-700 hover:bg-gray-100`, icon `text-gray-500`. Active route's group auto-expands.
+- **Primary button:** `bg-brand-500 hover:bg-brand-600 text-white rounded-lg shadow-theme-xs`. Secondary: `border border-gray-300 bg-white text-gray-700 hover:bg-gray-50`.
+- **Input/select:** `rounded-lg border border-gray-300 bg-transparent text-sm`; focus `ring` = brand (`--shadow-focus-ring`).
+- **Badge (tier/status):** small pill, `--tier-*` background tint + matching text + a label. Qualified uses `--qualified`.
+- **Toasts (Sonner):** neutral surface + border; success/error/warning use the semantic colours only; brand indigo for any action link. Subtle slide+fade; respect `prefers-reduced-motion`.
+- **Focus ring** everywhere: `--shadow-focus-ring` (brand tint), not a hard outline.
+- **Scrollbar:** thin custom scrollbar (6px, `gray-200` thumb; dark `white/10`).
 
-Hues are deliberately far apart (gold 82 / blue 250 / neutral) and safe under deuteranopia;
-the label + glyph carry the meaning regardless.
+## 6. Spacing & motion
+- 8px spacing grid. Section gaps `gap-5`/`gap-6`. Page content max width ~`1440px`, generous gutters.
+- Motion is minimal and functional: sidebar collapse, sub-menu expand, toast in/out, chart load.
+  No decorative animation. Always honour `prefers-reduced-motion`.
 
-## Typography
+## 7. Dark mode
+Light is the default. The `.dark` tokens above are provided so a theme toggle can be added
+(Step 16 or later) without rework. Body: `bg-gray-50` light / `bg-gray-900` dark.
 
-**One family**, weight + size for hierarchy (avoids the Inter-for-everything tell).
-
-- `--font-sans`: **Geist Sans** — headings, labels, body, UI. (`next/font`, var `--font-geist-sans`.)
-- `--font-mono`: **Geist Mono** — **all swim times and numeric cells**, with
-  `font-variant-numeric: tabular-nums` so `m:ss:hh` columns align. Utility: `.time`.
-- No third family. No display/serif. No Inter/Roboto/Open Sans.
-
-Fixed rem scale (product, not fluid), ratio ≈ 1.2:
-
-| Token | px | Use |
-|---|---|---|
-| `--text-xs` 0.75rem | 12 | badge, caption, table meta |
-| `--text-sm` 0.8125rem | 13 | secondary labels |
-| `--text-base` 0.875rem | 14 | body / table cell (base) |
-| `--text-md` 1rem | 16 | emphasised value |
-| `--text-lg` 1.125rem | 18 | section title |
-| `--text-xl` 1.375rem | 22 | screen title |
-| `--text-2xl` 1.75rem | 28 | the single anchor number |
-
-Weights: 400 body, 500 labels/times, 600 headings & the anchor. Line-height 1.5 body, 1.2
-headings. Prose capped 65–75ch; data tables may run denser.
-
-## Spacing & radius
-
-- **8px grid.** Use multiples of 8 for structure (8/16/24/32/48/64), 4px only for tight
-  intra-component gaps. Tailwind's default 4px step maps: `2`=8, `3`=12, `4`=16, `6`=24, `8`=32.
-- Radius: `--radius-sm` 6px (badges, inputs), `--radius-md` 8px (buttons, controls),
-  `--radius-lg` 12px (cards/panels). Never `rounded-full` on containers, cards, or primary
-  buttons; never ≥ 16px on cards.
-- Elevation: borders first. `--shadow-sm` `0 1px 2px oklch(0.25 0.02 258 / .05)`;
-  `--shadow-md` `0 4px 12px oklch(0.25 0.02 258 / .06)` for popovers only. Opacity < 0.08.
-
-## Motion
-
-Minimal, only to reinforce hierarchy or confirm state.
-
-- Durations: `--dur-1` 120ms (hover/press), `--dur-2` 180ms (controls), `--dur-3` 240ms (panels).
-- Easing: `--ease-out` `cubic-bezier(0.16,1,0.3,1)`; `--ease-standard` `cubic-bezier(0.4,0,0.2,1)`.
-- Animate only `transform` / `opacity` (+ chart path draw). No layout animation, no bounce.
-- Buttons: `:active { transform: scale(0.98) }`. Charts: one gentle ~600ms path-draw on load.
-- `@media (prefers-reduced-motion: reduce)`: transitions → instant; chart animation off.
-
-## Components (vocabulary — consistent across every screen)
-
-- **Button**: `primary` (accent), `secondary` (surface + border), `ghost` (transparent),
-  `danger`. States: default / hover / active / focus-visible (ring) / disabled / loading.
-- **Input / Select**: `--surface` bg, `--border`, focus → `--border-strong` + ring. Error →
-  `--danger-subtle` bg + `--danger-ink` message below.
-- **Table**: `--surface-2` header, hairline row borders, `.time` cells right-aligned and
-  tabular, selected row → `--accent-subtle`. Tables over card grids on data screens.
-- **TierBadge**: `-bg`/`-ink`/`-border` + glyph + label. Typed to `SANJ|LEVEL_3|LEVEL_2|NONE`.
-- **Card / panel**: single `--border`, `--radius-lg`, `--surface`. **Never card-in-card.**
-- Empty states teach; loading uses skeletons, not centred spinners.
-
-## Anti-references (banned — refuse and rewrite)
-
-- **card-in-card** (nested bordered/elevated containers)
-- **purple→blue gradients** (and gradient text / decorative gradients generally)
-- **glassmorphism without function**
-- **the rounded-square icon tile above every heading**
-- **grey text on coloured backgrounds** (use a darker shade of the bg's own hue)
-- **generic SaaS card grids / hero-metric tiles**
-- colour as the sole carrier of tier/qualified meaning
-- decorative motion; emoji in UI; Inter/Roboto/Open Sans; `rounded-full` containers;
-  card radius ≥ 16px; heavy drop shadows.
+## 8. Bans (impeccable "anti-references")
+No card-in-card. No purple→blue gradients. No glassmorphism. No rounded-square icon tile above every
+heading. No grey-text-on-coloured-bg. No pure black/white. No colour-only meaning (always a label).

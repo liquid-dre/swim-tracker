@@ -64,13 +64,13 @@ export const TimeField = forwardRef<
           onDigits((e.target.value.match(/\d/g)?.join("") ?? "").slice(-6))
         }
         className={
-          "time h-20 w-full rounded-lg border bg-surface text-center text-[2.75rem] " +
-          "font-semibold leading-none tracking-tight text-ink tabular-nums outline-none " +
-          "transition-[border-color] [transition-duration:var(--dur-1)] " +
-          "focus:border-border-strong " +
+          "time h-20 w-full rounded-lg border bg-white text-center text-[2.75rem] " +
+          "font-semibold leading-none tracking-tight text-gray-800 tabular-nums outline-none " +
+          "transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] " +
+          "focus:border-brand-300 focus:shadow-focus-ring " +
           (parsed.error
-            ? "border-danger bg-danger-subtle "
-            : "border-border hover:border-border-strong")
+            ? "border-error-500 bg-error-50 "
+            : "border-gray-300 hover:border-gray-400")
         }
       />
 
@@ -83,7 +83,7 @@ export const TimeField = forwardRef<
           <span className="text-danger-ink">{parsed.error}</span>
         ) : parsed.text ? (
           <>
-            <Check aria-hidden className="size-4 text-accent" strokeWidth={2.25} />
+            <Check aria-hidden className="size-4 text-brand-500" strokeWidth={2.25} />
             <span className="text-ink-muted">
               Saves as <span className="time font-medium text-ink">{parsed.text}</span>
             </span>

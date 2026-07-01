@@ -8,7 +8,7 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
   Single app-wide Toaster (mounted once in the root layout). Themed to DESIGN.md:
   neutral --surface toast, hairline --border, one radius, soft popover shadow. The
   ONLY colour a toast carries is its semantic icon (success=green, error=red,
-  warning=amber, info=teal) — no rich-colour backgrounds, no rainbow. Subtle
+  warning=amber, info=indigo) — no rich-colour backgrounds, no rainbow. Subtle
   slide+fade only; the global prefers-reduced-motion rule neutralises it.
 
   Position: bottom-right on desktop, top-centre on mobile (thumb-reachable, clears
@@ -45,7 +45,7 @@ const icons = {
     </svg>
   ),
   info: (
-    <svg viewBox="0 0 16 16" className="size-4 text-accent-strong" aria-hidden>
+    <svg viewBox="0 0 16 16" className="size-4 text-brand-500" aria-hidden>
       <circle cx="8" cy="8" r="6.5" {...iconStroke} />
       <path d="M8 7.4v3.4M8 5.1v.01" {...iconStroke} />
     </svg>
@@ -82,15 +82,15 @@ export function Toaster(props: ToasterProps) {
       toastOptions={{
         classNames: {
           toast:
-            "group rounded-md border border-border bg-surface text-ink shadow-[var(--shadow-md)] text-sm",
-          title: "font-medium text-ink",
-          description: "text-ink-muted",
+            "group rounded-xl border border-gray-200 bg-white text-gray-800 shadow-theme-lg text-sm",
+          title: "font-medium text-gray-800",
+          description: "text-gray-500",
           actionButton:
-            "rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-fg hover:bg-accent-hover",
+            "rounded-lg bg-brand-500 px-2 py-1 text-xs font-medium text-white hover:bg-brand-600",
           cancelButton:
-            "rounded-md bg-surface-2 px-2 py-1 text-xs font-medium text-ink-muted hover:text-ink",
+            "rounded-lg bg-gray-100 px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-800",
           closeButton:
-            "border-border bg-surface text-ink-muted hover:text-ink hover:bg-surface-2",
+            "border-gray-200 bg-white text-gray-500 hover:text-gray-800 hover:bg-gray-100",
         },
       }}
       {...props}

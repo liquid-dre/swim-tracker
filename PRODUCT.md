@@ -35,7 +35,7 @@ Specific banned patterns (also enforced in DESIGN.md): card-in-card, purple→bl
 1. **Correctness is the feature.** Every visual decision serves reading the number right: course never blurs across SCM/LCM, tiers match exact age, meet-PBs are distinguished from practice. If a design choice could mislead, it loses.
 2. **One anchor per screen.** Dense data, but a single clear focal point (the PB, the gap, the trend) — everything else is support. No screen competes with itself.
 3. **Tabular truth.** Swim times are the protagonist; they always align in columns so the eye compares vertically without effort.
-4. **Colour is meaning, never decoration.** Exactly one accent (teal) for action/focus; green only for qualified; the tier scale only for tiers, always paired with a label. A splash of colour must always mean something.
+4. **Colour is meaning, never decoration.** Exactly one accent (indigo brand) for action/focus; green only for qualified; the tier scale only for tiers, always paired with a label. A splash of colour must always mean something.
 5. **Quiet by default.** Restraint over flourish. Motion only to reinforce hierarchy or confirm state. The tool disappears into the task.
 
 ## Accessibility & Inclusion

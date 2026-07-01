@@ -21,7 +21,7 @@ export function ComingSoon({
     <div className="flex flex-col gap-6">
       <PageHeader title={titleForHref(href)} breadcrumb={trailForHref(href)} />
 
-      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-surface px-6 py-14 text-center">
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-gray-200 bg-white shadow-theme-sm px-6 py-14 text-center">
         {Icon && (
           <Icon aria-hidden className="size-6 text-ink-faint" strokeWidth={1.75} />
         )}

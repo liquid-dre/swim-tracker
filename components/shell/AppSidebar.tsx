@@ -32,19 +32,20 @@ import { cn } from "@/lib/utils";
 
 /*
   The coach view of the app shell's sidebar (Step 3.6). Collapsible groups with a
-  sub-nav; the group containing the active route auto-expands. The single teal
+  sub-nav; the group containing the active route auto-expands. The single brand
   accent marks the active item and nothing else — idle items are neutral, hover is
   a quiet neutral lift. Built on the shadcn Sidebar primitive; role filtering is
   the `navForRole` seam (VIEWER reduction lands in Step 15).
 */
 
-// Override the primitive's neutral active state with the one teal accent
-// (accent-subtle fill + accent-strong text + accent icon). Applied to both the
-// top-level menu buttons and the sub-nav buttons so "active" reads identically.
-const ACTIVE_TEAL =
-  "data-[active=true]:bg-accent-subtle data-[active=true]:text-accent-strong " +
-  "data-[active=true]:font-medium data-[active=true]:hover:bg-accent-subtle " +
-  "data-[active=true]:hover:text-accent-strong data-[active=true]:[&>svg]:text-accent";
+// Override the primitive's neutral active state with the one brand accent
+// (brand-50 fill + brand-500 text + brand-500 icon), per DESIGN.md §5. Applied to
+// both the top-level menu buttons and the sub-nav buttons so "active" reads
+// identically. Inactive items stay gray-700 with a quiet gray-100 hover.
+const ACTIVE_BRAND =
+  "text-gray-700 data-[active=true]:bg-brand-50 data-[active=true]:text-brand-500 " +
+  "data-[active=true]:font-medium data-[active=true]:hover:bg-brand-50 " +
+  "data-[active=true]:hover:text-brand-500 data-[active=true]:[&>svg]:text-brand-500";
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -65,8 +66,8 @@ export function AppSidebar() {
               className="hover:bg-transparent active:bg-transparent"
             >
               <Link href="/dashboard">
-                <Droplets className="text-accent" />
-                <span className="text-base font-semibold tracking-tight text-ink group-data-[collapsible=icon]:hidden">
+                <Droplets className="text-brand-500" />
+                <span className="text-base font-semibold tracking-tight text-gray-800 group-data-[collapsible=icon]:hidden">
                   Swim Tracker
                 </span>
               </Link>
@@ -75,7 +76,7 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="custom-scrollbar">
         <SidebarGroup>
           <SidebarMenu>
             {nav.map((node) => {
@@ -87,7 +88,7 @@ export function AppSidebar() {
                       asChild
                       isActive={active}
                       tooltip={node.label}
-                      className={ACTIVE_TEAL}
+                      className={ACTIVE_BRAND}
                     >
                       <Link href={node.href}>
                         <node.icon />
@@ -111,13 +112,13 @@ export function AppSidebar() {
                       <SidebarMenuButton
                         tooltip={node.label}
                         className={cn(
-                          "[&>svg:last-child]:ml-auto [&>svg:last-child]:size-4 [&>svg:last-child]:text-ink-faint [&>svg:last-child]:transition-transform [&>svg:last-child]:duration-[var(--dur-2)] group-data-[state=open]/collapsible:[&>svg:last-child]:rotate-90",
+                          "text-gray-700 [&>svg:last-child]:ml-auto [&>svg:last-child]:size-4 [&>svg:last-child]:text-gray-400 [&>svg:last-child]:transition-transform [&>svg:last-child]:duration-[var(--dur-2)] group-data-[state=open]/collapsible:[&>svg:last-child]:rotate-90",
                           // When the whole sidebar is an icon rail, the sub-nav is
-                          // hidden — so tint the group icon teal if it holds the
+                          // hidden — so tint the group icon brand if it holds the
                           // active route, preserving the "you are here" signal. In
-                          // expanded mode this is gated off (the child shows teal).
+                          // expanded mode this is gated off (the child shows brand).
                           groupOpen &&
-                            "group-data-[collapsible=icon]:bg-accent-subtle group-data-[collapsible=icon]:text-accent-strong group-data-[collapsible=icon]:[&>svg:first-child]:text-accent"
+                            "group-data-[collapsible=icon]:bg-brand-50 group-data-[collapsible=icon]:text-brand-500 group-data-[collapsible=icon]:[&>svg:first-child]:text-brand-500"
                         )}
                       >
                         <node.icon />
@@ -134,7 +135,7 @@ export function AppSidebar() {
                               <SidebarMenuSubButton
                                 asChild
                                 isActive={active}
-                                className={ACTIVE_TEAL}
+                                className={ACTIVE_BRAND}
                               >
                                 <Link href={item.href}>
                                   <item.icon />
@@ -200,9 +201,9 @@ function SidebarUser({
         <div className="flex items-center gap-2 rounded-md p-2 group-data-[collapsible=icon]:p-0">
           <span
             aria-hidden
-            className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent-subtle text-xs font-semibold text-accent-strong"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-xs font-semibold text-brand-500"
           >
-            {initials || <span className="size-4 rounded-full bg-border" />}
+            {initials || <span className="size-4 rounded-full bg-gray-200" />}
           </span>
           <div className="grid min-w-0 flex-1 leading-tight group-data-[collapsible=icon]:hidden">
             <span className="truncate text-sm font-medium text-ink">

@@ -48,9 +48,9 @@ export function AppTopbar() {
           >
             <span
               aria-hidden
-              className="flex size-7 items-center justify-center rounded-md bg-accent-subtle text-xs font-semibold text-accent-strong"
+              className="flex size-7 items-center justify-center rounded-lg bg-brand-50 text-xs font-semibold text-brand-500"
             >
-              {initials || <span className="size-3.5 rounded-full bg-border" />}
+              {initials || <span className="size-3.5 rounded-full bg-gray-200" />}
             </span>
             <span className="hidden max-w-40 truncate font-medium text-ink sm:inline">
               {profile?.name ?? "Account"}
