@@ -5,16 +5,15 @@ import {
 } from "@convex-dev/auth/nextjs/server";
 
 const isSignInPage = createRouteMatcher(["/login", "/signup"]);
-// Everything not explicitly public is protected. Home ("/") is the placeholder.
-const isProtectedRoute = createRouteMatcher(["/"]);
 
 export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
-  // Signed-in users never see the auth pages.
-  if (isSignInPage(request) && (await convexAuth.isAuthenticated())) {
-    return nextjsMiddlewareRedirect(request, "/");
+  const authenticated = await convexAuth.isAuthenticated();
+  // Signed-in users never see the auth pages; send them into the app shell.
+  if (isSignInPage(request) && authenticated) {
+    return nextjsMiddlewareRedirect(request, "/dashboard");
   }
-  // Signed-out users can't reach protected routes.
-  if (isProtectedRoute(request) && !(await convexAuth.isAuthenticated())) {
+  // Everything outside the auth pages is protected (the whole app shell).
+  if (!isSignInPage(request) && !authenticated) {
     return nextjsMiddlewareRedirect(request, "/login");
   }
 });

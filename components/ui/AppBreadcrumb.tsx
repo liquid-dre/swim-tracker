@@ -33,12 +33,17 @@ export function AppBreadcrumb({ trail }: { trail: Crumb[] }) {
           return (
             <Fragment key={`${crumb.label}-${i}`}>
               <BreadcrumbItem>
-                {isLast || !crumb.href ? (
+                {isLast ? (
+                  // Only the current page carries aria-current and emphasis.
                   <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
-                ) : (
+                ) : crumb.href ? (
                   <BreadcrumbLink asChild>
                     <Link href={crumb.href}>{crumb.label}</Link>
                   </BreadcrumbLink>
+                ) : (
+                  // A middle crumb with no page of its own (e.g. a nav group):
+                  // plain muted text, neither a link nor the current page.
+                  <span>{crumb.label}</span>
                 )}
               </BreadcrumbItem>
               {!isLast && <BreadcrumbSeparator />}
