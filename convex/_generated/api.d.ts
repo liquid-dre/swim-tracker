@@ -13,6 +13,7 @@ import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as events from "../events.js";
 import type * as http from "../http.js";
+import type * as personalBests from "../personalBests.js";
 import type * as profiles from "../profiles.js";
 import type * as results from "../results.js";
 import type * as squads from "../squads.js";
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   authz: typeof authz;
   events: typeof events;
   http: typeof http;
+  personalBests: typeof personalBests;
   profiles: typeof profiles;
   results: typeof results;
   squads: typeof squads;

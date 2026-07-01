@@ -6,8 +6,12 @@ import {
   computeAge,
   computeAgeGroup,
   isValidEvent,
+  computePersonalBests,
+  eventLabel,
+  eventSortKey,
   DEFAULT_AGE_BANDS,
   type EventDef,
+  type ResultForPB,
 } from "./swim";
 
 // ---------------------------------------------------------------------------
@@ -219,5 +223,156 @@ describe("isValidEvent", () => {
       { distance: 200, stroke: "FLY", allowedCourses: ["SCM", "LCM"], active: false },
     ];
     expect(isValidEvent(200, "FLY", "SCM", withInactive)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// event labels + ordering
+// ---------------------------------------------------------------------------
+
+describe("eventLabel / eventSortKey", () => {
+  it("labels events the BRD way", () => {
+    expect(eventLabel(100, "IM")).toBe("100 IM");
+    expect(eventLabel(800, "FREE")).toBe("800 Free");
+    expect(eventLabel(50, "BREAST")).toBe("50 Breast");
+  });
+
+  it("orders 50→1500 then Free→Back→Breast→Fly→IM", () => {
+    const events: Array<[number, string]> = [
+      [200, "IM"],
+      [50, "FREE"],
+      [100, "BACK"],
+      [50, "FLY"],
+      [100, "FREE"],
+    ];
+    const sorted = [...events].sort(
+      (a, b) => eventSortKey(a[0], a[1]) - eventSortKey(b[0], b[1]),
+    );
+    expect(sorted).toEqual([
+      [50, "FREE"],
+      [50, "FLY"],
+      [100, "FREE"],
+      [100, "BACK"],
+      [200, "IM"],
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computePersonalBests (BRD §4.6, §5.4) — derived PBs
+// ---------------------------------------------------------------------------
+
+describe("computePersonalBests", () => {
+  // Helper to keep the fixtures terse.
+  const r = (
+    distance: number,
+    stroke: string,
+    course: string,
+    timeMs: number,
+    swimType: ResultForPB["swimType"],
+    swimDate: string,
+    meetName?: string,
+  ): ResultForPB => ({ distance, stroke, course, timeMs, swimType, swimDate, meetName });
+
+  it("headline PB is the fastest MEET time and ignores trials/practice", () => {
+    const pbs = computePersonalBests([
+      r(100, "FREE", "LCM", 61000, "PRACTICE", "2026-01-01"), // faster, but practice
+      r(100, "FREE", "LCM", 62000, "MEET", "2026-02-01", "Autumn Open"),
+      r(100, "FREE", "LCM", 61500, "TIME_TRIAL", "2026-03-01"), // faster, but trial
+      r(100, "FREE", "LCM", 62500, "MEET", "2026-04-01", "Winter Cup"),
+    ]);
+    expect(pbs).toHaveLength(1);
+    expect(pbs[0].headline).toEqual({
+      timeMs: 62000,
+      swimDate: "2026-02-01",
+      meetName: "Autumn Open",
+    });
+    // overallBest DOES consider the faster practice swim.
+    expect(pbs[0].overallBest).toEqual({
+      timeMs: 61000,
+      swimDate: "2026-01-01",
+      swimType: "PRACTICE",
+    });
+  });
+
+  it("carries the correct date + meet for the fastest meet swim", () => {
+    const pbs = computePersonalBests([
+      r(200, "FREE", "LCM", 130000, "MEET", "2025-11-10", "Early Meet"),
+      r(200, "FREE", "LCM", 128000, "MEET", "2026-03-20", "Champs"), // the PB
+      r(200, "FREE", "LCM", 129000, "MEET", "2026-05-01", "Later Meet"),
+    ]);
+    expect(pbs[0].headline).toEqual({
+      timeMs: 128000,
+      swimDate: "2026-03-20",
+      meetName: "Champs",
+    });
+  });
+
+  it("ties on the fastest meet time break to the earliest date", () => {
+    const pbs = computePersonalBests([
+      r(50, "FREE", "SCM", 30000, "MEET", "2026-04-01", "Second"),
+      r(50, "FREE", "SCM", 30000, "MEET", "2026-01-01", "First"),
+    ]);
+    expect(pbs[0].headline).toEqual({
+      timeMs: 30000,
+      swimDate: "2026-01-01",
+      meetName: "First",
+    });
+  });
+
+  it("has no headline PB when only non-meet swims exist, but keeps overallBest", () => {
+    const pbs = computePersonalBests([
+      r(100, "BACK", "SCM", 70000, "PRACTICE", "2026-01-01"),
+      r(100, "BACK", "SCM", 69000, "TIME_TRIAL", "2026-02-01"),
+    ]);
+    expect(pbs[0].headline).toBeNull();
+    expect(pbs[0].improvement).toBeNull();
+    expect(pbs[0].overallBest).toEqual({
+      timeMs: 69000,
+      swimDate: "2026-02-01",
+      swimType: "TIME_TRIAL",
+    });
+  });
+
+  it("computes improvement from the earliest swim even when it was non-meet", () => {
+    const pbs = computePersonalBests([
+      r(100, "FREE", "LCM", 70000, "PRACTICE", "2025-09-01"), // earliest, non-meet baseline
+      r(100, "FREE", "LCM", 66000, "MEET", "2026-01-01", "Meet A"),
+      r(100, "FREE", "LCM", 63000, "MEET", "2026-05-01", "Meet B"), // headline PB
+    ]);
+    const imp = pbs[0].improvement!;
+    expect(imp.fromMs).toBe(70000);
+    expect(imp.fromDate).toBe("2025-09-01");
+    expect(imp.fromSwimType).toBe("PRACTICE");
+    expect(imp.toMs).toBe(63000);
+    expect(imp.absMs).toBe(7000); // 70.00s → 63.00s = 7.00s dropped
+    expect(imp.pct).toBe(10); // 7000 / 70000 = 10%
+  });
+
+  it("reports a signed (negative) improvement when the earliest swim was faster", () => {
+    const pbs = computePersonalBests([
+      r(50, "FLY", "LCM", 30000, "PRACTICE", "2025-09-01"), // fast early practice
+      r(50, "FLY", "LCM", 31000, "MEET", "2026-05-01", "Only Meet"), // slower meet PB
+    ]);
+    const imp = pbs[0].improvement!;
+    expect(imp.absMs).toBe(-1000);
+    expect(imp.pct).toBeCloseTo(-3.33, 2);
+  });
+
+  it("separates SCM and LCM into distinct records and orders them", () => {
+    const pbs = computePersonalBests([
+      r(100, "FREE", "SCM", 60000, "MEET", "2026-02-01", "SC Meet"),
+      r(100, "FREE", "LCM", 62000, "MEET", "2026-02-01", "LC Meet"),
+      r(50, "FREE", "LCM", 30000, "MEET", "2026-02-01", "LC Sprint"),
+    ]);
+    // 50 Free before 100 Free; within 100 Free, LCM before SCM.
+    expect(pbs.map((p) => `${p.distance}${p.stroke}${p.course}`)).toEqual([
+      "50FREELCM",
+      "100FREELCM",
+      "100FREESCM",
+    ]);
+    // Courses never merge: two separate 100 Free records.
+    const oneHundreds = pbs.filter((p) => p.distance === 100);
+    expect(oneHundreds).toHaveLength(2);
   });
 });

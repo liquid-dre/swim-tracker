@@ -276,3 +276,230 @@ export function isValidEvent(
   }
   return event.allowedCourses.includes(course as Course);
 }
+
+// ---------------------------------------------------------------------------
+// 6. Event labels + canonical ordering (BRD §4.3)
+// ---------------------------------------------------------------------------
+
+/** Human label for a stroke, per BRD §4.3: "Free", "Back", "Breast", "Fly", "IM". */
+export const STROKE_LABEL: Record<Stroke, string> = {
+  FREE: "Free",
+  BACK: "Back",
+  BREAST: "Breast",
+  FLY: "Fly",
+  IM: "IM",
+};
+
+/** Canonical stroke order for display, matching the BRD §4.3 listing. */
+export const STROKE_ORDER: ReadonlyArray<Stroke> = [
+  "FREE",
+  "BACK",
+  "BREAST",
+  "FLY",
+  "IM",
+];
+
+/** Canonical distance order (short → long). */
+export const DISTANCE_ORDER: ReadonlyArray<Distance> = [
+  50, 100, 200, 400, 800, 1500,
+];
+
+/** Human event label, e.g. "100 IM" / "800 Free". */
+export function eventLabel(
+  distance: Distance | number,
+  stroke: Stroke | string,
+): string {
+  const s = STROKE_LABEL[stroke as Stroke] ?? String(stroke);
+  return `${distance} ${s}`;
+}
+
+/**
+ * A single sortable number so events read 50→1500, and within a distance
+ * Free→Back→Breast→Fly→IM. Unknown strokes sort last within their distance.
+ */
+export function eventSortKey(
+  distance: Distance | number,
+  stroke: Stroke | string,
+): number {
+  const si = STROKE_ORDER.indexOf(stroke as Stroke);
+  return distance * 10 + (si < 0 ? STROKE_ORDER.length : si);
+}
+
+// ---------------------------------------------------------------------------
+// 7. Personal bests — DERIVED, never stored (BRD §4.6, Step 6)
+// ---------------------------------------------------------------------------
+//
+// The headline PB is the fastest MEET time for a (distance, stroke, course);
+// time trials and practice NEVER count toward it. `overallBest` is the fastest
+// across ALL swim types (secondary). `improvement` measures the earliest logged
+// swim (any type) against the current headline PB. All pure so it can be unit-
+// tested and run identically on the server (Convex) and, if needed, the client.
+
+export type SwimType = "MEET" | "TIME_TRIAL" | "PRACTICE";
+
+/** The minimal result fields the PB derivation reads. */
+export type ResultForPB = {
+  distance: Distance | number;
+  stroke: Stroke | string;
+  course: Course | string;
+  timeMs: number;
+  swimType: SwimType | string;
+  swimDate: string; // ISO "YYYY-MM-DD"
+  meetName?: string;
+};
+
+/** Headline PB = the fastest MEET swim (with the date + meet it was set at). */
+export type HeadlinePB = {
+  timeMs: number;
+  swimDate: string;
+  meetName: string | null;
+};
+
+/** Fastest swim across all types — secondary context, never the headline. */
+export type OverallBest = {
+  timeMs: number;
+  swimDate: string;
+  swimType: SwimType;
+};
+
+/** Earliest logged swim → current headline PB (BRD §5.4). */
+export type Improvement = {
+  fromMs: number; // the earliest swim's time
+  fromDate: string;
+  fromSwimType: SwimType;
+  toMs: number; // the headline PB's time
+  absMs: number; // signed: fromMs - toMs (positive = faster now)
+  pct: number; // signed percent of the baseline, 2 dp
+};
+
+export type EventPB = {
+  distance: Distance;
+  stroke: Stroke;
+  course: Course;
+  label: string;
+  headline: HeadlinePB | null; // null => no meet time logged yet
+  overallBest: OverallBest; // always present (a group only exists with ≥1 swim)
+  improvement: Improvement | null; // null when there is no headline PB
+};
+
+/**
+ * The fastest swim in `rows` (min `timeMs`); ties break to the EARLIEST date, so
+ * a PB reads as "first achieved on…". Returns null for an empty list.
+ */
+function fastest<T extends { timeMs: number; swimDate: string }>(
+  rows: ReadonlyArray<T>,
+): T | null {
+  let best: T | null = null;
+  for (const r of rows) {
+    if (
+      best === null ||
+      r.timeMs < best.timeMs ||
+      (r.timeMs === best.timeMs && r.swimDate < best.swimDate)
+    ) {
+      best = r;
+    }
+  }
+  return best;
+}
+
+/**
+ * The earliest swim in `rows` (min `swimDate`); ties break to the FASTER time so
+ * the improvement baseline is conservative (never overstates a gain). Returns
+ * null for an empty list.
+ */
+function earliest<T extends { timeMs: number; swimDate: string }>(
+  rows: ReadonlyArray<T>,
+): T | null {
+  let first: T | null = null;
+  for (const r of rows) {
+    if (
+      first === null ||
+      r.swimDate < first.swimDate ||
+      (r.swimDate === first.swimDate && r.timeMs < first.timeMs)
+    ) {
+      first = r;
+    }
+  }
+  return first;
+}
+
+/**
+ * Derive every personal best for a swimmer from their raw results. Groups by
+ * (distance, stroke, course) — SCM and LCM are kept strictly separate (BRD §4.2)
+ * — and returns one `EventPB` per group, sorted 50→1500 then by stroke then
+ * course. Only groups that actually have results appear; empty events are the
+ * caller's concern.
+ */
+export function computePersonalBests(
+  results: ReadonlyArray<ResultForPB>,
+): EventPB[] {
+  const groups = new Map<string, ResultForPB[]>();
+  for (const r of results) {
+    const key = `${r.distance}|${r.stroke}|${r.course}`;
+    const arr = groups.get(key);
+    if (arr) arr.push(r);
+    else groups.set(key, [r]);
+  }
+
+  const out: EventPB[] = [];
+  for (const rows of groups.values()) {
+    const distance = rows[0].distance as Distance;
+    const stroke = rows[0].stroke as Stroke;
+    const course = rows[0].course as Course;
+
+    // Headline: fastest MEET only. Time trials + practice are excluded here.
+    const headlineRow = fastest(rows.filter((r) => r.swimType === "MEET"));
+    const overallRow = fastest(rows)!; // group is non-empty by construction
+
+    const headline: HeadlinePB | null = headlineRow
+      ? {
+          timeMs: headlineRow.timeMs,
+          swimDate: headlineRow.swimDate,
+          meetName: headlineRow.meetName ?? null,
+        }
+      : null;
+
+    const overallBest: OverallBest = {
+      timeMs: overallRow.timeMs,
+      swimDate: overallRow.swimDate,
+      swimType: overallRow.swimType as SwimType,
+    };
+
+    // Improvement only exists relative to a real (meet) PB.
+    let improvement: Improvement | null = null;
+    if (headline) {
+      const firstRow = earliest(rows)!;
+      const absMs = firstRow.timeMs - headline.timeMs;
+      improvement = {
+        fromMs: firstRow.timeMs,
+        fromDate: firstRow.swimDate,
+        fromSwimType: firstRow.swimType as SwimType,
+        toMs: headline.timeMs,
+        absMs,
+        pct:
+          firstRow.timeMs > 0
+            ? Math.round((absMs / firstRow.timeMs) * 10000) / 100
+            : 0,
+      };
+    }
+
+    out.push({
+      distance,
+      stroke,
+      course,
+      label: eventLabel(distance, stroke),
+      headline,
+      overallBest,
+      improvement,
+    });
+  }
+
+  out.sort((a, b) => {
+    const ka = eventSortKey(a.distance, a.stroke);
+    const kb = eventSortKey(b.distance, b.stroke);
+    if (ka !== kb) return ka - kb;
+    return a.course.localeCompare(b.course); // LCM before SCM
+  });
+
+  return out;
+}
