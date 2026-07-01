@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { accessibleSwimmerIds, requireCoach } from "./authz";
 import { computeAge } from "../lib/swim";
 
 // Swimmer management (BRD §5, Step 4). Coaches only. Swimmers are never
@@ -202,5 +202,56 @@ export const listSwimmers = query({
         };
       }),
     );
+  },
+});
+
+// ---------------------------------------------------------------------------
+// listForProfile — the swimmers the SIGNED-IN user may pick (role-aware)
+// ---------------------------------------------------------------------------
+//
+// Powers pickers on swimmer-scoped screens that both roles can reach (Step 12.5
+// stroke profile). A COACH gets the whole roster; a VIEWER gets only their
+// linked swimmer(s) — enforced here, server-side, never by the client. The
+// `role` travels with the list so the screen can decide what a viewer may do
+// (no compare, no side-by-side) without a second round-trip.
+export const listForProfile = query({
+  args: {},
+  returns: v.object({
+    role: v.union(v.literal("COACH"), v.literal("VIEWER")),
+    swimmers: v.array(
+      v.object({
+        _id: v.id("swimmers"),
+        name: v.string(),
+        gender,
+        age: v.number(),
+        active: v.boolean(),
+      }),
+    ),
+  }),
+  handler: async (ctx) => {
+    const { profile, swimmerIds } = await accessibleSwimmerIds(ctx);
+
+    const LIMIT = 500;
+    let swimmers;
+    if (swimmerIds === "ALL") {
+      swimmers = await ctx.db.query("swimmers").take(LIMIT);
+    } else {
+      const loaded = await Promise.all(swimmerIds.map((id) => ctx.db.get(id)));
+      swimmers = loaded.filter((s): s is NonNullable<typeof s> => s !== null);
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    swimmers.sort((a, b) => a.name.localeCompare(b.name));
+
+    return {
+      role: profile.role,
+      swimmers: swimmers.map((s) => ({
+        _id: s._id,
+        name: s.name,
+        gender: s.gender,
+        age: computeAge(s.dob, today),
+        active: s.active,
+      })),
+    };
   },
 });

@@ -1,10 +1,11 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { requireCoach, requireSwimmerAccess } from "./authz";
 import {
   computeAge,
   computeAgeGroup,
+  computeCalibratedRadius,
   computeMatrixCell,
   computePersonalBests,
   eventLabel,
@@ -753,6 +754,175 @@ export const getRoadToQualify = query({
       },
       tier: targetTier,
       events: [...withTime, ...noTime],
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// getStrokeProfile — the radial "stroke profile" wheel data (BRD §5, Step 12.5)
+// ---------------------------------------------------------------------------
+//
+// One entry per APPLICABLE LCM event for a swimmer: an event is applicable when
+// at least one tier (L2/L3/SANJ) has a cut at the swimmer's EXACT single-year
+// age (§4.9). Each entry carries the headline MEET LCM PB (fastest meet only —
+// trials/practice never count, §4.6), the three cuts (null where the tier has
+// no coverage — never faked, §4.9), the calibrated radius (the PB on this
+// event's own L2->L3->SANJ scale, in ring units; null with no PB), and the
+// hardest tier the PB meets.
+//
+// The client splits events into "full coverage" (all three cuts → every ring
+// present) and "partial coverage" (some rings absent, drawn flagged) purely
+// from the three cut fields — no hard-coded event list, so it stays honest as a
+// swimmer ages across coverage boundaries. LCM only; SCM never has standards.
+//
+// Access is role-scoped SERVER-SIDE: a coach reads any swimmer, a viewer only
+// their own linked swimmer(s) (requireSwimmerAccess). The screen's compare mode
+// is a client concern — each swimmer is a separate authorised read.
+
+const STROKE_ORDER_KEY: Record<string, number> = {
+  FREE: 0,
+  BACK: 1,
+  BREAST: 2,
+  FLY: 3,
+  IM: 4,
+};
+
+const strokeProfileEvent = v.object({
+  distance,
+  stroke,
+  label: v.string(),
+  pbMs: v.union(v.number(), v.null()),
+  l2Ms: v.union(v.number(), v.null()),
+  l3Ms: v.union(v.number(), v.null()),
+  sanjMs: v.union(v.number(), v.null()),
+  // The PB on this event's calibrated L2->L3->SANJ scale (ring units). Null
+  // when there is no PB; the wheel renders those spokes as an empty tick.
+  calibratedRadius: v.union(v.number(), v.null()),
+  highestTier: v.union(tier, v.null()),
+  // Convenience flag the client would otherwise recompute: all three cuts exist.
+  fullCoverage: v.boolean(),
+});
+
+export const getStrokeProfile = query({
+  args: { swimmerId: v.id("swimmers") },
+  returns: v.union(
+    v.null(), // swimmer vanished → caller shows an empty state
+    v.object({
+      swimmer: v.object({
+        _id: v.id("swimmers"),
+        name: v.string(),
+        gender,
+        age: v.number(), // exact single-year age today — drives cut resolution
+        active: v.boolean(),
+      }),
+      events: v.array(strokeProfileEvent),
+    }),
+  ),
+  handler: async (ctx, { swimmerId }) => {
+    // Read gate: coach → any swimmer; viewer → only their linked swimmer(s).
+    await requireSwimmerAccess(ctx, swimmerId);
+
+    const swimmer = await ctx.db.get(swimmerId);
+    if (swimmer === null) return null;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const age = computeAge(swimmer.dob, today);
+
+    // Active LCM events (standards are LCM-only), canonical 50→1500 order.
+    const allEvents = await ctx.db.query("events").take(200);
+    const lcmEvents = allEvents
+      .filter((e) => e.active && e.allowedCourses.includes("LCM"))
+      .sort(
+        (a, b) =>
+          eventSortKey(a.distance, a.stroke) - eventSortKey(b.distance, b.stroke),
+      );
+
+    // This swimmer's gender's cuts, grouped by event so each resolves to the
+    // exact age via pickApplicableStandards. Small table at club scale.
+    const allStandards = await ctx.db
+      .query("standards")
+      .withIndex("by_lookup", (q) => q.eq("gender", swimmer.gender))
+      .take(ROAD_STANDARDS_LIMIT);
+    const cutsByEvent = new Map<string, Array<StandardCut & { tier: Tier }>>();
+    for (const s of allStandards) {
+      const key = `${s.distance}|${s.stroke}`;
+      const cut: StandardCut & { tier: Tier } = {
+        tier: s.tier,
+        age: s.age,
+        isCatchAllYoung: s.isCatchAllYoung,
+        isCatchAllOld: s.isCatchAllOld,
+        timeMs: s.timeMs,
+      };
+      const arr = cutsByEvent.get(key);
+      if (arr) arr.push(cut);
+      else cutsByEvent.set(key, [cut]);
+    }
+
+    // Headline MEET LCM PBs (same derivation as the profile board / matrix).
+    const results = await ctx.db
+      .query("results")
+      .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
+      .take(SWIMMER_RESULTS_LIMIT);
+    const pbs = computePersonalBests(results as ResultForPB[]);
+    const lcmPbByEvent = new Map<string, number>();
+    for (const pb of pbs) {
+      if (pb.course === "LCM" && pb.headline) {
+        lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, pb.headline.timeMs);
+      }
+    }
+
+    const events = [];
+    for (const e of lcmEvents) {
+      const applicable = pickApplicableStandards(
+        cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [],
+        age,
+      );
+      const l2Ms = applicable.LEVEL_2 ?? null;
+      const l3Ms = applicable.LEVEL_3 ?? null;
+      const sanjMs = applicable.SANJ ?? null;
+
+      // Applicable = at least one tier has a cut here at this exact age. Events
+      // with no cut at all can't be placed on any ring — omit them (§4.9).
+      if (l2Ms === null && l3Ms === null && sanjMs === null) continue;
+
+      const pbMs = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
+      const calibratedRadius = computeCalibratedRadius(pbMs, { l2Ms, l3Ms, sanjMs });
+      const highestTier =
+        pbMs === null
+          ? null
+          : highestTierMet(pbMs, { LEVEL_2: l2Ms, LEVEL_3: l3Ms, SANJ: sanjMs });
+
+      events.push({
+        distance: e.distance,
+        stroke: e.stroke,
+        label: e.label,
+        pbMs,
+        l2Ms,
+        l3Ms,
+        sanjMs,
+        calibratedRadius,
+        highestTier,
+        fullCoverage: l2Ms !== null && l3Ms !== null && sanjMs !== null,
+      });
+    }
+
+    // Group contiguously by stroke (Free→Back→Breast→Fly→IM), distance ascending
+    // within a stroke — the wheel draws each stroke as one coloured arc.
+    events.sort(
+      (a, b) =>
+        (STROKE_ORDER_KEY[a.stroke] ?? 9) - (STROKE_ORDER_KEY[b.stroke] ?? 9) ||
+        a.distance - b.distance,
+    );
+
+    return {
+      swimmer: {
+        _id: swimmer._id,
+        name: swimmer.name,
+        gender: swimmer.gender,
+        age,
+        active: swimmer.active,
+      },
+      events,
     };
   },
 });
