@@ -1,10 +1,7 @@
-import { ComingSoon } from "@/components/shell/ComingSoon";
+import { RoadScreen } from "@/components/road/RoadScreen";
 
+// Road to qualify (Step 12, BRD §5.10–5.11). Per-swimmer gap-to-cut + %-of-cut
+// against the shared target-tier toggle. Coach-facing, LCM only.
 export default function RoadPage() {
-  return (
-    <ComingSoon
-      href="/road"
-      description="For one swimmer, the gap to the next cut in every event, ordered by how close they are."
-    />
-  );
+  return <RoadScreen />;
 }
