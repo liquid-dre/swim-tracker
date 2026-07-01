@@ -27,6 +27,9 @@ import {
   isInSeason,
   computeSeasonImprovements,
   computeOverallImprovement,
+  linearFit,
+  projectCrossing,
+  computeQualifyProjection,
   type EventDef,
   type ResultForPB,
   type StandardCut,
@@ -1082,5 +1085,196 @@ describe("computeOverallImprovement", () => {
     expect(overall.insufficient).toBe(true);
     expect(overall.avgImprovedPct).toBeNull();
     expect(overall.best).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// linearFit (BRD §5.6, Step 14) — least-squares with a downward-trend guard
+// ---------------------------------------------------------------------------
+
+describe("linearFit", () => {
+  it("fits a clean downward line", () => {
+    const fit = linearFit([
+      { x: 0, y: 100 },
+      { x: 1, y: 90 },
+      { x: 2, y: 80 },
+      { x: 3, y: 70 },
+    ]);
+    expect(fit).not.toBeNull();
+    expect(fit!.slope).toBeCloseTo(-10, 10);
+    expect(fit!.intercept).toBeCloseTo(100, 10);
+  });
+
+  it("fits a noisy but overall-downward line (least squares)", () => {
+    // Not perfectly linear, but the trend is clearly improving.
+    const fit = linearFit([
+      { x: 0, y: 100 },
+      { x: 1, y: 95 },
+      { x: 2, y: 88 },
+      { x: 3, y: 71 },
+    ]);
+    expect(fit).not.toBeNull();
+    expect(fit!.slope).toBeLessThan(0);
+  });
+
+  it("returns null with fewer than 4 points", () => {
+    expect(
+      linearFit([
+        { x: 0, y: 100 },
+        { x: 1, y: 90 },
+        { x: 2, y: 80 },
+      ]),
+    ).toBeNull();
+  });
+
+  it("returns null for a flat trend (no improvement)", () => {
+    expect(
+      linearFit([
+        { x: 0, y: 50 },
+        { x: 1, y: 50 },
+        { x: 2, y: 50 },
+        { x: 3, y: 50 },
+      ]),
+    ).toBeNull();
+  });
+
+  it("returns null for a rising trend (getting slower)", () => {
+    expect(
+      linearFit([
+        { x: 0, y: 70 },
+        { x: 1, y: 80 },
+        { x: 2, y: 90 },
+        { x: 3, y: 100 },
+      ]),
+    ).toBeNull();
+  });
+
+  it("returns null when every point shares one date (no x spread)", () => {
+    expect(
+      linearFit([
+        { x: 5, y: 100 },
+        { x: 5, y: 90 },
+        { x: 5, y: 80 },
+        { x: 5, y: 70 },
+      ]),
+    ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// projectCrossing (BRD §5.6, Step 14)
+// ---------------------------------------------------------------------------
+
+const MS_PER_DAY = 86_400_000;
+
+describe("projectCrossing", () => {
+  it("finds where a downward line meets the target", () => {
+    // y = -10x + 100 reaches 50 at x = 5 → day 5 since the epoch.
+    const date = projectCrossing({ slope: -10, intercept: 100 }, 50);
+    expect(date).not.toBeNull();
+    expect(date!.getTime()).toBe(5 * MS_PER_DAY);
+    expect(date!.toISOString().slice(0, 10)).toBe("1970-01-06");
+  });
+
+  it("returns null for a rising line (never crosses downward)", () => {
+    expect(projectCrossing({ slope: 10, intercept: 0 }, 50)).toBeNull();
+  });
+
+  it("returns null for a flat line (slope 0)", () => {
+    expect(projectCrossing({ slope: 0, intercept: 100 }, 50)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeQualifyProjection (BRD §5.6, Step 14) — the guarded overlay
+// ---------------------------------------------------------------------------
+
+describe("computeQualifyProjection", () => {
+  const today = "2026-04-15";
+
+  // Four meets improving 1000ms per month.
+  const improving = [
+    { swimDate: "2026-01-01", timeMs: 65000 },
+    { swimDate: "2026-02-01", timeMs: 64000 },
+    { swimDate: "2026-03-01", timeMs: 63000 },
+    { swimDate: "2026-04-01", timeMs: 62000 },
+  ];
+
+  it("projects a dashed crossing for >= 4 improving meet times", () => {
+    const p = computeQualifyProjection(improving, 60000, today);
+    expect(p.status).toBe("projected");
+    if (p.status !== "projected") return;
+    expect(p.slopeMsPerDay).toBeLessThan(0);
+    expect(p.toMs).toBe(60000);
+    // ~2 more months from the last meet to drop 2000ms at 1000ms/month.
+    expect(p.etaIso >= today).toBe(true);
+    expect(p.etaIso.slice(0, 4)).toBe("2026");
+    // The dashed segment ends at the cut, in the future of where it starts.
+    expect(p.toT).toBeGreaterThan(p.fromT);
+    expect(p.toMs).toBeLessThan(p.fromMs);
+  });
+
+  it("reports no_cut when the tier has no cut for this event/age", () => {
+    expect(computeQualifyProjection(improving, null, today).status).toBe(
+      "no_cut",
+    );
+  });
+
+  it("reports not_enough_data with fewer than 4 meet times", () => {
+    const p = computeQualifyProjection(improving.slice(0, 3), 60000, today);
+    expect(p.status).toBe("not_enough_data");
+    if (p.status === "not_enough_data") expect(p.meetCount).toBe(3);
+  });
+
+  it("reports not_enough_data with no meet times at all", () => {
+    const p = computeQualifyProjection([], 60000, today);
+    expect(p.status).toBe("not_enough_data");
+    if (p.status === "not_enough_data") expect(p.meetCount).toBe(0);
+  });
+
+  it("reports already_qualified when the fastest meet already beats the cut", () => {
+    const withPb = [...improving, { swimDate: "2026-04-10", timeMs: 59000 }];
+    const p = computeQualifyProjection(withPb, 60000, today);
+    expect(p.status).toBe("already_qualified");
+    if (p.status === "already_qualified") expect(p.bestMs).toBe(59000);
+  });
+
+  it("reports no_trend when recent meets are flat or rising", () => {
+    const rising = [
+      { swimDate: "2026-01-01", timeMs: 62000 },
+      { swimDate: "2026-02-01", timeMs: 63000 },
+      { swimDate: "2026-03-01", timeMs: 64000 },
+      { swimDate: "2026-04-01", timeMs: 65000 },
+    ];
+    expect(computeQualifyProjection(rising, 60000, today).status).toBe(
+      "no_trend",
+    );
+  });
+
+  it("reports beyond_horizon when the crossing is more than ~12 months out", () => {
+    // Improving only 10ms per month; 5000ms to the cut => centuries away.
+    const crawl = [
+      { swimDate: "2026-01-01", timeMs: 65000 },
+      { swimDate: "2026-02-01", timeMs: 64990 },
+      { swimDate: "2026-03-01", timeMs: 64980 },
+      { swimDate: "2026-04-01", timeMs: 64970 },
+    ];
+    const p = computeQualifyProjection(crawl, 60000, today);
+    expect(p.status).toBe("beyond_horizon");
+    if (p.status === "beyond_horizon") expect(p.slopeMsPerDay).toBeLessThan(0);
+  });
+
+  it("only fits the recent window, so a stale fast start doesn't fake a trend", () => {
+    // A big early drop, then four flat recent meets: recent rate is flat.
+    const stalled = [
+      { swimDate: "2025-01-01", timeMs: 80000 },
+      { swimDate: "2026-01-01", timeMs: 62000 },
+      { swimDate: "2026-02-01", timeMs: 62000 },
+      { swimDate: "2026-03-01", timeMs: 62000 },
+      { swimDate: "2026-04-01", timeMs: 62000 },
+    ];
+    expect(
+      computeQualifyProjection(stalled, 60000, today, { recentMeets: 4 }).status,
+    ).toBe("no_trend");
   });
 });

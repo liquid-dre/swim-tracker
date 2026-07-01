@@ -1319,3 +1319,219 @@ export function computeOverallImprovement(
     insufficient: false,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Time-to-qualify projection (BRD §5.6, §5.12 — Step 14)
+// ---------------------------------------------------------------------------
+//
+// The single most abuse-prone view in the app, so the guard rails are hard, not
+// advisory. We fit a straight line to a swimmer's RECENT meet times and read off
+// where — if that exact rate held — it would cross a chosen tier's cut. It is an
+// ESTIMATE, never a promise: the pieces below refuse to draw anything unless
+// there is a real, downward trend to extend, and cap how far out we'll guess.
+//
+//   • linearFit       least-squares line, or null when the input can't support a
+//                     genuine downward trend (< 4 points, no date spread, flat or
+//                     rising). y is time in ms, x is a day number, so a NEGATIVE
+//                     slope means the swimmer is getting faster.
+//   • projectCrossing where a downward line meets a target time, as a Date; null
+//                     for any line that isn't improving (it never crosses down).
+//   • computeQualifyProjection ties the two together with the §5.6 guard rails:
+//                     ≥ 4 meet times, a real downward trend, a ~12-month horizon,
+//                     and the already-qualified / no-coverage short-circuits.
+
+const MS_PER_DAY = 86_400_000;
+
+/** How many recent MEET times the trend is fit to — "recent rate", not lifetime. */
+export const PROJECTION_RECENT_MEETS = 8;
+/** The minimum meet times required before any trend is drawn (§5.6). */
+export const PROJECTION_MIN_MEETS = 4;
+/** The horizon cap: crossings past this many months read as "beyond horizon". */
+export const PROJECTION_HORIZON_MONTHS = 12;
+
+/** ISO "YYYY-MM-DD" → whole-day number since the epoch (UTC midnight, exact). */
+function isoToEpochDay(iso: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+  if (!m) throw new Error(`isoToEpochDay: invalid date "${iso}"`);
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / MS_PER_DAY;
+}
+
+/** ISO date + N calendar months → the resulting day number (UTC). */
+function addMonthsToEpochDay(iso: string, months: number): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+  if (!m) throw new Error(`addMonthsToEpochDay: invalid date "${iso}"`);
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d.getTime() / MS_PER_DAY;
+}
+
+/** A single (x, y) sample for the fit — x a day number, y a time in ms. */
+export type ProjectionPoint = { x: number; y: number };
+
+/** A fitted line `y = slope·x + intercept`; slope is ms of time per day. */
+export type LinearFit = { slope: number; intercept: number };
+
+/**
+ * Least-squares line through the points, or **null** when the data can't carry a
+ * genuine downward (improving) trend (§5.6). Returns null when:
+ *   - there are fewer than `PROJECTION_MIN_MEETS` points (too little to trust),
+ *   - every point shares one x (no date spread → slope undefined), or
+ *   - the slope is not strictly negative (flat or getting slower is "no trend").
+ * y is time in ms and x is a day number, so slope < 0 == getting faster.
+ */
+export function linearFit(
+  points: ReadonlyArray<ProjectionPoint>,
+): LinearFit | null {
+  const n = points.length;
+  if (n < PROJECTION_MIN_MEETS) return null;
+
+  let sumX = 0;
+  let sumY = 0;
+  for (const p of points) {
+    sumX += p.x;
+    sumY += p.y;
+  }
+  const meanX = sumX / n;
+  const meanY = sumY / n;
+
+  let sxx = 0;
+  let sxy = 0;
+  for (const p of points) {
+    const dx = p.x - meanX;
+    sxx += dx * dx;
+    sxy += dx * (p.y - meanY);
+  }
+  if (sxx === 0) return null; // all on one date — no trend to draw
+
+  const slope = sxy / sxx;
+  if (!(slope < 0)) return null; // flat or rising is "no clear trend" (§5.6)
+
+  return { slope, intercept: meanY - slope * meanX };
+}
+
+/**
+ * The date at which a downward line reaches `targetMs`, or **null** for any line
+ * that isn't improving (a flat or rising line never crosses a faster target). The
+ * returned Date is derived purely from the fit's x-as-day-number convention, so
+ * it is a real calendar date the caller can horizon-check and label.
+ */
+export function projectCrossing(
+  fit: LinearFit,
+  targetMs: number,
+): Date | null {
+  if (!(fit.slope < 0)) return null; // only an improving line crosses downward
+  const xCross = (targetMs - fit.intercept) / fit.slope;
+  if (!Number.isFinite(xCross)) return null;
+  return new Date(Math.round(xCross * MS_PER_DAY));
+}
+
+/** The minimal meet-time shape the projection reads. */
+export type ProjectionMeet = { swimDate: string; timeMs: number };
+
+/**
+ * The outcome of a projection attempt — a discriminated union so the UI renders
+ * exactly one honest state and never a bare date. Every non-`projected` case
+ * carries enough to explain itself in plain words.
+ */
+export type QualifyProjection =
+  | { status: "no_cut" } // the tier has no cut for this event/age (§4.9)
+  | { status: "not_enough_data"; meetCount: number } // < 4 meet times
+  | { status: "no_trend"; meetCount: number } // flat or getting slower
+  | { status: "already_qualified"; cutMs: number; bestMs: number }
+  | { status: "beyond_horizon"; cutMs: number; slopeMsPerDay: number; meetCount: number }
+  | {
+      status: "projected";
+      cutMs: number;
+      slopeMsPerDay: number; // negative — ms dropped per day at the recent rate
+      etaIso: string; // ISO date the trend meets the cut (clamped to ≥ today)
+      fromT: number; // dashed-segment start, epoch ms (on the fitted line)
+      fromMs: number;
+      toT: number; // dashed-segment end, epoch ms (the crossing)
+      toMs: number; // == cutMs
+      meetCount: number;
+    };
+
+/**
+ * Fit the recent meet trend and, guard rails permitting (§5.6), project when it
+ * would reach `cutMs`. The order of the short-circuits is deliberate:
+ *   1. no cut for this tier/age → nothing to chase.
+ *   2. already met the cut (fastest meet ever ≤ cut, §4.6) → celebrate, don't guess.
+ *   3. fewer than 4 meet times → not enough data.
+ *   4. no genuine downward trend in the recent window → no clear trend.
+ *   5. crossing past the ~12-month horizon → "beyond horizon at current rate".
+ * A crossing that lands in the past (the recent line already sits at the cut) is
+ * clamped to today so the dashed segment never points backwards. The returned
+ * segment endpoints ride the fitted line, so the estimate reads as a clean
+ * continuation of the trend rather than a connector to the last raw dot.
+ */
+export function computeQualifyProjection(
+  meets: ReadonlyArray<ProjectionMeet>,
+  cutMs: number | null,
+  todayIso: string,
+  opts?: { recentMeets?: number; horizonMonths?: number },
+): QualifyProjection {
+  const recentN = opts?.recentMeets ?? PROJECTION_RECENT_MEETS;
+  const horizonMonths = opts?.horizonMonths ?? PROJECTION_HORIZON_MONTHS;
+
+  if (cutMs === null) return { status: "no_cut" };
+
+  const sorted = [...meets].sort((a, b) =>
+    a.swimDate < b.swimDate ? -1 : a.swimDate > b.swimDate ? 1 : 0,
+  );
+  const meetCount = sorted.length;
+  if (meetCount === 0) return { status: "not_enough_data", meetCount: 0 };
+
+  // Headline PB = fastest meet ever (§4.6). If it already beats the cut, there is
+  // nothing to project — the swimmer has qualified.
+  let bestMs = Infinity;
+  for (const m of sorted) if (m.timeMs < bestMs) bestMs = m.timeMs;
+  if (bestMs <= cutMs) return { status: "already_qualified", cutMs, bestMs };
+
+  if (meetCount < PROJECTION_MIN_MEETS) {
+    return { status: "not_enough_data", meetCount };
+  }
+
+  // Fit only the recent window — "assumes recent rate continues", not lifetime.
+  const recent = sorted.slice(Math.max(0, meetCount - recentN));
+  const points: ProjectionPoint[] = recent.map((m) => ({
+    x: isoToEpochDay(m.swimDate),
+    y: m.timeMs,
+  }));
+
+  const fit = linearFit(points);
+  if (fit === null) return { status: "no_trend", meetCount };
+
+  const eta = projectCrossing(fit, cutMs);
+  if (eta === null) return { status: "no_trend", meetCount };
+
+  const todayDay = isoToEpochDay(todayIso);
+  const horizonEndDay = addMonthsToEpochDay(todayIso, horizonMonths);
+  const trueEtaDay = eta.getTime() / MS_PER_DAY;
+  if (trueEtaDay > horizonEndDay) {
+    return {
+      status: "beyond_horizon",
+      cutMs,
+      slopeMsPerDay: fit.slope,
+      meetCount,
+    };
+  }
+
+  // A crossing in the past means the recent line already sits at the cut; clamp
+  // to today so the estimate reads "about now", never a backwards arrow.
+  const etaDay = Math.max(trueEtaDay, todayDay);
+  const lastDay = points[points.length - 1].x;
+  const fromMs = fit.slope * lastDay + fit.intercept;
+  const toT = Math.round(etaDay * MS_PER_DAY);
+
+  return {
+    status: "projected",
+    cutMs,
+    slopeMsPerDay: fit.slope,
+    etaIso: new Date(toT).toISOString().slice(0, 10),
+    fromT: Math.round(lastDay * MS_PER_DAY),
+    fromMs,
+    toT,
+    toMs: cutMs,
+    meetCount,
+  };
+}
