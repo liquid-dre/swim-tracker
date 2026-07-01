@@ -11,6 +11,8 @@ import {
   eventSortKey,
   highestTierMet,
   pickApplicableStandards,
+  resolveStandardTime,
+  tierCoversEvent,
   type ResultForPB,
   type StandardCut,
   type Tier,
@@ -585,6 +587,172 @@ export const getQualificationMatrix = query({
         label: e.label,
       })),
       rows,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// getRoadToQualify — one swimmer's gap to a single target tier (BRD §5.10–5.11)
+// ---------------------------------------------------------------------------
+//
+// The per-swimmer counterpart to the status matrix: pick a swimmer and ONE
+// target tier (§5.10), and for every LCM event that tier covers at the
+// swimmer's EXACT single-year age (§4.9), return the gap between their headline
+// MEET PB and that tier's cut. LCM only — standards are long-course (§4.2).
+//
+//   • cutMs      the tier's cut for this event at the swimmer's exact age.
+//   • pbMs       headline MEET LCM PB, or null (trials/practice never count).
+//   • gapMs      pbMs − cutMs (positive = time to drop; ≤ 0 = qualified); null
+//                with no PB (never drawn as a huge gap).
+//   • gapPct     the gap as a % of the cut (signed); null with no PB.
+//   • pctOfCut   pbMs as a % of the cut (100% = on the line, < 100% = qualified);
+//                null with no PB. This is the sort key AND the profile bar.
+//   • qualified  pbMs ≤ cutMs.
+//
+// Only events the tier actually covers at that age render (coverage is a HARD
+// rule, §4.9: SANJ has no 50s, L2 nothing above 200 m). Events sort closest-first
+// (ascending pctOfCut, so qualified float to the top); no-time events sort last
+// in canonical order so they read as a separate "not raced yet" list, never a
+// giant gap. Coach-only (viewer scoping is a later step). Bounded reads.
+
+const ROAD_STANDARDS_LIMIT = 5000;
+
+const roadEvent = v.object({
+  distance,
+  stroke,
+  label: v.string(),
+  cutMs: v.number(),
+  pbMs: v.union(v.number(), v.null()),
+  gapMs: v.union(v.number(), v.null()),
+  gapPct: v.union(v.number(), v.null()),
+  pctOfCut: v.union(v.number(), v.null()),
+  qualified: v.boolean(),
+});
+
+export const getRoadToQualify = query({
+  args: {
+    swimmerId: v.id("swimmers"),
+    tier,
+  },
+  returns: v.union(
+    v.null(), // swimmer vanished (deleted elsewhere) → caller shows empty state
+    v.object({
+      swimmer: v.object({
+        _id: v.id("swimmers"),
+        name: v.string(),
+        gender,
+        age: v.number(), // exact single-year age today — drives cut resolution
+        active: v.boolean(),
+      }),
+      tier,
+      events: v.array(roadEvent),
+    }),
+  ),
+  handler: async (ctx, { swimmerId, tier: targetTier }) => {
+    await requireCoach(ctx);
+
+    const swimmer = await ctx.db.get(swimmerId);
+    if (swimmer === null) return null;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const age = computeAge(swimmer.dob, today);
+
+    // Columns: active LCM events (standards are LCM-only), canonical 50→1500.
+    const allEvents = await ctx.db.query("events").take(200);
+    const lcmEvents = allEvents
+      .filter((e) => e.active && e.allowedCourses.includes("LCM"))
+      .sort(
+        (a, b) =>
+          eventSortKey(a.distance, a.stroke) - eventSortKey(b.distance, b.stroke),
+      );
+
+    // This swimmer's gender's cuts, grouped by event so each resolves to the
+    // exact age. Small table at club scale; bounded read (guidelines).
+    const allStandards = await ctx.db
+      .query("standards")
+      .withIndex("by_lookup", (q) => q.eq("gender", swimmer.gender))
+      .take(ROAD_STANDARDS_LIMIT);
+    const cutsByEvent = new Map<string, StandardCut[]>();
+    for (const s of allStandards) {
+      if (s.tier !== targetTier) continue; // one target tier only (§5.10)
+      const key = `${s.distance}|${s.stroke}`;
+      const cut: StandardCut = {
+        age: s.age,
+        isCatchAllYoung: s.isCatchAllYoung,
+        isCatchAllOld: s.isCatchAllOld,
+        timeMs: s.timeMs,
+      };
+      const arr = cutsByEvent.get(key);
+      if (arr) arr.push(cut);
+      else cutsByEvent.set(key, [cut]);
+    }
+
+    // Headline MEET LCM PBs (same derivation as the profile board / matrix).
+    const results = await ctx.db
+      .query("results")
+      .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
+      .take(SWIMMER_RESULTS_LIMIT);
+    const pbs = computePersonalBests(results as ResultForPB[]);
+    const lcmPbByEvent = new Map<string, number>();
+    for (const pb of pbs) {
+      if (pb.course === "LCM" && pb.headline) {
+        lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, pb.headline.timeMs);
+      }
+    }
+
+    const events = [];
+    for (const e of lcmEvents) {
+      // Coverage is a HARD rule (§4.9): only render where the tier covers this
+      // event AND a cut actually resolves for the swimmer's exact age.
+      if (!tierCoversEvent(targetTier, e.distance, e.stroke)) continue;
+      const cutMs = resolveStandardTime(
+        cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [],
+        age,
+      );
+      if (cutMs === null) continue;
+
+      const pbMs = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
+      const gapMs = pbMs === null ? null : pbMs - cutMs;
+      const gapPct = pbMs === null ? null : (gapMs! / cutMs) * 100;
+      const pctOfCut = pbMs === null ? null : (pbMs / cutMs) * 100;
+      const qualified = pbMs !== null && pbMs <= cutMs;
+
+      events.push({
+        distance: e.distance,
+        stroke: e.stroke,
+        label: e.label,
+        cutMs,
+        pbMs,
+        gapMs,
+        gapPct,
+        pctOfCut,
+        qualified,
+      });
+    }
+
+    // Closest-first: ascending pctOfCut floats qualified (< 100%) to the top and
+    // orders the chasers by how near the line they are. Events with no meet time
+    // can't be measured, so they trail in canonical order as their own list.
+    const withTime = events
+      .filter((e) => e.pbMs !== null)
+      .sort((a, b) => (a.pctOfCut as number) - (b.pctOfCut as number));
+    const noTime = events
+      .filter((e) => e.pbMs === null)
+      .sort(
+        (a, b) =>
+          eventSortKey(a.distance, a.stroke) - eventSortKey(b.distance, b.stroke),
+      );
+
+    return {
+      swimmer: {
+        _id: swimmer._id,
+        name: swimmer.name,
+        gender: swimmer.gender,
+        age,
+        active: swimmer.active,
+      },
+      tier: targetTier,
+      events: [...withTime, ...noTime],
     };
   },
 });
