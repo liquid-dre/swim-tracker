@@ -1,0 +1,273 @@
+"use client";
+
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+import { formatTime } from "@/lib/swim";
+import { formatShortDate } from "@/lib/format";
+import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
+import { CHART, CHART_ANIM_MS, isoToMs, seriesColor } from "@/components/analysis/chartTheme";
+
+/*
+  Progression line chart (Step 7, BRD §5.6). x = date, y = time, with the y-axis
+  INVERTED so a faster (lower) time sits higher and improvement reads as "up".
+  Every logged swim is plotted (all types); MEET swims are filled dots, trials /
+  practice are hollow, and the current PB carries a ring. One line per swimmer
+  for a group. Standards reference lines are Step 10 — not drawn yet.
+*/
+
+export type ProgressionPoint = {
+  resultId: string;
+  swimDate: string;
+  timeMs: number;
+  swimType: "MEET" | "TIME_TRIAL" | "PRACTICE";
+  isMeet: boolean;
+  isPB: boolean;
+};
+
+export type ProgressionSeries = {
+  swimmerId: string;
+  name: string;
+  points: ProgressionPoint[];
+};
+
+type ChartPoint = ProgressionPoint & { t: number };
+
+function msToShort(ms: number): string {
+  const iso = new Date(ms).toISOString().slice(0, 10);
+  return formatShortDate(iso);
+}
+
+export function ProgressionChart({
+  series,
+  single,
+}: {
+  series: ProgressionSeries[];
+  single: boolean;
+}) {
+  const reduced = usePrefersReducedMotion();
+
+  const data: Array<{ color: string; name: string; points: ChartPoint[] }> = series.map(
+    (s, i) => ({
+      color: single ? CHART.accent : seriesColor(i),
+      name: s.name,
+      points: s.points.map((p) => ({ ...p, t: isoToMs(p.swimDate) })),
+    }),
+  );
+
+  // Shared numeric domains across every series (dates differ per swimmer, so a
+  // numeric time axis is the honest way to place them on one timeline).
+  const allTimes = data.flatMap((s) => s.points.map((p) => p.timeMs));
+  const allT = data.flatMap((s) => s.points.map((p) => p.t));
+  const tMin = Math.min(...allT);
+  const tMax = Math.max(...allT);
+  const yLo = Math.min(...allTimes);
+  const yHi = Math.max(...allTimes);
+  const yPad = Math.max(500, Math.round((yHi - yLo) * 0.12));
+  // A one-day pad keeps single-date series from collapsing onto the axis edge.
+  const tPad = tMin === tMax ? 86_400_000 : Math.round((tMax - tMin) * 0.04);
+
+  // The chart is SVG; give assistive tech a plain-language read of each line.
+  const summary = series
+    .map((s) => {
+      const pb = s.points.find((p) => p.isPB);
+      const meets = s.points.filter((p) => p.isMeet).length;
+      return `${s.name}: ${s.points.length} swims, ${meets} meets${
+        pb ? `, personal best ${formatTime(pb.timeMs)}` : ""
+      }.`;
+    })
+    .join(" ");
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div
+        style={{ width: "100%", height: 360 }}
+        role="img"
+        aria-label={`Progression chart, time over date with a faster time plotted higher. ${summary}`}
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart margin={{ top: 8, right: 20, bottom: 4, left: 8 }}>
+            <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+            <XAxis
+              type="number"
+              dataKey="t"
+              domain={[tMin - tPad, tMax + tPad]}
+              tickFormatter={msToShort}
+              tick={{ fill: CHART.tick, fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: CHART.axis }}
+              minTickGap={40}
+              height={22}
+            />
+            <YAxis
+              type="number"
+              reversed
+              domain={[yLo - yPad, yHi + yPad]}
+              tickFormatter={(v: number) => formatTime(v)}
+              tick={{ fill: CHART.tick, fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: CHART.axis }}
+              width={64}
+            />
+            <Tooltip
+              cursor={{ stroke: CHART.axis, strokeDasharray: "3 3" }}
+              content={<ProgressionTooltip single={single} />}
+            />
+            {data.map((s) => (
+              <Line
+                key={s.name}
+                data={s.points}
+                type="linear"
+                dataKey="timeMs"
+                name={s.name}
+                stroke={s.color}
+                strokeWidth={2}
+                isAnimationActive={!reduced}
+                animationDuration={CHART_ANIM_MS}
+                dot={(props: DotProps) => <ProgressionDot {...props} color={s.color} />}
+                activeDot={{ r: 5, strokeWidth: 2, stroke: "var(--color-gray-25)" }}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <Legend series={data} single={single} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Custom dot — meet vs trial/practice vs PB
+// ---------------------------------------------------------------------------
+
+type DotProps = {
+  cx?: number;
+  cy?: number;
+  payload?: ChartPoint;
+};
+
+function ProgressionDot({
+  cx,
+  cy,
+  payload,
+  color,
+}: DotProps & { color: string }) {
+  if (cx === undefined || cy === undefined || !payload) return <g />;
+  const { isMeet, isPB } = payload;
+
+  if (isPB) {
+    // PB: filled core with an outer ring so it reads as the anchor point.
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={7} fill="none" stroke={color} strokeWidth={1.5} opacity={0.35} />
+        <circle cx={cx} cy={cy} r={4} fill={color} stroke="var(--color-gray-25)" strokeWidth={1.5} />
+      </g>
+    );
+  }
+  if (isMeet) {
+    // Meet: filled dot.
+    return <circle cx={cx} cy={cy} r={3.5} fill={color} stroke="var(--color-gray-25)" strokeWidth={1} />;
+  }
+  // Trial / practice: hollow dot.
+  return <circle cx={cx} cy={cy} r={3} fill="var(--color-gray-25)" stroke={color} strokeWidth={1.5} />;
+}
+
+// ---------------------------------------------------------------------------
+// Tooltip
+// ---------------------------------------------------------------------------
+
+const TYPE_LABEL: Record<ProgressionPoint["swimType"], string> = {
+  MEET: "Meet",
+  TIME_TRIAL: "Trial",
+  PRACTICE: "Practice",
+};
+
+type TooltipProps = {
+  active?: boolean;
+  payload?: Array<{ payload: ChartPoint; name?: string; color?: string }>;
+  single: boolean;
+};
+
+function ProgressionTooltip({ active, payload, single }: TooltipProps) {
+  if (!active || !payload || payload.length === 0) return null;
+  const entry = payload[0];
+  const p = entry.payload;
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-theme-md">
+      {!single && entry.name && (
+        <p className="flex items-center gap-1.5 font-medium text-ink">
+          <span
+            aria-hidden
+            className="size-2 rounded-full"
+            style={{ background: entry.color }}
+          />
+          {entry.name}
+        </p>
+      )}
+      <p className="time tnum mt-0.5 text-ink">{formatTime(p.timeMs)}</p>
+      <p className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
+        <span>{msToShort(p.t)}</span>
+        <span aria-hidden className="h-3 w-px bg-border" />
+        <span>{TYPE_LABEL[p.swimType]}</span>
+        {p.isPB && <span className="font-medium text-brand-500">PB</span>}
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Legend — marks (single) or swimmer swatches (group)
+// ---------------------------------------------------------------------------
+
+function Legend({
+  series,
+  single,
+}: {
+  series: Array<{ color: string; name: string }>;
+  single: boolean;
+}) {
+  if (single) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-1 text-xs text-ink-muted">
+        <LegendMark>
+          <span className="size-2.5 rounded-full bg-brand-500" /> Meet
+        </LegendMark>
+        <LegendMark>
+          <span className="size-2.5 rounded-full border-[1.5px] border-brand-500 bg-gray-25" /> Trial /
+          practice
+        </LegendMark>
+        <LegendMark>
+          <span className="relative flex size-3.5 items-center justify-center">
+            <span className="absolute inset-0 rounded-full border-[1.5px] border-brand-500 opacity-40" />
+            <span className="size-2 rounded-full bg-brand-500" />
+          </span>
+          Personal best
+        </LegendMark>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-1 text-xs text-ink-muted">
+      {series.map((s) => (
+        <LegendMark key={s.name}>
+          <span className="size-2.5 rounded-full" style={{ background: s.color }} />
+          <span className="text-ink">{s.name}</span>
+        </LegendMark>
+      ))}
+      <span className="text-ink-faint">Filled = meet · hollow = trial/practice · ring = PB</span>
+    </div>
+  );
+}
+
+function LegendMark({ children }: { children: React.ReactNode }) {
+  return <span className="inline-flex items-center gap-1.5">{children}</span>;
+}
