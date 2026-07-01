@@ -503,3 +503,264 @@ export function computePersonalBests(
 
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// 8. Qualifying standards — tiers, coverage, resolution (BRD §4.9, Step 8)
+// ---------------------------------------------------------------------------
+//
+// All standards are LONG COURSE (LCM) only — never SCM (§4.2, §4.9). Every
+// function here is pure so the same rules run in the Convex importer/queries
+// and in unit tests. Times are integer milliseconds (via parseTime).
+
+export type Tier = "LEVEL_2" | "LEVEL_3" | "SANJ";
+
+/**
+ * Tier order HARDEST → EASIEST (§4.9 — deliberately inverted from the names):
+ * SANJ (fastest cut) > LEVEL_3 > LEVEL_2 (entry). Every "highest tier met" and
+ * colour/rank decision must walk tiers in this order.
+ */
+export const TIER_ORDER: ReadonlyArray<Tier> = ["SANJ", "LEVEL_3", "LEVEL_2"];
+
+/**
+ * Coverage is a HARD rule (§4.9), not merely missing data: a tier only has cuts
+ * for the events listed below (LCM implied). Anything else has no cut and must
+ * never be imported, resolved, or drawn — never interpolate or borrow a tier.
+ *
+ *   - 50 m:     LEVEL_2 only (no 50 m L3/SANJ, ever).
+ *   - LEVEL_2:  up to 200 m inclusive (+ 200 IM); nothing longer.
+ *   - LEVEL_3:  100/200/400 + 200 IM; no 50s, no 800/1500, no 200 Fly, no 400 IM.
+ *   - SANJ:     100→1500 Free, all strokes' 100/200, 400 Free/IM, 200 IM; no 50s.
+ *
+ * Note this is coverage only; whether the (distance, stroke) is a real LCM event
+ * is a separate check (`isValidEvent(..., "LCM", …)`), e.g. 100 IM is SCM-only.
+ */
+export function tierCoversEvent(
+  tier: Tier,
+  distance: Distance | number,
+  stroke: Stroke | string,
+): boolean {
+  const d = Number(distance);
+  const s = stroke as Stroke;
+  switch (tier) {
+    case "LEVEL_2":
+      // Everything up to 200 m (50 m is LEVEL_2-only; 200 IM included).
+      return d <= 200;
+    case "LEVEL_3":
+      if (s === "IM") return d === 200; // 200 IM only (no 400 IM)
+      if (s === "FLY") return d === 100; // no 200 Fly
+      if (s === "FREE") return d === 100 || d === 200 || d === 400;
+      return d === 100 || d === 200; // BACK / BREAST
+    case "SANJ":
+      if (s === "FREE") return d >= 100; // 100/200/400/800/1500
+      if (s === "IM") return d === 200 || d === 400; // 200 IM + 400 IM
+      return d === 100 || d === 200; // BACK / BREAST / FLY
+    default:
+      return false;
+  }
+}
+
+/** The minimal cut fields the resolver reads (one per exact age / catch-all). */
+export type StandardCut = {
+  age: number;
+  isCatchAllYoung: boolean; // applies to ages <= age (e.g. "10&U")
+  isCatchAllOld: boolean; // applies to ages >= age (e.g. "17-19")
+  timeMs: number;
+};
+
+/**
+ * The cut (ms) that applies to a swimmer's EXACT single-year age, honouring
+ * catch-alls (§4.9): `isCatchAllYoung` matches ages ≤ its bound, `isCatchAllOld`
+ * matches ages ≥ its bound, otherwise the age must match exactly. An exact-age
+ * row always wins over a catch-all. Returns null when no row applies (sparse
+ * coverage → no line). Never interpolates.
+ */
+export function resolveStandardTime(
+  cuts: ReadonlyArray<StandardCut>,
+  exactAge: number,
+): number | null {
+  let exact: StandardCut | null = null;
+  let young: StandardCut | null = null; // narrowest young catch-all that covers
+  let old: StandardCut | null = null; // widest old catch-all that covers
+
+  for (const c of cuts) {
+    if (!c.isCatchAllYoung && !c.isCatchAllOld) {
+      if (c.age === exactAge) exact = c;
+    } else if (c.isCatchAllYoung && exactAge <= c.age) {
+      if (young === null || c.age < young.age) young = c;
+    } else if (c.isCatchAllOld && exactAge >= c.age) {
+      if (old === null || c.age > old.age) old = c;
+    }
+  }
+
+  const match = exact ?? young ?? old;
+  return match ? match.timeMs : null;
+}
+
+/** The applicable cuts for one exact age, per tier; missing tiers are omitted. */
+export type ApplicableStandards = {
+  LEVEL_2?: number;
+  LEVEL_3?: number;
+  SANJ?: number;
+};
+
+/**
+ * Resolve the L2/L3/SANJ cuts for one (gender, distance, stroke) at an exact
+ * age from a flat list of that event's cut rows (§4.9). Tiers with no applicable
+ * cut are omitted entirely — the caller renders no line for them. LCM only.
+ */
+export function pickApplicableStandards(
+  rows: ReadonlyArray<StandardCut & { tier: Tier }>,
+  exactAge: number,
+): ApplicableStandards {
+  const out: ApplicableStandards = {};
+  for (const tier of TIER_ORDER) {
+    const ms = resolveStandardTime(
+      rows.filter((r) => r.tier === tier),
+      exactAge,
+    );
+    if (ms !== null) out[tier] = ms;
+  }
+  return out;
+}
+
+/**
+ * The HARDEST tier a personal best meets, walking SANJ → LEVEL_3 → LEVEL_2
+ * (§4.9). "Met" = the PB is at or under the cut (`pbMs <= cut`). Tiers with no
+ * cut (undefined/null) are skipped. Returns null when no tier is met.
+ */
+export function highestTierMet(
+  pbMs: number,
+  cutsByTier: {
+    LEVEL_2?: number | null;
+    LEVEL_3?: number | null;
+    SANJ?: number | null;
+  },
+): Tier | null {
+  for (const tier of TIER_ORDER) {
+    const cut = cutsByTier[tier];
+    if (cut != null && pbMs <= cut) return tier;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// 8b. importStandards — pure validation/parsing of the coach's cleaned CSV rows
+// ---------------------------------------------------------------------------
+//
+// The Convex mutation is a thin wrapper: it loads the event whitelist, runs
+// `prepareStandardImport`, then idempotently upserts the accepted rows. All the
+// judgement — parse, whitelist, coverage — lives here so it is unit-testable and
+// so a bad row is REPORTED with a reason, never silently dropped or guessed.
+
+/** One raw row as it arrives from the cleaned CSV (loosely typed on purpose). */
+export type RawStandardRow = {
+  tier: string;
+  gender: string;
+  distance: number | string;
+  stroke: string;
+  age: number | string;
+  isCatchAllYoung: boolean;
+  isCatchAllOld: boolean;
+  time: string;
+};
+
+/** A validated, parsed row ready to persist to the `standards` table. */
+export type PreparedStandard = {
+  tier: Tier;
+  gender: "M" | "F";
+  distance: Distance;
+  stroke: Stroke;
+  age: number;
+  isCatchAllYoung: boolean;
+  isCatchAllOld: boolean;
+  timeMs: number;
+};
+
+/** A rejected row: kept with its original index + a human reason (never dropped). */
+export type RejectedStandard = {
+  index: number;
+  reason: string;
+  row: RawStandardRow;
+};
+
+const TIER_SET = new Set<Tier>(["LEVEL_2", "LEVEL_3", "SANJ"]);
+const GENDER_SET = new Set(["M", "F"]);
+
+/**
+ * Validate + parse raw standard rows (§4.4, §4.9). Returns the accepted rows
+ * (parsed to ms) and the rejected rows (with a reason each). A row is rejected
+ * if any field is off-enum, the age is not a sane whole number, both catch-all
+ * flags are set, the (distance, stroke) is not a valid LCM event, the tier does
+ * not cover that event, or the time fails `parseTime`. Nothing is guessed.
+ */
+export function prepareStandardImport(
+  rows: ReadonlyArray<RawStandardRow>,
+  events: ReadonlyArray<EventDef>,
+): { accepted: PreparedStandard[]; rejected: RejectedStandard[] } {
+  const accepted: PreparedStandard[] = [];
+  const rejected: RejectedStandard[] = [];
+
+  rows.forEach((row, index) => {
+    const reject = (reason: string) => rejected.push({ index, reason, row });
+
+    if (!TIER_SET.has(row.tier as Tier)) {
+      return reject(`unknown tier "${row.tier}"`);
+    }
+    if (!GENDER_SET.has(row.gender)) {
+      return reject(`unknown gender "${row.gender}" (expected M or F)`);
+    }
+
+    const distance = Number(row.distance);
+    if (!DISTANCE_ORDER.includes(distance as Distance)) {
+      return reject(`invalid distance "${row.distance}"`);
+    }
+    if (STROKE_ORDER.indexOf(row.stroke as Stroke) < 0) {
+      return reject(`invalid stroke "${row.stroke}"`);
+    }
+
+    const age = Number(row.age);
+    if (!Number.isInteger(age) || age <= 0 || age > 100) {
+      return reject(`invalid age "${row.age}"`);
+    }
+
+    if (typeof row.isCatchAllYoung !== "boolean" || typeof row.isCatchAllOld !== "boolean") {
+      return reject("catch-all flags must be booleans");
+    }
+    if (row.isCatchAllYoung && row.isCatchAllOld) {
+      return reject("row flagged as BOTH young and old catch-all");
+    }
+
+    const tier = row.tier as Tier;
+    const stroke = row.stroke as Stroke;
+
+    // Standards are LCM only — the event must exist AND allow long course.
+    if (!isValidEvent(distance, stroke, "LCM", events)) {
+      return reject(`not a valid LCM event: ${eventLabel(distance, stroke)}`);
+    }
+    if (!tierCoversEvent(tier, distance, stroke)) {
+      return reject(`${tier} has no coverage for ${eventLabel(distance, stroke)}`);
+    }
+
+    let timeMs: number;
+    try {
+      timeMs = parseTime(row.time);
+    } catch (err) {
+      return reject(
+        `unparseable time "${row.time}": ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    accepted.push({
+      tier,
+      gender: row.gender as "M" | "F",
+      distance: distance as Distance,
+      stroke,
+      age,
+      isCatchAllYoung: row.isCatchAllYoung,
+      isCatchAllOld: row.isCatchAllOld,
+      timeMs,
+    });
+  });
+
+  return { accepted, rejected };
+}
