@@ -10,9 +10,19 @@ import {
   eventLabel,
   eventSortKey,
   DEFAULT_AGE_BANDS,
+  TIER_ORDER,
+  tierCoversEvent,
+  resolveStandardTime,
+  pickApplicableStandards,
+  highestTierMet,
+  prepareStandardImport,
   type EventDef,
   type ResultForPB,
+  type StandardCut,
+  type Tier,
+  type RawStandardRow,
 } from "./swim";
+import { SAMPLE_STANDARDS } from "../convex/standardsSampleData";
 
 // ---------------------------------------------------------------------------
 // parseTime (BRD §4.4) — the bulletproof parser
@@ -374,5 +384,228 @@ describe("computePersonalBests", () => {
     // Courses never merge: two separate 100 Free records.
     const oneHundreds = pbs.filter((p) => p.distance === 100);
     expect(oneHundreds).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Qualifying standards (BRD §4.9, Step 8) — LCM only, SANJ > LEVEL_3 > LEVEL_2
+// ---------------------------------------------------------------------------
+
+describe("TIER_ORDER", () => {
+  it("is hardest → easiest (§4.9)", () => {
+    expect(TIER_ORDER).toEqual(["SANJ", "LEVEL_3", "LEVEL_2"]);
+  });
+});
+
+describe("tierCoversEvent (§4.9 coverage is a hard rule)", () => {
+  it("50 m is LEVEL_2 only — no 50 m L3/SANJ ever", () => {
+    expect(tierCoversEvent("LEVEL_2", 50, "FREE")).toBe(true);
+    expect(tierCoversEvent("LEVEL_3", 50, "FREE")).toBe(false);
+    expect(tierCoversEvent("SANJ", 50, "FREE")).toBe(false);
+  });
+
+  it("LEVEL_2 tops out at 200 m (+ 200 IM); nothing longer", () => {
+    expect(tierCoversEvent("LEVEL_2", 200, "FREE")).toBe(true);
+    expect(tierCoversEvent("LEVEL_2", 200, "IM")).toBe(true);
+    expect(tierCoversEvent("LEVEL_2", 400, "FREE")).toBe(false);
+    expect(tierCoversEvent("LEVEL_2", 800, "FREE")).toBe(false);
+    expect(tierCoversEvent("LEVEL_2", 1500, "FREE")).toBe(false);
+  });
+
+  it("LEVEL_3 is 100/200/400 + 200 IM; no 800/1500, no 200 Fly, no 400 IM", () => {
+    expect(tierCoversEvent("LEVEL_3", 100, "FREE")).toBe(true);
+    expect(tierCoversEvent("LEVEL_3", 400, "FREE")).toBe(true);
+    expect(tierCoversEvent("LEVEL_3", 200, "IM")).toBe(true);
+    expect(tierCoversEvent("LEVEL_3", 200, "FLY")).toBe(false); // no 200 Fly
+    expect(tierCoversEvent("LEVEL_3", 400, "IM")).toBe(false); // no 400 IM
+    expect(tierCoversEvent("LEVEL_3", 800, "FREE")).toBe(false);
+  });
+
+  it("SANJ covers 100→1500 Free, all strokes' 100/200, 400 Free/IM, 200 IM; no 50s", () => {
+    expect(tierCoversEvent("SANJ", 800, "FREE")).toBe(true);
+    expect(tierCoversEvent("SANJ", 1500, "FREE")).toBe(true);
+    expect(tierCoversEvent("SANJ", 200, "FLY")).toBe(true);
+    expect(tierCoversEvent("SANJ", 400, "IM")).toBe(true);
+    expect(tierCoversEvent("SANJ", 400, "BACK")).toBe(false);
+    expect(tierCoversEvent("SANJ", 50, "FREE")).toBe(false);
+  });
+});
+
+describe("resolveStandardTime — catch-all resolution (§4.9)", () => {
+  // 100 Free girls: 10&U catch-all, exact 12 & 14, 17-19 catch-all.
+  const cuts: StandardCut[] = [
+    { age: 10, isCatchAllYoung: true, isCatchAllOld: false, timeMs: 66000 }, // 10&U
+    { age: 12, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 62000 },
+    { age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
+    { age: 17, isCatchAllYoung: false, isCatchAllOld: true, timeMs: 58000 }, // 17-19
+  ];
+
+  it("a 9-year-old resolves to the 10&U young catch-all", () => {
+    expect(resolveStandardTime(cuts, 9)).toBe(66000);
+    expect(resolveStandardTime(cuts, 10)).toBe(66000); // bound is inclusive
+  });
+
+  it("a 20-year-old resolves to the 17-19 old catch-all", () => {
+    expect(resolveStandardTime(cuts, 20)).toBe(58000);
+    expect(resolveStandardTime(cuts, 17)).toBe(58000); // bound is inclusive
+  });
+
+  it("an exact age wins over any catch-all", () => {
+    expect(resolveStandardTime(cuts, 12)).toBe(62000);
+    expect(resolveStandardTime(cuts, 14)).toBe(60000);
+  });
+
+  it("returns null when no row applies (sparse coverage → no line)", () => {
+    expect(resolveStandardTime([], 14)).toBeNull();
+    // 11 falls in a gap here (no exact 11, outside both catch-alls) → null.
+    expect(resolveStandardTime(cuts, 11)).toBeNull();
+  });
+});
+
+describe("sparse coverage → null (§4.9)", () => {
+  it("50 Free SANJ and 400 Free LEVEL_2 have no coverage", () => {
+    expect(tierCoversEvent("SANJ", 50, "FREE")).toBe(false);
+    expect(tierCoversEvent("LEVEL_2", 400, "FREE")).toBe(false);
+    // With no rows for an uncovered tier, resolution is null (never interpolated).
+    expect(resolveStandardTime([], 14)).toBeNull();
+  });
+});
+
+describe("pickApplicableStandards (§4.9) — omits tiers with no cut", () => {
+  it("returns only the tiers that resolve at the exact age", () => {
+    const rows: Array<StandardCut & { tier: Tier }> = [
+      { tier: "LEVEL_2", age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 66000 },
+      { tier: "SANJ", age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
+      // No LEVEL_3 row → LEVEL_3 must be absent from the result.
+    ];
+    expect(pickApplicableStandards(rows, 14)).toEqual({ SANJ: 60000, LEVEL_2: 66000 });
+  });
+
+  it("is empty when nothing resolves at the age", () => {
+    const rows: Array<StandardCut & { tier: Tier }> = [
+      { tier: "SANJ", age: 12, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
+    ];
+    expect(pickApplicableStandards(rows, 15)).toEqual({});
+  });
+});
+
+describe("highestTierMet (§4.9 order) — hardest first", () => {
+  const cutsByTier = { SANJ: 58000, LEVEL_3: 60000, LEVEL_2: 63000 };
+
+  it("returns the hardest tier the PB meets", () => {
+    expect(highestTierMet(57000, cutsByTier)).toBe("SANJ"); // beats the fastest cut
+    expect(highestTierMet(59000, cutsByTier)).toBe("LEVEL_3");
+    expect(highestTierMet(61000, cutsByTier)).toBe("LEVEL_2");
+    expect(highestTierMet(64000, cutsByTier)).toBeNull(); // slower than all cuts
+  });
+
+  it("treats equal-to-cut as met", () => {
+    expect(highestTierMet(58000, cutsByTier)).toBe("SANJ");
+    expect(highestTierMet(63000, cutsByTier)).toBe("LEVEL_2");
+  });
+
+  it("skips tiers with no cut", () => {
+    expect(highestTierMet(61000, { LEVEL_2: 63000 })).toBe("LEVEL_2");
+    // SANJ not met, LEVEL_3 absent → falls through to LEVEL_2.
+    expect(highestTierMet(59000, { SANJ: 58000, LEVEL_2: 63000 })).toBe("LEVEL_2");
+    expect(highestTierMet(59000, {})).toBeNull();
+  });
+});
+
+describe("prepareStandardImport (§4.4/§4.9) — rejects + reports, never drops", () => {
+  // A minimal LCM whitelist: 100 IM is SCM-only, 50 IM does not exist.
+  const BOTH = ["SCM", "LCM"] as const;
+  const events: EventDef[] = [
+    { distance: 50, stroke: "FREE", allowedCourses: [...BOTH], active: true },
+    { distance: 100, stroke: "FREE", allowedCourses: [...BOTH], active: true },
+    { distance: 100, stroke: "IM", allowedCourses: ["SCM"], active: true },
+    { distance: 200, stroke: "FLY", allowedCourses: [...BOTH], active: true },
+    { distance: 200, stroke: "IM", allowedCourses: [...BOTH], active: true },
+    { distance: 400, stroke: "FREE", allowedCourses: [...BOTH], active: true },
+    { distance: 800, stroke: "FREE", allowedCourses: [...BOTH], active: true },
+  ];
+
+  const good = (over: Partial<RawStandardRow> = {}): RawStandardRow => ({
+    tier: "LEVEL_2",
+    gender: "F",
+    distance: 100,
+    stroke: "FREE",
+    age: 14,
+    isCatchAllYoung: false,
+    isCatchAllOld: false,
+    time: "1:06:00",
+    ...over,
+  });
+
+  it("accepts a good row and reports a bad (unparseable) one — keeping the row", () => {
+    const rows: RawStandardRow[] = [good(), good({ time: "not-a-time" })];
+    const { accepted, rejected } = prepareStandardImport(rows, events);
+
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0].timeMs).toBe(66000);
+
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].index).toBe(1);
+    expect(rejected[0].reason).toMatch(/unparseable time/);
+    expect(rejected[0].row).toBe(rows[1]); // preserved, not silently dropped
+  });
+
+  it("rejects events off the whitelist (50 IM, 100 IM on LCM)", () => {
+    const rows: RawStandardRow[] = [
+      good({ distance: 50, stroke: "IM" }), // no 50 IM at all
+      good({ distance: 100, stroke: "IM" }), // 100 IM is SCM-only
+    ];
+    const { accepted, rejected } = prepareStandardImport(rows, events);
+    expect(accepted).toHaveLength(0);
+    expect(rejected).toHaveLength(2);
+    expect(rejected.every((r) => /valid LCM event/.test(r.reason))).toBe(true);
+  });
+
+  it("rejects coverage violations (SANJ 50 Free, LEVEL_2 400 Free)", () => {
+    const rows: RawStandardRow[] = [
+      good({ tier: "SANJ", distance: 50, stroke: "FREE" }),
+      good({ tier: "LEVEL_2", distance: 400, stroke: "FREE" }),
+    ];
+    const { accepted, rejected } = prepareStandardImport(rows, events);
+    expect(accepted).toHaveLength(0);
+    expect(rejected).toHaveLength(2);
+    expect(rejected.every((r) => /no coverage/.test(r.reason))).toBe(true);
+  });
+
+  it("rejects off-enum fields and impossible catch-all flags", () => {
+    const rows: RawStandardRow[] = [
+      good({ tier: "LEVEL_9" }),
+      good({ gender: "X" }),
+      good({ age: 0 }),
+      good({ isCatchAllYoung: true, isCatchAllOld: true }),
+    ];
+    const { accepted, rejected } = prepareStandardImport(rows, events);
+    expect(accepted).toHaveLength(0);
+    expect(rejected.map((r) => r.index)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("parses catch-all rows to the right ms and flags", () => {
+    const rows: RawStandardRow[] = [
+      good({ age: 10, isCatchAllYoung: true, time: "1:15:00" }),
+      good({ age: 17, isCatchAllOld: true, time: "1:03:00" }),
+    ];
+    const { accepted, rejected } = prepareStandardImport(rows, events);
+    expect(rejected).toHaveLength(0);
+    expect(accepted[0]).toMatchObject({ age: 10, isCatchAllYoung: true, timeMs: 75000 });
+    expect(accepted[1]).toMatchObject({ age: 17, isCatchAllOld: true, timeMs: 63000 });
+  });
+
+  it("accepts the whole bundled sample dataset (populates standards)", () => {
+    // The full LCM whitelist (§4.3) — the sample only touches Free events.
+    const BOTH = ["SCM", "LCM"] as const;
+    const whitelist: EventDef[] = [50, 100, 200, 400, 800, 1500].map((d) => ({
+      distance: d,
+      stroke: "FREE",
+      allowedCourses: [...BOTH],
+      active: true,
+    }));
+    const { accepted, rejected } = prepareStandardImport(SAMPLE_STANDARDS, whitelist);
+    expect(rejected).toEqual([]);
+    expect(accepted).toHaveLength(SAMPLE_STANDARDS.length);
   });
 });
