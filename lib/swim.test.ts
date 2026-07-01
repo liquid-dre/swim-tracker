@@ -16,11 +16,15 @@ import {
   pickApplicableStandards,
   highestTierMet,
   prepareStandardImport,
+  parseStandardsCsv,
+  findAgeInversions,
+  cutAgeOrder,
   type EventDef,
   type ResultForPB,
   type StandardCut,
   type Tier,
   type RawStandardRow,
+  type AgeCut,
 } from "./swim";
 import { SAMPLE_STANDARDS } from "../convex/standardsSampleData";
 
@@ -607,5 +611,143 @@ describe("prepareStandardImport (§4.4/§4.9) — rejects + reports, never drops
     const { accepted, rejected } = prepareStandardImport(SAMPLE_STANDARDS, whitelist);
     expect(rejected).toEqual([]);
     expect(accepted).toHaveLength(SAMPLE_STANDARDS.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseStandardsCsv (§5.8) — coerce strings; the "false"-is-truthy trap
+// ---------------------------------------------------------------------------
+
+describe("parseStandardsCsv — type coercion + rejects", () => {
+  const header = "tier,gender,distance,stroke,age,isCatchAllYoung,isCatchAllOld,time";
+
+  it("skips the header and coerces numbers + REAL booleans", () => {
+    const csv = [
+      header,
+      "LEVEL_2,F,100,FREE,10,true,false,1:15:00",
+      "SANJ,M,200,IM,17,false,true,2:20:00",
+    ].join("\n");
+    const { rows, rejected } = parseStandardsCsv(csv);
+    expect(rejected).toEqual([]);
+    expect(rows).toHaveLength(2);
+
+    // The 12&U-style young catch-all must be boolean TRUE (not the string).
+    expect(rows[0].row).toEqual({
+      tier: "LEVEL_2",
+      gender: "F",
+      distance: 100,
+      stroke: "FREE",
+      age: 10,
+      isCatchAllYoung: true,
+      isCatchAllOld: false,
+      time: "1:15:00",
+    });
+    expect(typeof rows[0].row.isCatchAllYoung).toBe("boolean");
+    expect(typeof rows[0].row.distance).toBe("number");
+    // Oldest catch-all on the second row.
+    expect(rows[1].row.isCatchAllOld).toBe(true);
+    expect(rows[1].row.isCatchAllYoung).toBe(false);
+  });
+
+  it("works without a header row and ignores blank lines", () => {
+    const csv = ["LEVEL_2,F,50,FREE,12,false,false,0:32:00", "", "   "].join("\n");
+    const { rows, rejected } = parseStandardsCsv(csv);
+    expect(rejected).toEqual([]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].line).toBe(1);
+  });
+
+  it("rejects a non-boolean flag rather than guessing (never truthy-coerce)", () => {
+    const csv = [header, "LEVEL_2,F,100,FREE,10,yes,false,1:15:00"].join("\n");
+    const { rows, rejected } = parseStandardsCsv(csv);
+    expect(rows).toHaveLength(0);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].line).toBe(2);
+    expect(rejected[0].reason).toMatch(/isCatchAllYoung/);
+  });
+
+  it("rejects wrong column counts and non-numeric distance/age", () => {
+    const csv = [
+      header,
+      "LEVEL_2,F,100,FREE,10,true,false", // 7 cols
+      "LEVEL_2,F,x,FREE,10,true,false,1:15:00", // distance NaN
+      "LEVEL_2,F,100,FREE,ten,true,false,1:15:00", // age NaN
+      "LEVEL_2,F,100,FREE,10,true,false,", // empty time
+    ].join("\n");
+    const { rows, rejected } = parseStandardsCsv(csv);
+    expect(rows).toHaveLength(0);
+    expect(rejected.map((r) => r.line)).toEqual([2, 3, 4, 5]);
+    expect(rejected[0].reason).toMatch(/8 columns/);
+    expect(rejected[1].reason).toMatch(/distance/);
+    expect(rejected[2].reason).toMatch(/age/);
+    expect(rejected[3].reason).toMatch(/time/);
+  });
+
+  it("tracks the source line so server rejects map back correctly", () => {
+    const csv = [
+      header,
+      "LEVEL_2,F,100,FREE,10,true,false,1:15:00",
+      "", // blank — must not shift the line count
+      "LEVEL_2,F,100,FREE,12,false,false,1:10:00",
+    ].join("\n");
+    const { rows } = parseStandardsCsv(csv);
+    expect(rows.map((r) => r.line)).toEqual([2, 4]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findAgeInversions (§5.8/§11a) — monotonicity WARNING, adjacent pairs
+// ---------------------------------------------------------------------------
+
+describe("findAgeInversions — younger cut faster than older", () => {
+  const cut = (
+    age: number,
+    timeMs: number,
+    flags: Partial<Pick<AgeCut, "isCatchAllYoung" | "isCatchAllOld">> = {},
+  ): AgeCut => ({
+    age,
+    timeMs,
+    isCatchAllYoung: flags.isCatchAllYoung ?? false,
+    isCatchAllOld: flags.isCatchAllOld ?? false,
+  });
+
+  it("returns nothing for a healthy (faster with age) progression", () => {
+    const cuts = [cut(12, 75000), cut(14, 70000), cut(16, 66000)];
+    expect(findAgeInversions(cuts)).toEqual([]);
+  });
+
+  it("flags the exact adjacent pair where the younger is faster (the L2 case)", () => {
+    // Age 15 (3:49) faster than 16 (3:51) — the one known real inversion.
+    const cuts = [cut(14, 235000), cut(15, 229220), cut(16, 231220)];
+    const inv = findAgeInversions(cuts);
+    expect(inv).toHaveLength(1);
+    expect(cuts[inv[0].youngerIdx].age).toBe(15);
+    expect(cuts[inv[0].olderIdx].age).toBe(16);
+  });
+
+  it("orders catch-alls at their bound (young below, old above)", () => {
+    // Unordered input; a 10&U slower than exact 12 is fine, but old catch-all
+    // 17+ slower than 16 is an inversion.
+    const young = cut(10, 80000, { isCatchAllYoung: true });
+    const a12 = cut(12, 74000);
+    const a16 = cut(16, 66000);
+    const old = cut(17, 67000, { isCatchAllOld: true });
+    const inv = findAgeInversions([old, a12, young, a16]);
+    expect(inv).toHaveLength(1);
+    // The flagged pair is (16, 17+).
+    const pair = inv[0];
+    const arr = [old, a12, young, a16];
+    expect(arr[pair.youngerIdx].age).toBe(16);
+    expect(arr[pair.olderIdx].isCatchAllOld).toBe(true);
+  });
+
+  it("treats equal adjacent times as a plateau, not an inversion", () => {
+    expect(findAgeInversions([cut(12, 70000), cut(14, 70000)])).toEqual([]);
+  });
+
+  it("cutAgeOrder hugs the bound for catch-alls", () => {
+    expect(cutAgeOrder({ age: 10, isCatchAllYoung: true, isCatchAllOld: false })).toBe(9.5);
+    expect(cutAgeOrder({ age: 17, isCatchAllYoung: false, isCatchAllOld: true })).toBe(17.5);
+    expect(cutAgeOrder({ age: 13, isCatchAllYoung: false, isCatchAllOld: false })).toBe(13);
   });
 });

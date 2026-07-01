@@ -18,6 +18,8 @@ import type * as personalBests from "../personalBests.js";
 import type * as profiles from "../profiles.js";
 import type * as results from "../results.js";
 import type * as squads from "../squads.js";
+import type * as standards from "../standards.js";
+import type * as standardsSampleData from "../standardsSampleData.js";
 import type * as swimmers from "../swimmers.js";
 
 import type {
@@ -37,6 +39,8 @@ declare const fullApi: ApiFromModules<{
   profiles: typeof profiles;
   results: typeof results;
   squads: typeof squads;
+  standards: typeof standards;
+  standardsSampleData: typeof standardsSampleData;
   swimmers: typeof swimmers;
 }>;
 
