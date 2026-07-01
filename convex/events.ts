@@ -1,4 +1,6 @@
-import { internalMutation } from "./_generated/server";
+import { v } from "convex/values";
+import { internalMutation, query } from "./_generated/server";
+import { requireCoach } from "./authz";
 
 // The strokes/distances/courses match the shared validators in schema.ts.
 type Stroke = "FREE" | "BACK" | "BREAST" | "FLY" | "IM";
@@ -97,5 +99,55 @@ export const seedEvents = internalMutation({
     }
 
     return { inserted, skipped, total: EVENTS.length };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Client query: the active event whitelist, for building the /log selectors.
+// The client derives valid strokes-per-distance and courses-per-event from
+// this so nothing off the whitelist (e.g. "50 IM", "100 IM" LCM) is selectable.
+// ---------------------------------------------------------------------------
+
+const strokeValidator = v.union(
+  v.literal("FREE"),
+  v.literal("BACK"),
+  v.literal("BREAST"),
+  v.literal("FLY"),
+  v.literal("IM"),
+);
+const courseValidator = v.union(v.literal("SCM"), v.literal("LCM"));
+const distanceValidator = v.union(
+  v.literal(50),
+  v.literal(100),
+  v.literal(200),
+  v.literal(400),
+  v.literal(800),
+  v.literal(1500),
+);
+
+export const listActiveEvents = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("events"),
+      distance: distanceValidator,
+      stroke: strokeValidator,
+      allowedCourses: v.array(courseValidator),
+      label: v.string(),
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireCoach(ctx);
+    // The whitelist is tiny and fixed (§4.3); a bounded read covers it.
+    const events = await ctx.db.query("events").take(200);
+    return events
+      .filter((e) => e.active)
+      .map((e) => ({
+        _id: e._id,
+        distance: e.distance,
+        stroke: e.stroke,
+        allowedCourses: e.allowedCourses,
+        label: e.label,
+      }));
   },
 });

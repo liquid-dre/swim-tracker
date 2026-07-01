@@ -136,6 +136,36 @@ export function formatTime(ms: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// 2b. clockFromDigits — poolside calculator-style numeric time entry (Step 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Right-fill a raw run of digits into the three fields of a `mm:ss:hh` clock,
+ * calculator/stopwatch style: the LAST two digits are hundredths, the next two
+ * are seconds, and everything before that is minutes. This is the one-thumb
+ * poolside entry model — the coach types only digits and the colons fall into
+ * place (e.g. "10747" → 1:07:47, "3368" → 0:33:68).
+ *
+ * Non-digits are stripped first, so a pasted "5:48.28" or "33,68" regroups to
+ * the same result. Input is capped at 6 digits (max 99:59:99). This is a pure
+ * FORMATTER: it always returns two-digit `ss`/`hh` strings and a minutes number;
+ * range validity (ss ≤ 59, hh ≤ 99, non-zero) is `parseTime`'s job — build
+ * `${mm}:${ss}:${hh}` from the result and hand it to `parseTime`.
+ */
+export function clockFromDigits(digits: string): {
+  minutes: number;
+  ss: string;
+  hh: string;
+} {
+  const d = (digits.match(/\d/g)?.join("") ?? "").slice(-6).padStart(6, "0");
+  return {
+    minutes: parseInt(d.slice(0, 2), 10),
+    ss: d.slice(2, 4),
+    hh: d.slice(4, 6),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // 3. computeAge — whole years between DOB and a reference date (BRD §4.7)
 // ---------------------------------------------------------------------------
 
