@@ -156,7 +156,7 @@ export function SquadsScreen() {
       </div>
 
       <SquadForm
-        key={formTarget === null ? "closed" : formTarget === "new" ? "new" : formTarget._id}
+        key={formTarget === null ? "form-closed" : formTarget === "new" ? "new" : formTarget._id}
         open={formTarget !== null}
         squad={formTarget === "new" ? null : formTarget}
         onOpenChange={(o) => {
@@ -165,7 +165,7 @@ export function SquadsScreen() {
       />
 
       <SquadMembersSheet
-        key={membersTarget?._id ?? "closed"}
+        key={membersTarget?._id ?? "members-closed"}
         open={membersTarget !== null}
         squad={membersTarget}
         onOpenChange={(o) => {
