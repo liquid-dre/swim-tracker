@@ -5,9 +5,14 @@ import { requireCoach } from "./authz";
 import {
   computeAge,
   computeAgeGroup,
+  computeMatrixCell,
+  computePersonalBests,
   eventLabel,
+  eventSortKey,
   highestTierMet,
   pickApplicableStandards,
+  type ResultForPB,
+  type StandardCut,
   type Tier,
 } from "../lib/swim";
 
@@ -405,6 +410,181 @@ export const getProgression = query({
       },
       series,
       standards,
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// getQualificationMatrix — the "who's ready for what" dashboard (BRD §5.7)
+// ---------------------------------------------------------------------------
+//
+// A dense grid: rows = swimmers (after gender / age-band / squad filters),
+// columns = the LCM events. Each cell carries the HARDEST qualifying tier the
+// swimmer's headline MEET PB meets, plus the gap to the next tier up. LCM only —
+// standards are long-course (§4.2, §4.9). Cuts are resolved to each swimmer's
+// EXACT single-year age (never the two-year display band the filter uses), and
+// events with no cut at that age render blank/neutral. All the cell judgement is
+// the pure `computeMatrixCell`; here we only load and shape. Coach-only for now
+// (viewer scoping is Step 15). Bounded reads throughout (club scale, §11.1).
+
+const MATRIX_SWIMMERS_LIMIT = 500;
+const MATRIX_STANDARDS_LIMIT = 5000;
+
+const matrixEvent = v.object({
+  distance,
+  stroke,
+  label: v.string(),
+});
+
+const matrixCell = v.object({
+  distance,
+  stroke,
+  label: v.string(),
+  hasCut: v.boolean(), // a cut exists for this event at the swimmer's exact age
+  pbMs: v.union(v.number(), v.null()), // headline MEET LCM PB, or null
+  tier: v.union(tier, v.null()), // hardest tier met (null = none / no PB)
+  nextTier: v.union(tier, v.null()), // the next tier up to chase (null at top)
+  gapMs: v.union(v.number(), v.null()), // PB − next cut (≥ 0); null at top / no PB
+});
+
+const matrixRow = v.object({
+  swimmerId: v.id("swimmers"),
+  name: v.string(),
+  gender,
+  age: v.number(), // exact single-year age as of today (drives cut resolution)
+  ageBand: v.string(), // display band (§4.7) — for the row's group label
+  active: v.boolean(),
+  cells: v.array(matrixCell), // parallel to the returned `events`
+});
+
+export const getQualificationMatrix = query({
+  args: {
+    gender: v.optional(gender),
+    ageBand: v.optional(v.string()),
+    squadId: v.optional(v.id("squads")),
+  },
+  returns: v.object({
+    events: v.array(matrixEvent), // LCM columns, canonical 50→1500 order
+    rows: v.array(matrixRow),
+  }),
+  handler: async (ctx, args) => {
+    await requireCoach(ctx);
+
+    // Columns: the active LCM events (standards are LCM-only), canonical order.
+    const allEvents = await ctx.db.query("events").take(200);
+    const lcmEvents = allEvents
+      .filter((e) => e.active && e.allowedCourses.includes("LCM"))
+      .sort(
+        (a, b) =>
+          eventSortKey(a.distance, a.stroke) - eventSortKey(b.distance, b.stroke),
+      );
+
+    // Cuts, loaded once and grouped by (gender|distance|stroke) so each cell just
+    // resolves to the swimmer's exact age. The table is small at club scale.
+    const allStandards = await ctx.db
+      .query("standards")
+      .take(MATRIX_STANDARDS_LIMIT);
+    const cutsByEvent = new Map<string, Array<StandardCut & { tier: Tier }>>();
+    for (const s of allStandards) {
+      const key = `${s.gender}|${s.distance}|${s.stroke}`;
+      const arr = cutsByEvent.get(key);
+      const cut: StandardCut & { tier: Tier } = {
+        tier: s.tier,
+        age: s.age,
+        isCatchAllYoung: s.isCatchAllYoung,
+        isCatchAllOld: s.isCatchAllOld,
+        timeMs: s.timeMs,
+      };
+      if (arr) arr.push(cut);
+      else cutsByEvent.set(key, [cut]);
+    }
+
+    // Rows: the roster, scoped by squad (via the join table) then gender/band.
+    let swimmers;
+    if (args.squadId !== undefined) {
+      const memberships = await ctx.db
+        .query("squadMemberships")
+        .withIndex("by_squad", (q) => q.eq("squadId", args.squadId!))
+        .take(MATRIX_SWIMMERS_LIMIT);
+      const loaded = await Promise.all(
+        memberships.map((m) => ctx.db.get(m.swimmerId)),
+      );
+      swimmers = loaded.filter((s): s is NonNullable<typeof s> => s !== null);
+    } else {
+      swimmers = await ctx.db.query("swimmers").take(MATRIX_SWIMMERS_LIMIT);
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (args.gender) {
+      swimmers = swimmers.filter((s) => s.gender === args.gender);
+    }
+    if (args.ageBand) {
+      // Filter by the two-year DISPLAY band (§4.7); resolution still uses the
+      // exact age below — the band never leaks into a cut lookup.
+      swimmers = swimmers.filter(
+        (s) => computeAgeGroup(s.dob, today) === args.ageBand,
+      );
+    }
+
+    swimmers.sort((a, b) => a.name.localeCompare(b.name));
+
+    const rows = [];
+    for (const swimmer of swimmers) {
+      // Headline MEET PBs for every event this swimmer has swum (same derivation
+      // as the profile board): fastest MEET only, SCM/LCM kept separate.
+      const results = await ctx.db
+        .query("results")
+        .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmer._id))
+        .take(SWIMMER_RESULTS_LIMIT);
+      const pbs = computePersonalBests(results as ResultForPB[]);
+      const lcmPbByEvent = new Map<string, number>();
+      for (const pb of pbs) {
+        if (pb.course === "LCM" && pb.headline) {
+          lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, pb.headline.timeMs);
+        }
+      }
+
+      const age = computeAge(swimmer.dob, today);
+      const ageBand = computeAgeGroup(swimmer.dob, today);
+
+      const cells = lcmEvents.map((e) => {
+        const applicable = pickApplicableStandards(
+          cutsByEvent.get(`${swimmer.gender}|${e.distance}|${e.stroke}`) ?? [],
+          age,
+        );
+        const pbMs = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
+        const cell = computeMatrixCell(pbMs, applicable);
+        return {
+          distance: e.distance,
+          stroke: e.stroke,
+          label: e.label,
+          hasCut: cell.hasCut,
+          pbMs,
+          tier: cell.tier,
+          nextTier: cell.nextTier,
+          gapMs: cell.gapMs,
+        };
+      });
+
+      rows.push({
+        swimmerId: swimmer._id,
+        name: swimmer.name,
+        gender: swimmer.gender,
+        age,
+        ageBand,
+        active: swimmer.active,
+        cells,
+      });
+    }
+
+    return {
+      events: lcmEvents.map((e) => ({
+        distance: e.distance,
+        stroke: e.stroke,
+        label: e.label,
+      })),
+      rows,
     };
   },
 });

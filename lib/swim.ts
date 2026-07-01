@@ -643,6 +643,84 @@ export function highestTierMet(
   return null;
 }
 
+/** Cuts by tier for one swimmer × event, already resolved to an EXACT age. */
+export type CutsByTier = {
+  LEVEL_2?: number | null;
+  LEVEL_3?: number | null;
+  SANJ?: number | null;
+};
+
+/**
+ * One cell of the qualification status matrix (BRD §5.7): the hardest tier a
+ * headline PB meets, plus the gap to the NEXT tier up. Purely derived so it is
+ * unit-testable and identical everywhere.
+ *
+ * `cutsByTier` are this event's cuts resolved to the swimmer's EXACT single-year
+ * age and gender (never the two-year display band, §4.9); a tier is absent when
+ * no cut covers that age. Only tiers that actually have a cut are considered, so
+ * "next up" always points at a real target.
+ *
+ *   - `hasCut`   false when NO tier has a cut here → the cell is blank/neutral.
+ *   - `tier`     the hardest tier met (SANJ > L3 > L2), or null if none met / no PB.
+ *   - `nextTier` the next-harder tier that still has a cut to aim for; null once
+ *                the hardest available tier is met (nothing left to chase).
+ *   - `gapMs`    PB − the next tier's cut (always ≥ 0: how much to drop). null at
+ *                the top tier, when no PB exists yet, or when no cut exists.
+ */
+export type MatrixCell = {
+  hasCut: boolean;
+  tier: Tier | null;
+  nextTier: Tier | null;
+  gapMs: number | null;
+};
+
+export function computeMatrixCell(
+  pbMs: number | null,
+  cutsByTier: CutsByTier,
+): MatrixCell {
+  // Tiers that actually have a cut here, hardest → easiest (§4.9 order).
+  const available = TIER_ORDER.filter((t) => cutsByTier[t] != null);
+
+  // No cut at any tier for this exact age → nothing to show (blank/neutral).
+  if (available.length === 0) {
+    return { hasCut: false, tier: null, nextTier: null, gapMs: null };
+  }
+
+  // A cut exists but no headline (meet) time yet: the target is the easiest
+  // tier, but there is no gap to measure without a PB.
+  if (pbMs === null) {
+    return {
+      hasCut: true,
+      tier: null,
+      nextTier: available[available.length - 1],
+      gapMs: null,
+    };
+  }
+
+  // Highest tier met = the first (hardest) available cut the PB is at or under.
+  let metIdx = -1;
+  for (let i = 0; i < available.length; i++) {
+    if (pbMs <= (cutsByTier[available[i]] as number)) {
+      metIdx = i;
+      break;
+    }
+  }
+  const tier = metIdx >= 0 ? available[metIdx] : null;
+
+  // Next tier up: the tier one step harder than the one met. If the hardest
+  // available tier is already met there is nothing above it; if none is met the
+  // target is the easiest available tier.
+  let nextTier: Tier | null;
+  if (metIdx === 0) nextTier = null;
+  else if (metIdx === -1) nextTier = available[available.length - 1];
+  else nextTier = available[metIdx - 1];
+
+  const gapMs =
+    nextTier !== null ? pbMs - (cutsByTier[nextTier] as number) : null;
+
+  return { hasCut: true, tier, nextTier, gapMs };
+}
+
 // ---------------------------------------------------------------------------
 // 8b. importStandards — pure validation/parsing of the coach's cleaned CSV rows
 // ---------------------------------------------------------------------------

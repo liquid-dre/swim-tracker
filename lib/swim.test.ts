@@ -15,6 +15,7 @@ import {
   resolveStandardTime,
   pickApplicableStandards,
   highestTierMet,
+  computeMatrixCell,
   prepareStandardImport,
   parseStandardsCsv,
   findAgeInversions,
@@ -513,6 +514,102 @@ describe("highestTierMet (§4.9 order) — hardest first", () => {
     // SANJ not met, LEVEL_3 absent → falls through to LEVEL_2.
     expect(highestTierMet(59000, { SANJ: 58000, LEVEL_2: 63000 })).toBe("LEVEL_2");
     expect(highestTierMet(59000, {})).toBeNull();
+  });
+});
+
+describe("computeMatrixCell (§5.7) — highest tier met + gap to next up", () => {
+  const cuts = { SANJ: 58000, LEVEL_3: 60000, LEVEL_2: 63000 };
+
+  it("is blank/neutral when no tier has a cut", () => {
+    expect(computeMatrixCell(60000, {})).toEqual({
+      hasCut: false,
+      tier: null,
+      nextTier: null,
+      gapMs: null,
+    });
+  });
+
+  it("has a cut but no tier/gap when there is no PB yet (target = easiest)", () => {
+    expect(computeMatrixCell(null, cuts)).toEqual({
+      hasCut: true,
+      tier: null,
+      nextTier: "LEVEL_2",
+      gapMs: null,
+    });
+  });
+
+  it("none met → target the easiest tier, gap = PB − its cut", () => {
+    // 64000 is slower than every cut; next up is L2.
+    expect(computeMatrixCell(64000, cuts)).toEqual({
+      hasCut: true,
+      tier: null,
+      nextTier: "LEVEL_2",
+      gapMs: 1000,
+    });
+  });
+
+  it("met L2 → next up is L3, gap = PB − L3 cut", () => {
+    expect(computeMatrixCell(61000, cuts)).toEqual({
+      hasCut: true,
+      tier: "LEVEL_2",
+      nextTier: "LEVEL_3",
+      gapMs: 1000, // 61000 − 60000
+    });
+  });
+
+  it("met L3 → next up is SANJ, gap = PB − SANJ cut", () => {
+    expect(computeMatrixCell(59000, cuts)).toEqual({
+      hasCut: true,
+      tier: "LEVEL_3",
+      nextTier: "SANJ",
+      gapMs: 1000, // 59000 − 58000
+    });
+  });
+
+  it("met the hardest available tier → no next up, no gap", () => {
+    expect(computeMatrixCell(57000, cuts)).toEqual({
+      hasCut: true,
+      tier: "SANJ",
+      nextTier: null,
+      gapMs: null,
+    });
+    // equal-to-cut counts as met.
+    expect(computeMatrixCell(58000, cuts)).toEqual({
+      hasCut: true,
+      tier: "SANJ",
+      nextTier: null,
+      gapMs: null,
+    });
+  });
+
+  it("walks only the tiers that have a cut (sparse coverage, §4.9)", () => {
+    // 50m is LEVEL_2-only — no harder tier exists, so meeting L2 tops out.
+    expect(computeMatrixCell(30000, { LEVEL_2: 31000 })).toEqual({
+      hasCut: true,
+      tier: "LEVEL_2",
+      nextTier: null,
+      gapMs: null,
+    });
+    // Distance event: SANJ-only. Met → tops out; not met → gap to SANJ.
+    expect(computeMatrixCell(900000, { SANJ: 950000 })).toEqual({
+      hasCut: true,
+      tier: "SANJ",
+      nextTier: null,
+      gapMs: null,
+    });
+    expect(computeMatrixCell(970000, { SANJ: 950000 })).toEqual({
+      hasCut: true,
+      tier: null,
+      nextTier: "SANJ",
+      gapMs: 20000,
+    });
+    // L2 met but next-up SANJ (no L3 cut here) → gap skips the absent tier.
+    expect(computeMatrixCell(61000, { SANJ: 58000, LEVEL_2: 63000 })).toEqual({
+      hasCut: true,
+      tier: "LEVEL_2",
+      nextTier: "SANJ",
+      gapMs: 3000, // 61000 − 58000
+    });
   });
 });
 
