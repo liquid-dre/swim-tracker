@@ -11,6 +11,7 @@ import {
 } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
 import { TierBadge } from "@/components/ui/TierBadge";
+import { useContainerWidth } from "@/hooks/use-container-width";
 import { cn } from "@/lib/utils";
 
 /*
@@ -39,26 +40,30 @@ const NEXT_LABEL: Record<Tier, string> = {
   LEVEL_2: "L2",
 };
 
-// The swimmer's PB, drawn ONTO the coloured fill. When the fill is at least this
-// wide (% of track) the time sits inside it, left-aligned, in a high-contrast
-// on-fill colour; below it the fill is too short to read a time legibly, so the
-// time is placed just past the fill's end in ink instead. Tabular throughout so
-// the digits line up bar-to-bar. Decorative (aria-hidden) — the number is always
-// carried in accessible row text elsewhere.
-const INSIDE_MIN_PCT = 24;
+// The swimmer's PB, drawn ONTO the coloured fill. The inside/outside choice is
+// made in PIXELS, not a percentage guess: if the fill is physically wide enough
+// to hold the time it rides inside, left-aligned, in a high-contrast on-fill
+// colour; otherwise it sits just past the fill's end in ink. Measuring the real
+// fill width is what keeps the time legible on a narrow phone bar (where a 30%
+// fill can be only ~35px) as well as on a wide desktop one. Tabular throughout;
+// decorative (aria-hidden) — the number is always carried in accessible row text.
+const TIME_MIN_PX = 58; // ~7 tabular chars ("m:ss:hh") + padding
 
 function BarTime({
   ms,
   fillPct,
+  trackWidth,
   insideClass,
 }: {
   ms: number;
   fillPct: number;
+  trackWidth: number; // measured px width of the bar track
   insideClass: string; // on-fill text colour when the label rides inside
 }) {
   const label = formatTime(ms);
+  const fillPx = (trackWidth * fillPct) / 100;
 
-  if (fillPct >= INSIDE_MIN_PCT) {
+  if (fillPx >= TIME_MIN_PX) {
     // Clip the label to the fill's width so it never bleeds onto the empty track.
     return (
       <span
@@ -114,49 +119,61 @@ export function SingleTierProgress({ bars }: { bars: SingleBar[] }) {
 
   return (
     <ul className="flex flex-col divide-y divide-gray-100">
-      {ordered.map((b) => {
-        const pct = Math.round(fillFraction(b) * 100);
-        return (
-          <li key={b.key} className="flex items-center gap-4 py-3">
-            <div className="w-24 shrink-0 sm:w-28">
-              <div className="font-medium text-ink">{b.label}</div>
-              <div className="time tnum mt-0.5 text-xs text-ink-faint">
-                {formatTime(b.pbMs)} → {formatTime(b.cutMs)}
-              </div>
-            </div>
-
-            <div
-              className="relative h-7 min-w-16 flex-1 overflow-hidden rounded-md bg-gray-100"
-              aria-hidden
-            >
-              <div
-                className="h-full rounded-md transition-[width] [transition-duration:var(--dur-2)]"
-                style={{
-                  width: `${Math.max(2, pct)}%`,
-                  background: b.qualified
-                    ? "var(--color-qualified)"
-                    : "var(--color-brand-500)",
-                }}
-              />
-              <BarTime ms={b.pbMs} fillPct={pct} insideClass="text-white" />
-            </div>
-
-            <div className="w-24 shrink-0 text-right sm:w-28">
-              {b.qualified ? (
-                <span className="inline-flex items-center justify-end gap-1 font-medium text-success-ink">
-                  <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
-                  Qualified
-                </span>
-              ) : (
-                <div className="font-medium tabular-nums text-ink">
-                  {formatSeconds(b.gapMs)}s to go
-                </div>
-              )}
-            </div>
-          </li>
-        );
-      })}
+      {ordered.map((b) => (
+        <SingleBarRow key={b.key} bar={b} />
+      ))}
     </ul>
+  );
+}
+
+function SingleBarRow({ bar: b }: { bar: SingleBar }) {
+  const pct = Math.round(fillFraction(b) * 100);
+  const [trackRef, trackWidth] = useContainerWidth(320);
+
+  return (
+    <li className="flex items-center gap-3 py-3 sm:gap-4">
+      <div className="w-20 shrink-0 sm:w-28">
+        <div className="font-medium text-ink">{b.label}</div>
+        <div className="time tnum mt-0.5 text-xs text-ink-faint">
+          {formatTime(b.pbMs)} → {formatTime(b.cutMs)}
+        </div>
+      </div>
+
+      <div
+        ref={trackRef}
+        className="relative h-7 min-w-16 flex-1 overflow-hidden rounded-md bg-gray-100"
+        aria-hidden
+      >
+        <div
+          className="h-full rounded-md transition-[width] [transition-duration:var(--dur-2)]"
+          style={{
+            width: `${Math.max(2, pct)}%`,
+            background: b.qualified
+              ? "var(--color-qualified)"
+              : "var(--color-brand-500)",
+          }}
+        />
+        <BarTime
+          ms={b.pbMs}
+          fillPct={pct}
+          trackWidth={trackWidth}
+          insideClass="text-white"
+        />
+      </div>
+
+      <div className="w-20 shrink-0 text-right sm:w-28">
+        {b.qualified ? (
+          <span className="inline-flex items-center justify-end gap-1 font-medium text-success-ink">
+            <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
+            Qualified
+          </span>
+        ) : (
+          <div className="font-medium tabular-nums text-ink">
+            {formatSeconds(b.gapMs)}s to go
+          </div>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -243,8 +260,8 @@ export function AllTierProgress({ bars }: { bars: AllBar[] }) {
     <div className="flex flex-col gap-3">
       {/* Shared scale header — the three tier positions are fixed, so one axis
           labels them for every bar below. */}
-      <div className="flex items-center gap-4">
-        <div className="w-24 shrink-0 sm:w-28" />
+      <div className="flex items-center gap-3 sm:gap-4">
+        <div className="w-20 shrink-0 sm:w-28" />
         <div className="relative h-4 min-w-16 flex-1" aria-hidden>
           {ASC_TIERS.map((t) => (
             <span
@@ -256,7 +273,7 @@ export function AllTierProgress({ bars }: { bars: AllBar[] }) {
             </span>
           ))}
         </div>
-        <div className="w-24 shrink-0 sm:w-28" />
+        <div className="w-20 shrink-0 sm:w-28" />
       </div>
 
       <ul className="flex flex-col divide-y divide-gray-100">
@@ -272,6 +289,7 @@ function AllRowView({ row }: { row: AllRow }) {
   const hasPb = row.pbMs !== null;
   const fillPct = hasPb ? posPct(row.calibratedRadius ?? 0) : 0;
   const fillColor = row.tier ? TIER_FILL[row.tier] : NONE_FILL;
+  const [trackRef, trackWidth] = useContainerWidth(320);
   // On-fill text colour tuned per fill for contrast: white on the deep L3/L2
   // fills, near-black on the light gold (SANJ) and grey (no-tier) fills.
   const insideClass =
@@ -291,8 +309,8 @@ function AllRowView({ row }: { row: AllRow }) {
   bands.push({ from: prev, to: 100, color: "var(--color-gray-50)" });
 
   return (
-    <li className="flex items-center gap-4 py-3">
-      <div className="flex w-24 shrink-0 flex-col gap-1 sm:w-28">
+    <li className="flex items-center gap-3 py-3 sm:gap-4">
+      <div className="flex w-20 shrink-0 flex-col gap-1 sm:w-28">
         <span className="font-medium text-ink">{row.label}</span>
         <TierBadge tier={row.tier ?? "NONE"} />
         {hasPb && (
@@ -301,6 +319,7 @@ function AllRowView({ row }: { row: AllRow }) {
       </div>
 
       <div
+        ref={trackRef}
         className="relative h-7 min-w-16 flex-1 overflow-hidden rounded-md bg-gray-100"
         aria-hidden
       >
@@ -328,6 +347,7 @@ function AllRowView({ row }: { row: AllRow }) {
           <BarTime
             ms={row.pbMs as number}
             fillPct={fillPct}
+            trackWidth={trackWidth}
             insideClass={insideClass}
           />
         )}
@@ -341,7 +361,7 @@ function AllRowView({ row }: { row: AllRow }) {
         ))}
       </div>
 
-      <div className="w-24 shrink-0 text-right text-xs sm:w-28">
+      <div className="w-20 shrink-0 text-right text-xs sm:w-28">
         {!hasPb ? (
           <span className="text-ink-faint">No time</span>
         ) : row.nextTier && row.gapMs !== null ? (

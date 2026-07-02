@@ -36,7 +36,9 @@ export function Segmented<T extends string>({
             aria-checked={active}
             onClick={() => onChange(opt.value)}
             className={
-              "h-7 rounded-sm px-3 text-sm font-medium transition-colors [transition-duration:var(--dur-1)] " +
+              // h-8 gives a tap-friendly segment (and aligns with the h-9 toolbar
+              // controls beside it) without bloating the dense desktop toolbars.
+              "h-8 rounded-sm px-3.5 text-sm font-medium transition-colors [transition-duration:var(--dur-1)] " +
               (active
                 ? "bg-white text-gray-800 shadow-theme-xs"
                 : "text-gray-500 hover:text-gray-800")

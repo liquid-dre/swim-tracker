@@ -313,6 +313,9 @@ function RailFlyoutGroup({ node, pathname }: { node: NavGroup; pathname: string 
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         onKeyDown={onTriggerKeyDown}
+        // Touch has no hover: a tap opens the flyout (focus may open it first, so
+        // this is idempotent-open, never a toggle that would close it again).
+        onClick={() => openFlyout()}
         className={ACTIVE_BRAND}
       >
         <node.icon />
