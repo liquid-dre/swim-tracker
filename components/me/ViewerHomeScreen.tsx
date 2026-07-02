@@ -14,6 +14,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { TargetTierToggle } from "@/components/qualifying/TargetTierToggle";
 import { useTargetTier } from "@/lib/useTargetTier";
+import { useCurrentProfile } from "@/lib/useCurrentProfile";
+import { useGreeting } from "@/lib/useGreeting";
 import { formatShortDate } from "@/lib/format";
 import { type Course, type Stroke, type Tier } from "@/lib/swim";
 import { EventPicker, type EventValue } from "@/components/analysis/EventPicker";
@@ -46,19 +48,19 @@ export function ViewerHomeScreen() {
   // The shared target tier for road-to-qualify (§5.10). Persisted across visits.
   const [tier, setTier] = useTargetTier();
 
-  const loading = data === undefined;
-  const selected = swimmers.find((s) => s._id === selectedId) ?? null;
-  const multiple = swimmers.length > 1;
+  // Time-aware greeting as the heading, by the VIEWER's own profile name (a
+  // parent's name may differ from the swimmer's). The swimmer's identity moves
+  // into the identity strip below, so it's never lost.
+  const profile = useCurrentProfile();
+  const greeting = useGreeting(profile?.name);
 
-  // The page's subject is the swimmer, so their name IS the title once known —
-  // no generic label competing above it. "My swimmer" only stands in while the
-  // link is loading or when several swimmers share one switcher.
-  const title = selected && !multiple ? selected.name : "My swimmer";
+  const loading = data === undefined;
+  const multiple = swimmers.length > 1;
 
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
-        title={title}
+        title={greeting}
         breadcrumb={[{ label: "My swimmer" }]}
         description="Your personal bests, progression, and how close you are to each qualifying cut. Your coach keeps the times up to date."
         actions={<ReadOnlyChip />}
@@ -159,6 +161,7 @@ function ViewerProfile({ swimmerId }: { swimmerId: Id<"swimmers"> }) {
   return (
     <div className="flex flex-col gap-10">
       <IdentityStrip
+        name={swimmer.name}
         age={swimmer.age}
         gender={swimmer.gender}
         active={swimmer.active}
@@ -188,12 +191,14 @@ function ViewerProfile({ swimmerId }: { swimmerId: Id<"swimmers"> }) {
 }
 
 function IdentityStrip({
+  name,
   age,
   gender,
   active,
   inSystemSince,
   resultCount,
 }: {
+  name: string;
   age: number;
   gender: "M" | "F";
   active: boolean;
@@ -202,6 +207,11 @@ function IdentityStrip({
 }) {
   return (
     <dl className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+      <div className="flex items-center gap-1.5">
+        <dt className="sr-only">Swimmer</dt>
+        <dd className="text-base font-semibold text-ink">{name}</dd>
+      </div>
+      <Divider />
       <Stat label="Age" value={`${age}`} />
       <Divider />
       <Stat label="Gender" value={gender === "F" ? "Female" : "Male"} />
