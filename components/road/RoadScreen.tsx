@@ -8,24 +8,32 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
+import { Segmented } from "@/components/ui/Segmented";
 import { FilterBar } from "@/components/ui/FilterBar";
-import { TargetTierToggle } from "@/components/qualifying/TargetTierToggle";
 import { useTargetTier } from "@/lib/useTargetTier";
 import { trailForHref } from "@/lib/nav";
 import { formatTime, type Tier } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
-import { PctOfCutChart, type PctBar } from "./PctOfCutChart";
+import {
+  SingleTierLegend,
+  SingleTierProgress,
+  type SingleBar,
+} from "./QualifyingProgress";
+import { AllTierResults } from "./RoadAllResults";
 
 /*
-  Road to qualify (Step 12, BRD §5.10–5.11). For one swimmer at one target tier
-  (the shared toggle, §5.10), two linked LCM-only reads of readiness:
+  Road to qualify (Step 12 / R3, BRD §5.10–5.11). For one swimmer at one target,
+  two linked LCM-only reads of readiness. The target toggle is L2 / L3 / SANJ /
+  All:
 
     • Gap to cut — the anchor. One horizontal bar per applicable event, closest
       to the cut first, so the low-hanging events surface immediately. Qualified
       events (PB ≤ cut) are flagged in the success green and grouped; events with
       no long-course meet time are listed separately, never drawn as a huge gap.
-    • %-of-cut profile — each event's PB as a percentage of its cut against a
-      100% reference line, revealing strongest/weakest events vs the standard.
+    • Qualifying progress — single-tier: one bar per event filling toward that
+      tier's cut, most-complete first. All: one bar per event with the L2/L3/SANJ
+      cuts as fixed calibrated zones, filled to the swimmer's PB and coloured by
+      the highest tier met.
 
   Coverage is automatic (§4.9): SANJ has no 50s, L2 nothing above 200 m — the
   query only returns events the tier covers at the swimmer's EXACT age, so the
@@ -37,6 +45,12 @@ const TIER_FULL: Record<Tier, string> = {
   LEVEL_3: "Level 3",
   SANJ: "SANJ",
 };
+
+// The Road target selector — the three tiers plus an All view. The three real
+// tiers stay in the shared/persisted store (so the choice carries to other
+// screens); "ALL" is a Road-local overlay that never touches that store, so the
+// projection toggle elsewhere (Tier only) is unaffected.
+type RoadTarget = Tier | "ALL";
 
 type RoadEvent = {
   distance: number;
@@ -58,11 +72,28 @@ export type RoadData = {
 export function RoadScreen() {
   const swimmers = useQuery(api.swimmers.listSwimmers, {});
   const [tier, setTier] = useTargetTier();
+  const [showAll, setShowAll] = useState(false);
   const [swimmerId, setSwimmerId] = useState<Id<"swimmers"> | "">("");
 
+  const target: RoadTarget = showAll ? "ALL" : tier;
+  const setTarget = (next: RoadTarget) => {
+    if (next === "ALL") setShowAll(true);
+    else {
+      setShowAll(false);
+      setTier(next);
+    }
+  };
+
+  // Single-tier gap/progress read (skipped in All mode).
   const data = useQuery(
     api.analysis.getRoadToQualify,
-    swimmerId === "" ? "skip" : { swimmerId, tier },
+    swimmerId === "" || showAll ? "skip" : { swimmerId, tier },
+  );
+  // All-tier read reuses the stroke-profile data (all three cuts + the shared
+  // calibrated position + highest tier met, already LCM / exact-age / meet-PB).
+  const allData = useQuery(
+    api.analysis.getStrokeProfile,
+    swimmerId === "" || !showAll ? "skip" : { swimmerId },
   );
 
   const loadingSwimmers = swimmers === undefined;
@@ -97,7 +128,17 @@ export function RoadScreen() {
                 ))}
               </Select>
             </div>
-            <TargetTierToggle value={tier} onChange={setTier} />
+            <Segmented
+              ariaLabel="Target qualifying tier"
+              value={target}
+              onChange={setTarget}
+              options={[
+                { value: "LEVEL_2", label: "L2" },
+                { value: "LEVEL_3", label: "L3" },
+                { value: "SANJ", label: "SANJ" },
+                { value: "ALL", label: "All" },
+              ]}
+            />
           </>
         }
       />
@@ -107,6 +148,22 @@ export function RoadScreen() {
           title="Choose a swimmer"
           body="Select a swimmer above to see how close they are to every Level 2, Level 3 or SANJ cut for their exact age."
         />
+      ) : showAll ? (
+        allData === undefined ? (
+          <RoadSkeleton />
+        ) : allData === null ? (
+          <EmptyState
+            title="Swimmer not found"
+            body="That swimmer may have been removed. Pick another from the list above."
+          />
+        ) : allData.events.length === 0 ? (
+          <EmptyState
+            title={`No qualifying cuts at age ${allData.swimmer.age}`}
+            body={`${allData.swimmer.name} has no long-course qualifying cuts at their exact age yet. This may be an age no tier covers, or the cuts aren’t loaded.`}
+          />
+        ) : (
+          <AllTierResults data={allData} />
+        )
       ) : data === undefined ? (
         <RoadSkeleton />
       ) : data === null ? (
@@ -149,18 +206,18 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
     [chasing],
   );
 
-  // %-of-cut profile: every event WITH a time (qualified + chasing), already
-  // sorted closest-first by the query (ascending % of cut).
-  const pctBars = useMemo<PctBar[]>(
+  // Qualifying progress: every event WITH a meet time (qualified + chasing).
+  // SingleTierProgress orders them most-complete first.
+  const progressBars = useMemo<SingleBar[]>(
     () =>
       events
-        .filter((e) => e.pbMs !== null && e.pctOfCut !== null)
+        .filter((e) => e.pbMs !== null)
         .map((e) => ({
           key: `${e.distance}|${e.stroke}`,
           label: e.label,
-          pctOfCut: e.pctOfCut as number,
           pbMs: e.pbMs as number,
           cutMs: e.cutMs,
+          gapMs: e.gapMs as number,
           qualified: e.qualified,
         })),
     [events],
@@ -207,17 +264,17 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
         {noTime.length > 0 && <NoTimeGroup rows={noTime} />}
       </section>
 
-      {/* %-of-cut profile */}
-      {pctBars.length > 0 && (
+      {/* Qualifying progress — one bar per event filling toward this tier's cut */}
+      {progressBars.length > 0 && (
         <section className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 className="text-sm font-semibold text-ink">% of cut profile</h2>
+            <h2 className="text-sm font-semibold text-ink">Qualifying progress</h2>
             <p className="text-xs text-ink-faint">
-              100% = on the line · under = qualified
+              Full bar = qualified · {TIER_FULL[tier]}
             </p>
           </div>
-          <PctOfCutChart bars={pctBars} />
-          <ProfileLegend />
+          <SingleTierProgress bars={progressBars} />
+          <SingleTierLegend tierLabel={TIER_FULL[tier]} />
         </section>
       )}
     </div>
@@ -436,35 +493,6 @@ function NoTimeGroup({ rows }: { rows: RoadEvent[] }) {
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function ProfileLegend() {
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3 text-xs text-ink-muted">
-      <span className="inline-flex items-center gap-1.5">
-        <span
-          aria-hidden
-          className="size-2.5 rounded-sm"
-          style={{ background: "var(--color-qualified)" }}
-        />
-        Qualified (≤ 100%)
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span
-          aria-hidden
-          className="size-2.5 rounded-sm"
-          style={{ background: "var(--color-brand-500)" }}
-        />
-        Still chasing (&gt; 100%)
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span aria-hidden className="text-ink-faint">
-          ┊
-        </span>
-        100% = on the cut
-      </span>
     </div>
   );
 }
