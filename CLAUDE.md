@@ -22,11 +22,40 @@ Next.js (App Router) · TypeScript · Tailwind · Convex · Recharts. Times stor
 minimalist product direction or bloat context.
 
 ## Design system (product mode)
-Tokens live in `DESIGN.md`. Cool near-monochrome neutrals on soft off-white; exactly **one** deep-teal
-accent; a semantic tier scale `--tier-sanj` (gold) → `--tier-l3` → `--tier-l2` → `--tier-none`, which is
-**never colour-only** (always paired with a text label). **Tabular figures** for all swim times. 8px
-spacing grid. Minimal motion (hierarchy only). Banned: card-in-card, purple→blue gradients,
-glassmorphism without function, the rounded-square icon tile above every heading, grey-on-colour text.
+Authoritative tokens live in `DESIGN.md` (TailAdmin-derived). **Outfit** typeface; soft off-white
+canvas (`gray-50`); white cards at `rounded-2xl` with a `gray-200` border and a soft layered shadow;
+brand **indigo `#465fff`** accent for primary actions, active nav, and focus rings; Untitled-UI gray
+ramp (`gray-900 #101828`, never pure black). Semantic success/error/warning used only for those
+states. Semantic tier scale `--tier-sanj` (gold) → `--tier-l3` (indigo) → `--tier-l2` (deep sky) →
+`--tier-none` (grey), **never colour-only** (always a label). **Tabular figures** for all swim times.
+8px grid, minimal functional motion. Banned: card-in-card, gradients, glassmorphism, pure black/white,
+colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
+
+## UI conventions (apply on every screen from Step 4 on)
+- **App shell:** every screen renders inside a collapsible sidebar + slim top bar (shadcn Sidebar,
+  lucide icons, TailAdmin-style but on our tokens). Nav IA (coach view): **Dashboard**; **Swimmers**
+  (Roster, Squads, Log a time); **Performance** (Comparison, Progression, Season improvement);
+  **Qualifying** (Status matrix, Road to qualify, Standards — coach only). Viewers get their own
+  compartmentalised nav — **Overview / Progress / Road to qualify / History** — each its own route, not a single info-dump page.
+- **Breadcrumbs on every page** via the shared `<PageHeader>` / `<AppBreadcrumb>` — real hierarchy, last
+  crumb `aria-current="page"`, dynamic segments resolve real names (e.g. *Swimmers / Jane Doe*).
+- **Feedback on every action** via `lib/notify` (Sonner) — `notify.promise` wraps async mutations
+  (loading → success/error), surfacing the server message on error. No silent successes, no raw `alert()`.
+- All shell/nav/toast/breadcrumb UI is themed from DESIGN.md tokens, uses semantic colours only for
+  success/error/warning, respects `prefers-reduced-motion`, and falls under the ≥ 35/40 gate.
+- **Event selectors:** distance / stroke / course are always shown together (no progressive disclosure),
+  identically styled, with invalid options **disabled** (not hidden) per the event whitelist.
+- **Time input:** a right-to-left digit accumulator (digits fill hundredths → seconds → minutes;
+  backspace removes the last digit; no caret/segment focus). Validate via `parseTime` on blur/save.
+- **Chart pages:** the chart is the centred hero above the fold; filters are a slim toolbar (primary
+  selectors) plus a compact "Filters" popover (secondary filters, with an active-count badge) — never a
+  tall filter block. Shared FilterBar across all chart pages.
+- **Dropdowns:** one shared styled menu component (white rounded panel, soft shadow, brand-indigo hover
+  items, rotating chevron, subtle staggered entrance) for every select / picker / action menu.
+- **Collapsed sidebar:** the icon rail still reaches every subcategory — groups reveal a flyout of their
+  sub-items on hover/focus; leaf items show a label tooltip.
+- **Target tier** is a persisted coach-level global default; the per-page tier toggles (Road to qualify,
+  Status matrix, progression projection) initialise from it, with per-session override.
 
 ## Non-negotiable domain invariants (do not drift, even across sessions or after compaction)
 - **Events:** 50/100/200/400/800/1500 per the whitelist. 100 IM is **SCM-only**; there is no 50 IM;
@@ -44,17 +73,3 @@ glassmorphism without function, the rounded-square icon tile above every heading
 ## Workflow
 Every UI step ends with the impeccable ≥ 35/40 gate. Prefer tables over card grids on data screens.
 When in doubt, the BRD wins over any assumption.
-
-<!-- convex-ai-start -->
-
-This project uses [Convex](https://convex.dev) as its backend.
-
-When working on Convex code, **always read
-`convex/_generated/ai/guidelines.md` first** for important guidelines on
-how to correctly use Convex APIs and patterns. The file contains rules that
-override what you may have learned about Convex from training data.
-
-Convex agent skills for common tasks can be installed by running
-`npx convex ai-files install`.
-
-<!-- convex-ai-end -->
