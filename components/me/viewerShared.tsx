@@ -11,7 +11,15 @@ import { formatShortDate } from "@/lib/format";
   routes (/me, /me/progress, /me/road, /me/history) read identically.
 */
 
-export function ReadOnlyChip() {
+export function ReadOnlyChip({ tone = "default" }: { tone?: "default" | "onWater" }) {
+  if (tone === "onWater") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/15 px-2.5 py-1 text-xs font-medium text-white/90">
+        <Eye aria-hidden className="size-3.5 text-white/70" />
+        Read-only
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink-muted">
       <Eye aria-hidden className="size-3.5 text-ink-faint" />

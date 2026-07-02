@@ -23,10 +23,26 @@ export type Crumb = {
   page — pass "Jane Doe", never "[id]".
 
   Small, muted, one line — the current page is the only emphasised crumb.
+
+  `tone="onWater"` recolours the trail for the deep-water header band: links and
+  separators go translucent white, the current page full white. Used by
+  PageHeader's water variant; the default tone is unchanged everywhere else.
 */
-export function AppBreadcrumb({ trail }: { trail: Crumb[] }) {
+export function AppBreadcrumb({
+  trail,
+  tone = "default",
+}: {
+  trail: Crumb[];
+  tone?: "default" | "onWater";
+}) {
   return (
-    <Breadcrumb>
+    <Breadcrumb
+      className={
+        tone === "onWater"
+          ? "[&_a]:!text-white/75 [&_a:hover]:!text-white [&_li]:!text-white/60 [&_ol]:!text-white/60 [&_svg]:!text-white/45 [&_[aria-current='page']]:!text-white"
+          : undefined
+      }
+    >
       <BreadcrumbList>
         {trail.map((crumb, i) => {
           const isLast = i === trail.length - 1;

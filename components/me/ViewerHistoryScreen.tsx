@@ -25,7 +25,7 @@ export function ViewerHistoryScreen() {
         title="History"
         breadcrumb={[{ label: "Overview", href: "/me" }, { label: "History" }]}
         description="Every swim your coach has logged — meets, trials and practice. Filter and sort to explore."
-        actions={<ReadOnlyChip />}
+        actions={<ReadOnlyChip tone="onWater" />}
       />
 
       {data === undefined ? (

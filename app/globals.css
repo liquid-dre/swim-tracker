@@ -104,6 +104,25 @@
   --color-stroke-fly: #e04f16; /* burnt orange */
   --color-stroke-im: #1570ef; /* blue */
 
+  /* ---- Water chrome accent (DESIGN.md §3c) — VIBRANCE, NOT DATA ----
+     A single energetic water tone. Used ONLY in chrome, motion and celebration
+     (deep-water headers, focus energy, the qualify moment) — never as a chart
+     series, tier or status colour. Same discipline the system already applies
+     to brand indigo: an accent that never carries data meaning, so it can never
+     be mistaken for a tier or a state. --aqua-ink is the AA-safe text tone on
+     white (4.6:1); the raw --aqua-500 is a fill/large-element colour only. */
+  --color-aqua-50: #ecfeff;
+  --color-aqua-100: #cff9fe;
+  --color-aqua-400: #22d3ee;
+  --color-aqua-500: #06b6d4;
+  --color-aqua-600: #0891b2;
+  --color-aqua-ink: #0e7490;
+  --color-aqua-deep: #155e75;
+  /* Deep-water header band — indigo-night → teal, carrying the title/greeting. */
+  --color-water-1: #0b2b5c;
+  --color-water-2: #123f7a;
+  --color-water-3: #0e5a73;
+
   /* Derived tier badge tints (bg / ink / border) — a11y-tuned label colours. */
   --color-tier-sanj-bg: #fffaeb;
   --color-tier-sanj-ink: #b54708;
@@ -442,6 +461,80 @@
   to {
     height: 0;
   }
+}
+
+/* Deep-water header motif — a slow horizontal drift of the wave path. The band
+   reads fine static; this is ambient enhancement only. The reduced-motion rule
+   below zeroes it. The path is tiled wider than the band so the loop is seamless. */
+@keyframes water-drift {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-72px);
+  }
+}
+.water-wave {
+  animation: water-drift 9s linear infinite;
+}
+
+/* Celebration moment (PB / qualification). A one-shot sheen sweep across the
+   medal and a soft entrance for the card. Confetti itself is canvas-drawn in the
+   component (respecting reduced motion); these are the CSS-only flourishes. */
+@keyframes celebrate-shimmer {
+  0% {
+    transform: translateX(-130%);
+  }
+  55%,
+  100% {
+    transform: translateX(180%);
+  }
+}
+.celebrate-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.5) 50%,
+    transparent 70%
+  );
+  transform: translateX(-130%);
+  animation: celebrate-shimmer 3.4s var(--ease-out) 1s infinite;
+}
+@keyframes celebrate-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.celebrate-pop {
+  animation: celebrate-pop var(--dur-3) var(--ease-out) both;
+}
+
+/* Stroke-profile wheel: a one-shot bloom as the data spokes settle in. NO fill
+   mode — the resting state (opacity 1, scale 1) is the DEFAULT, so the chart is
+   fully drawn even if the animation never runs (hidden tab / headless). The
+   reduced-motion reset zeroes it. transform-origin is set inline to the wheel
+   centre in view-box units. */
+@keyframes wheel-bloom {
+  from {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.wheel-bloom {
+  animation: wheel-bloom var(--dur-3) var(--ease-out);
+  transform-box: view-box;
 }
 
 @media (prefers-reduced-motion: reduce) {

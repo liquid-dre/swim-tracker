@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useQuery } from "convex/react";
 import {
   ArrowRight,
   BarChart3,
@@ -13,18 +14,20 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+import { api } from "@/convex/_generated/api";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SquadStats, RosterOverview } from "@/components/dashboard/squadOverview";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { useGreeting } from "@/lib/useGreeting";
 import { trailForHref } from "@/lib/nav";
 
 /*
-  Coach home (Step 16). The landing route for a coach after sign-in. Poolside,
-  the first job is almost always "log a time", so that is the hero action; below
-  it, a calm set of jump-offs into the working surfaces. Deliberately not the
-  full squad-analytics overview — that lands in a later step; this is a fast,
-  honest home, not a metrics wall. (There is no global target-tier control: the
-  qualifying views open on "All" tiers and each carries its own per-view toggle.)
+  Coach home (Step 16, extended in the vibrance revamp). The landing route for a
+  coach after sign-in. It now opens with a live squad read — four headline counts
+  and a roster "top event" table with trend sparklines (convex/dashboard) — then
+  the poolside hero action, "log a time", and a calm set of jump-offs into the
+  working surfaces. Still honest, not a metrics wall: every number is derived by
+  the same rules as the rest of the app (meet-only PBs, exact-age LCM cuts).
 */
 
 type Shortcut = {
@@ -52,13 +55,20 @@ export function CoachDashboardScreen() {
   // (where you are); the h1 greets by first name at the coach's local time.
   const greeting = useGreeting(profile?.name);
 
+  // The squad overview — one derived read, coach-scoped server-side.
+  const dashboard = useQuery(api.dashboard.getCoachDashboard, {});
+
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
+        variant="water"
         title={greeting}
         breadcrumb={trailForHref("/dashboard")}
         description="Log a swim and jump into your squad's readiness. Times you log flow straight into progression, the status matrix and the road to every cut."
       />
+
+      {/* Squad at a glance — headline counts across the roster. */}
+      <SquadStats data={dashboard} />
 
       {/* Hero — log a time. The one action a coach reaches for most, poolside. */}
       <section className="flex flex-col gap-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
@@ -86,6 +96,9 @@ export function CoachDashboardScreen() {
         </Link>
       </section>
 
+      {/* Roster · top event — one representative event per swimmer, with trend. */}
+      <RosterOverview data={dashboard} />
+
       {/* Jump to — the working surfaces, one calm tile each. */}
       <section className="flex flex-col gap-4">
         <h2 className="text-sm font-medium text-ink-muted">Jump to</h2>
@@ -97,11 +110,6 @@ export function CoachDashboardScreen() {
           ))}
         </ul>
       </section>
-
-      <p className="text-xs text-ink-faint">
-        A full squad overview — recent bests, who&rsquo;s closest to a cut and
-        season movement — arrives in a later step.
-      </p>
     </div>
   );
 }

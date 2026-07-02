@@ -111,6 +111,12 @@ export function StrokeWheel({
           ),
         )}
 
+        {/* Data spokes bloom in on mount; the hub + reference rings stay static as
+            a stable frame. Resting state is fully drawn (see .wheel-bloom). */}
+        <g
+          className="wheel-bloom"
+          style={{ transformOrigin: `${cx}px ${cy}px` }}
+        >
         {/* Stroke arcs — the coloured identity band grouping each stroke. */}
         {L.arcs.map((a) => {
           const padDeg = Math.min(3, L.anglePer * 0.15);
@@ -221,6 +227,7 @@ export function StrokeWheel({
             </g>
           );
         })}
+        </g>
 
         {/* Stroke labels outside the arcs. */}
         {L.arcs.map((a) => {

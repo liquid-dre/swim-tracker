@@ -12,6 +12,7 @@ import {
 import { formatSeconds } from "@/lib/format";
 import { TierBadge } from "@/components/ui/TierBadge";
 import { useContainerWidth } from "@/hooks/use-container-width";
+import { useGrowIn } from "@/hooks/use-grow-in";
 import { cn } from "@/lib/utils";
 
 /*
@@ -129,6 +130,7 @@ export function SingleTierProgress({ bars }: { bars: SingleBar[] }) {
 function SingleBarRow({ bar: b }: { bar: SingleBar }) {
   const pct = Math.round(fillFraction(b) * 100);
   const [trackRef, trackWidth] = useContainerWidth(320);
+  const grown = useGrowIn();
 
   return (
     <li className="flex items-center gap-3 py-3 sm:gap-4">
@@ -145,9 +147,9 @@ function SingleBarRow({ bar: b }: { bar: SingleBar }) {
         aria-hidden
       >
         <div
-          className="h-full rounded-md transition-[width] [transition-duration:var(--dur-2)]"
+          className="h-full rounded-md transition-[width] [transition-duration:var(--dur-3)] [transition-timing-function:var(--ease-out)]"
           style={{
-            width: `${Math.max(2, pct)}%`,
+            width: `${grown ? Math.max(2, pct) : 0}%`,
             background: b.qualified
               ? "var(--color-qualified)"
               : "var(--color-brand-500)",
@@ -290,6 +292,7 @@ function AllRowView({ row }: { row: AllRow }) {
   const fillPct = hasPb ? posPct(row.calibratedRadius ?? 0) : 0;
   const fillColor = row.tier ? TIER_FILL[row.tier] : NONE_FILL;
   const [trackRef, trackWidth] = useContainerWidth(320);
+  const grown = useGrowIn();
   // On-fill text colour tuned per fill for contrast: white on the deep L3/L2
   // fills, near-black on the light gold (SANJ) and grey (no-tier) fills.
   const insideClass =
@@ -338,8 +341,8 @@ function AllRowView({ row }: { row: AllRow }) {
         {/* PB fill */}
         {hasPb && (
           <div
-            className="absolute inset-y-0 left-0 rounded-r-md transition-[width] [transition-duration:var(--dur-2)]"
-            style={{ width: `${Math.max(2, fillPct)}%`, background: fillColor }}
+            className="absolute inset-y-0 left-0 rounded-r-md transition-[width] [transition-duration:var(--dur-3)] [transition-timing-function:var(--ease-out)]"
+            style={{ width: `${grown ? Math.max(2, fillPct) : 0}%`, background: fillColor }}
           />
         )}
         {/* PB time, drawn on (or just past) the fill */}

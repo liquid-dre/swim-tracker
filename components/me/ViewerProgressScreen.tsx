@@ -35,7 +35,7 @@ export function ViewerProgressScreen() {
         title="Progress"
         breadcrumb={[{ label: "Overview", href: "/me" }, { label: "Progress" }]}
         description="Your times over the season for one event, and your strength across strokes. Trials and practice are shown but never set a PB."
-        actions={<ReadOnlyChip />}
+        actions={<ReadOnlyChip tone="onWater" />}
       />
       <ProgressionSection swimmerId={selectedId} />
       <StrokeProfileSection swimmerId={selectedId} />

@@ -174,7 +174,7 @@ export function StatusMatrixScreen() {
                     <tr key={r.swimmerId} className="group">
                       <th
                         scope="row"
-                        className="sticky left-0 z-10 border-b border-gray-100 bg-white px-4 py-2.5 text-left align-middle font-medium text-ink transition-colors group-hover:bg-gray-50"
+                        className="sticky left-0 z-10 border-b border-gray-100 bg-white px-4 py-2.5 text-left align-middle font-medium text-ink transition-colors group-hover:bg-aqua-50"
                       >
                         <Link
                           href={`/swimmers/${r.swimmerId}`}
@@ -248,7 +248,7 @@ function MatrixCell({
   gapMs: number | null;
 }) {
   const base =
-    "border-b border-l border-gray-100 px-2.5 py-2 text-center align-middle transition-colors group-hover:bg-gray-50";
+    "border-b border-l border-gray-100 px-2.5 py-2 text-center align-middle transition-colors group-hover:bg-aqua-50";
 
   // No cut for this event at the swimmer's exact age → blank/neutral (§5.7).
   if (!hasCut) {

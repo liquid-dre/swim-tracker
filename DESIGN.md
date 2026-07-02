@@ -89,6 +89,35 @@ accompanies the swatch (legend), so it is never colour-only.
 }
 ```
 
+## 3c. Water accent + vibrance layer (chrome only — NEVER data)
+The one energetic addition to the system: a single **aqua** water tone plus a **deep-water header
+band**, used to make the product feel alive without touching the meaning of any data. The rule is
+absolute and mirrors the discipline already applied to brand indigo: **aqua never encodes a tier, a
+stroke, a status or a chart series** — it lives only in chrome (the header band), motion (the ambient
+wave), focus energy, and the celebration moment. That is what lets it never be mistaken for a tier or
+a state. `--color-aqua-ink` (#0e7490) is the AA-safe text tone on white (4.6:1); raw `--color-aqua-500`
+is a fill / large-element colour only.
+```css
+@theme {
+  --color-aqua-50:#ecfeff; --color-aqua-100:#cff9fe; --color-aqua-400:#22d3ee;
+  --color-aqua-500:#06b6d4; --color-aqua-600:#0891b2;
+  --color-aqua-ink:#0e7490; --color-aqua-deep:#155e75;
+  /* Deep-water header band (indigo-night → teal), carrying the title/greeting. */
+  --color-water-1:#0b2b5c; --color-water-2:#123f7a; --color-water-3:#0e5a73;
+}
+```
+- **Deep-water header:** `PageHeader variant="water"` renders the breadcrumb + title (+ actions) inside
+  the gradient band, light-on-dark, with a slow ambient wave (`.water-wave`, motion-safe). Actions on
+  the band must be styled for a dark ground (white / translucent), not brand-on-white.
+- **Celebration moment (PB / qualification):** the swimmer-register cheer. Confetti auto-plays **once**
+  on mount, replayable, withheld under `prefers-reduced-motion`. The award medal is **tinted by the
+  actual tier** (gold SANJ / purple L3 / sky L2) so tier meaning is reinforced, and the tier is always
+  **named** (heading + chip) — never colour-only. Celebration reuses the colours that already mean
+  success — gold (top tier) + green (qualified) — plus the aqua splash, so nothing decorative steals a
+  signal. Times in the card stay **tabular**.
+- Motion classes (`.water-wave`, `.celebrate-shimmer`, `.celebrate-pop`) all fall under the global
+  `prefers-reduced-motion` reset.
+
 ## 4. shadcn/ui variable mapping (`:root` + `.dark`)
 So shadcn components (sidebar, breadcrumb, sonner, buttons, inputs) inherit this palette instead of
 their defaults. Map, don't fight.

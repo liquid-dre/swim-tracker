@@ -33,7 +33,7 @@ export function ViewerRoadScreen() {
         title="Road to qualify"
         breadcrumb={[{ label: "Overview", href: "/me" }, { label: "Road to qualify" }]}
         description="How close your fastest long-course meet time is to each qualifying cut, closest first. Standards resolve to your exact age."
-        actions={<ReadOnlyChip />}
+        actions={<ReadOnlyChip tone="onWater" />}
       />
 
       {/* Slim toolbar: the shared target tier drives the whole view. */}

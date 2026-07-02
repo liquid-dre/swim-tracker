@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Kbd } from "@/components/ui/Kbd";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { QualifyCelebration } from "@/components/me/QualifyCelebration";
 import { Segmented } from "@/components/ui/Segmented";
 import { TierBadge, type Tier } from "@/components/ui/TierBadge";
 import { notify } from "@/lib/notify";
@@ -78,6 +79,22 @@ export default function PreviewPage() {
         ]}
         description="The living reference for tokens and the shared component vocabulary: soft off-white canvas, Untitled-UI grays, one indigo brand accent, green only for qualified, a tier scale that always pairs colour with a label."
       />
+
+      {/* ── Vibrance layer: deep-water header + celebration (DESIGN.md §3c) ──── */}
+      <section className="mt-8">
+        <h2 className="mb-3 text-sm font-medium text-ink-muted">
+          Vibrance — deep-water header &amp; the qualification moment
+        </h2>
+        <div className="grid gap-5 lg:grid-cols-2">
+          <PageHeader
+            variant="water"
+            title="Good morning, Coach"
+            breadcrumb={[{ label: "Dashboard", href: "/" }, { label: "Dashboard" }]}
+            description="The deep-water band carries the title and breadcrumb. Chrome only — no data lives here, so it never competes with the tier or stroke palettes."
+          />
+          <QualifyCelebration tier="SANJ" eventLabel="50 Fly" timeMs={29880} />
+        </div>
+      </section>
 
       {/* ── Toolbar: search (⌘K), course toggle, primary action (N) ─────────── */}
       <div className="mt-8 flex flex-wrap items-center gap-3">

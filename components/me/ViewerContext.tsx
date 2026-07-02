@@ -134,7 +134,7 @@ function ViewerGate({ children }: { children: ReactNode }) {
         title="My swimmer"
         breadcrumb={[{ label: "Overview" }]}
         description="Your personal bests, progression, and how close you are to each qualifying cut."
-        actions={<ReadOnlyChip />}
+        actions={<ReadOnlyChip tone="onWater" />}
       />
       {children}
     </div>

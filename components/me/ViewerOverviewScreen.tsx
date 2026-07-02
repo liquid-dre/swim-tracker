@@ -12,8 +12,13 @@ import { useGreeting } from "@/lib/useGreeting";
 import { formatTime, type Tier } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
 import { PbBoard } from "@/components/swimmers/PbBoard";
+import { QualifyCelebration } from "./QualifyCelebration";
 import { useViewer } from "./ViewerContext";
 import { IdentityStrip, ReadOnlyChip, Section } from "./viewerShared";
+
+// Hardest → easiest, so the proudest qualified cut wins when picking the one
+// achievement to celebrate on the overview.
+const TIER_RANK: Record<Tier, number> = { SANJ: 3, LEVEL_3: 2, LEVEL_2: 1 };
 
 /*
   Viewer Overview (/me, Step R6). The calm landing summary — the R4 greeting, the
@@ -43,20 +48,35 @@ export function ViewerOverviewScreen() {
     swimmerId: selectedId,
     tier,
   });
+  // Stroke profile carries each event's headline PB and the hardest tier it
+  // meets — the honest source for the one cut worth celebrating up top.
+  const strokeProfile = useQuery(api.analysis.getStrokeProfile, {
+    swimmerId: selectedId,
+  });
+  const achievement = bestAchievement(strokeProfile);
 
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
+        variant="water"
         title={greeting}
         breadcrumb={[{ label: "Overview" }]}
         description="Your bests and how close you are to each qualifying cut. Open Progress, Road to qualify or History for the full picture."
-        actions={<ReadOnlyChip />}
+        actions={<ReadOnlyChip tone="onWater" />}
       />
 
       {data === undefined ? (
         <OverviewSkeleton />
       ) : (
         <>
+          {achievement && (
+            <QualifyCelebration
+              tier={achievement.tier}
+              eventLabel={achievement.label}
+              timeMs={achievement.pbMs}
+            />
+          )}
+
           <IdentityStrip
             name={data.swimmer.name}
             age={data.swimmer.age}
@@ -85,6 +105,21 @@ export function ViewerOverviewScreen() {
 // ---------------------------------------------------------------------------
 // Closest to qualifying — a short read that links into /me/road
 // ---------------------------------------------------------------------------
+
+type StrokeProfileData = FunctionReturnType<typeof api.analysis.getStrokeProfile>;
+
+/** The proudest qualified cut to celebrate: hardest tier met, with its PB. */
+function bestAchievement(profile: StrokeProfileData | undefined) {
+  if (!profile) return null;
+  let best: { tier: Tier; label: string; pbMs: number } | null = null;
+  for (const e of profile.events) {
+    if (e.highestTier === null || e.pbMs === null) continue;
+    if (best === null || TIER_RANK[e.highestTier] > TIER_RANK[best.tier]) {
+      best = { tier: e.highestTier, label: e.label, pbMs: e.pbMs };
+    }
+  }
+  return best;
+}
 
 type RoadData = FunctionReturnType<typeof api.analysis.getRoadToQualify>;
 
