@@ -26,7 +26,13 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { isGroupActive, isRouteActive, navForRole, type Role } from "@/lib/nav";
+import {
+  isGroupActive,
+  isLeafActive,
+  isRouteActive,
+  navForRole,
+  type Role,
+} from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +94,7 @@ export function AppSidebar() {
           <SidebarMenu>
             {nav.map((node) => {
               if (node.kind === "item") {
-                const active = isRouteActive(pathname, node.href);
+                const active = isLeafActive(pathname, node);
                 return (
                   <SidebarMenuItem key={node.href}>
                     <SidebarMenuButton

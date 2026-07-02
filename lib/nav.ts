@@ -4,6 +4,7 @@ import {
   BarChart3,
   Gauge,
   Grid3x3,
+  History,
   LayoutDashboard,
   LineChart,
   Radar,
@@ -11,7 +12,6 @@ import {
   Target,
   Timer,
   TrendingUp,
-  User,
   Users,
   UsersRound,
   Waves,
@@ -34,6 +34,9 @@ export type NavLeaf = {
   icon: LucideIcon;
   /** If present, only these roles see the item. Absent = visible to all roles. */
   roles?: Role[];
+  /** Highlight only on an EXACT path match — for a parent route (e.g. /me) that
+   *  also has children (/me/progress…), so it doesn't stay lit on every child. */
+  exact?: boolean;
 };
 
 export type NavGroup = {
@@ -51,8 +54,21 @@ export type NavNode =
 // children's (Waves / Gauge / Award) so the collapsed icon rail never shows a
 // parent and child with the same glyph.
 export const NAV: NavNode[] = [
-  // Viewer home — the ONLY entry a viewer sees. Read-only, own swimmer(s) only.
-  { kind: "item", label: "My swimmer", href: "/me", icon: User, roles: ["VIEWER"] },
+  // Viewer nav (Step R6). A compartmentalised, read-only experience over the
+  // viewer's OWN swimmer(s): a lean overview plus one focused section each for
+  // progress, qualifying and history. `exact` on Overview so it doesn't stay
+  // lit on the sub-routes. Every route is under /me — the viewer boundary.
+  {
+    kind: "item",
+    label: "Overview",
+    href: "/me",
+    icon: LayoutDashboard,
+    roles: ["VIEWER"],
+    exact: true,
+  },
+  { kind: "item", label: "Progress", href: "/me/progress", icon: LineChart, roles: ["VIEWER"] },
+  { kind: "item", label: "Road to qualify", href: "/me/road", icon: Target, roles: ["VIEWER"] },
+  { kind: "item", label: "History", href: "/me/history", icon: History, roles: ["VIEWER"] },
   {
     kind: "item",
     label: "Dashboard",
@@ -138,6 +154,11 @@ export function navForRole(role: Role): NavNode[] {
 /** True when `pathname` is within `href` (exact, or a nested route under it). */
 export function isRouteActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + "/");
+}
+
+/** Active state for a nav leaf, honouring its `exact` flag (parent routes). */
+export function isLeafActive(pathname: string, leaf: NavLeaf): boolean {
+  return leaf.exact ? pathname === leaf.href : isRouteActive(pathname, leaf.href);
 }
 
 /** A group is "active" (auto-expanded) when any of its items matches the route. */
