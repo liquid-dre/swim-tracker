@@ -114,19 +114,15 @@ export function RoadScreen() {
             <div className="w-full max-w-xs sm:w-56">
               <Select
                 aria-label="Swimmer"
+                placeholder={loadingSwimmers ? "Loading swimmers…" : "Select a swimmer"}
                 value={swimmerId}
-                onChange={(e) => setSwimmerId(e.target.value as Id<"swimmers">)}
+                onValueChange={(v) => setSwimmerId(v as Id<"swimmers">)}
                 disabled={loadingSwimmers}
-              >
-                <option value="" disabled>
-                  {loadingSwimmers ? "Loading swimmers…" : "Select a swimmer"}
-                </option>
-                {(swimmers ?? []).map((s) => (
-                  <option key={s._id} value={s._id}>
-                    {s.name} · {s.age}
-                  </option>
-                ))}
-              </Select>
+                options={(swimmers ?? []).map((s) => ({
+                  value: s._id,
+                  label: `${s.name} · ${s.age}`,
+                }))}
+              />
             </div>
             <Segmented
               ariaLabel="Target qualifying tier"

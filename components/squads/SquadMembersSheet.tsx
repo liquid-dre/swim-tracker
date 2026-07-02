@@ -13,6 +13,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Select } from "@/components/ui/Select";
 import { notify } from "@/lib/notify";
 
 // Manage a squad's membership (Step 4). Add active swimmers not already in the
@@ -79,27 +80,23 @@ export function SquadMembersSheet({
             <label htmlFor="add-swimmer" className="text-sm font-medium text-ink">
               Add a swimmer
             </label>
-            <select
+            <Select
               id="add-swimmer"
+              placeholder={
+                addable.length === 0
+                  ? "All active swimmers are in this squad"
+                  : "Select a swimmer to add…"
+              }
               value=""
               disabled={addable.length === 0}
-              onChange={(e) => {
-                const id = e.target.value as Id<"swimmers">;
-                if (id) void add(id);
+              onValueChange={(v) => {
+                if (v) void add(v as Id<"swimmers">);
               }}
-              className="h-9 rounded-lg border border-gray-300 bg-white px-2 text-base text-ink outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50"
-            >
-              <option value="" disabled>
-                {addable.length === 0
-                  ? "All active swimmers are in this squad"
-                  : "Select a swimmer to add…"}
-              </option>
-              {addable.map((s) => (
-                <option key={s._id} value={s._id}>
-                  {s.name} · {s.age}
-                </option>
-              ))}
-            </select>
+              options={addable.map((s) => ({
+                value: s._id,
+                label: `${s.name} · ${s.age}`,
+              }))}
+            />
           </div>
 
           {/* Current members */}

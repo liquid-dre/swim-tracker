@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { ChevronDown, LogOut } from "lucide-react";
 import { useAuthActions } from "@convex-dev/auth/react";
 
 import {
@@ -49,7 +49,7 @@ export function AppTopbar() {
       <div className="ml-auto">
         <DropdownMenu>
           <DropdownMenuTrigger
-            className="flex items-center gap-2 rounded-md px-1.5 py-1 text-sm outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"
+            className="group flex items-center gap-2 rounded-md px-1.5 py-1 text-sm outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Account menu"
           >
             <span
@@ -61,6 +61,10 @@ export function AppTopbar() {
             <span className="hidden max-w-40 truncate font-medium text-ink sm:inline">
               {profile?.name ?? "Account"}
             </span>
+            <ChevronDown
+              aria-hidden
+              className="size-4 text-ink-faint transition-transform [transition-duration:var(--dur-2)] group-data-[state=open]:rotate-180"
+            />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel className="font-normal">

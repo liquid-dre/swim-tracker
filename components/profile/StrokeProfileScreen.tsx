@@ -312,24 +312,21 @@ function CoachPicker({
       <div className="w-52">
         <Select
           aria-label="Add a swimmer to compare"
-          value=""
-          disabled={atMax || available.length === 0}
-          onChange={(e) => e.target.value && onAdd(e.target.value as Id<"swimmers">)}
-        >
-          <option value="">
-            {atMax
+          placeholder={
+            atMax
               ? `Comparing ${MAX_COMPARE} (the maximum)`
               : available.length === 0
                 ? "All swimmers added"
-                : "Add a swimmer…"}
-          </option>
-          {!atMax &&
-            available.map((s) => (
-              <option key={s._id} value={s._id}>
-                {s.name} · {s.age}
-              </option>
-            ))}
-        </Select>
+                : "Add a swimmer…"
+          }
+          value=""
+          disabled={atMax || available.length === 0}
+          onValueChange={(v) => onAdd(v as Id<"swimmers">)}
+          options={available.map((s) => ({
+            value: s._id,
+            label: `${s.name} · ${s.age}`,
+          }))}
+        />
       </div>
     </div>
   );
@@ -357,15 +354,14 @@ function ViewerPicker({
     <div className="w-56">
       <Select
         aria-label="Swimmer"
+        placeholder="Swimmer"
         value={value ?? ""}
-        onChange={(e) => onChange(e.target.value as Id<"swimmers">)}
-      >
-        {swimmers.map((s) => (
-          <option key={s._id} value={s._id}>
-            {s.name} · {s.age}
-          </option>
-        ))}
-      </Select>
+        onValueChange={(v) => onChange(v as Id<"swimmers">)}
+        options={swimmers.map((s) => ({
+          value: s._id,
+          label: `${s.name} · ${s.age}`,
+        }))}
+      />
     </div>
   );
 }
