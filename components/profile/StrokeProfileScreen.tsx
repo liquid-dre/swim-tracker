@@ -18,12 +18,17 @@ import { STROKE_META, WHEEL_STROKE_ORDER, type ProfileEvent } from "./strokeProf
 /*
   Stroke profile (Step 12.5, BRD §5). A radial wheel of a swimmer's events grouped
   by stroke, calibrated per-event against the L2/L3/SANJ cuts (LCM only). A coach
-  can place up to three swimmers side by side on the same scale to read strength
+  can place up to four swimmers on the same calibrated scale to read strength
   distributions (e.g. picking medley-relay legs); a viewer sees only their own
   swimmer(s) — no other-swimmer picker, no side-by-side — enforced server-side.
+
+  Layout by count so no wheel is squashed (Step R9): 1 = a single centred wheel;
+  2 = a 1×2 row (side by side on desktop, never stacked); 3–4 = a 2×2 grid (3
+  leaves one empty cell). Below `sm` every layout collapses to a single stacked
+  column, one wheel per row, each sized to its own cell so it stays legible.
 */
 
-const MAX_COMPARE = 3;
+const MAX_COMPARE = 4;
 type Coverage = "full" | "all";
 
 export function StrokeProfileScreen() {
@@ -65,16 +70,17 @@ export function StrokeProfileScreen() {
 
   const loading = data === undefined;
 
-  // Clamp the single wheel to the space the panels row actually has so the fixed
-  // 380px SVG never overflows the gutter at ~375px. The panels row is full-width
-  // and stable (its width comes from the page, not the wheel), so measuring it
-  // avoids the shrink-to-fit feedback a per-card measurement would hit. In the
-  // compare grid each column is full-width below sm, where 300px already fits.
+  const isCompare = selected.length > 1;
+
+  // The single wheel is clamped to the space the panels row actually has, so the
+  // fixed SVG never overflows the gutter at ~375px. The row is full-width and
+  // stable (its width comes from the page, not the wheel), so measuring it avoids
+  // the shrink-to-fit feedback a per-card measurement would hit. In compare mode
+  // each wheel instead measures its OWN grid cell (see WheelPanel) — cells have
+  // deterministic 1fr widths, so that measurement is feedback-safe and every
+  // wheel scales to fit whether it's a 1×2 row, a 2×2 grid, or a mobile stack.
   const [panelsRef, panelsWidth] = useContainerWidth(1024);
-  const wheelSize =
-    selected.length > 1
-      ? 300
-      : Math.max(240, Math.min(380, Math.floor(panelsWidth) - 40));
+  const singleSize = Math.max(240, Math.min(380, Math.floor(panelsWidth) - 40));
 
   return (
     <div className="flex flex-col gap-6">
@@ -132,8 +138,8 @@ export function StrokeProfileScreen() {
           <div
             ref={panelsRef}
             className={
-              selected.length > 1
-                ? "grid gap-5 sm:grid-cols-2 xl:grid-cols-3"
+              isCompare
+                ? "grid grid-cols-1 gap-5 sm:grid-cols-2"
                 : "flex justify-center"
             }
           >
@@ -142,8 +148,9 @@ export function StrokeProfileScreen() {
                 key={id}
                 swimmerId={id}
                 coverage={coverage}
-                size={wheelSize}
-                compact={selected.length > 1}
+                size={singleSize}
+                autoSize={isCompare}
+                compact={isCompare}
               />
             ))}
           </div>
@@ -163,14 +170,26 @@ function WheelPanel({
   swimmerId,
   coverage,
   size,
+  autoSize,
   compact,
 }: {
   swimmerId: Id<"swimmers">;
   coverage: Coverage;
   size: number;
+  // Compare mode: measure this wheel's own grid cell and fit the SVG to it, so
+  // it scales down cleanly from a desktop 2×2 cell to a full-width mobile row.
+  autoSize: boolean;
   compact: boolean;
 }) {
   const data = useQuery(api.analysis.getStrokeProfile, { swimmerId });
+
+  // Measure the cell's inner content width (card padding already excluded). Grid
+  // cells are 1fr, so this is stable — no wheel→card→wheel feedback. Ignored when
+  // autoSize is off (the single wheel gets its size from the row instead).
+  const [fitRef, fitWidth] = useContainerWidth(320);
+  const wheelSize = autoSize
+    ? Math.max(240, Math.min(360, Math.floor(fitWidth)))
+    : size;
 
   const events: ProfileEvent[] = useMemo(() => {
     const all = (data?.events ?? []) as ProfileEvent[];
@@ -183,13 +202,16 @@ function WheelPanel({
   );
 
   return (
-    <section className="flex flex-col items-center gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
+    <section
+      ref={fitRef}
+      className="flex min-w-0 flex-col items-center gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6"
+    >
       {data === undefined ? (
         <div className="flex w-full flex-col items-center gap-3">
           <div className="h-5 w-40 animate-pulse rounded bg-surface-2" />
           <div
             className="animate-pulse rounded-full bg-surface-2"
-            style={{ width: size, height: size }}
+            style={{ width: wheelSize, height: wheelSize }}
           />
         </div>
       ) : data === null ? (
@@ -219,7 +241,11 @@ function WheelPanel({
               </p>
             </div>
           ) : (
-            <StrokeWheel events={events} size={size} title={data.swimmer.name} />
+            <StrokeWheel
+              events={events}
+              size={wheelSize}
+              title={data.swimmer.name}
+            />
           )}
 
           {events.length > 0 && coverage === "full" && partialCount > 0 && (
