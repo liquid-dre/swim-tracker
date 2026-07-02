@@ -12,7 +12,9 @@ import { notify } from "@/lib/notify";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
-import { EventPicker, type EventValue } from "@/components/analysis/EventPicker";
+import { FilterBar } from "@/components/ui/FilterBar";
+import { EventFilter } from "@/components/analysis/EventFilter";
+import { type EventValue } from "@/components/analysis/EventPicker";
 import { trailForHref } from "@/lib/nav";
 
 /*
@@ -115,19 +117,37 @@ export function SeasonScreen() {
         description="Who's dropping the most time this season. Ranked by improvement between each swimmer's first in-season meet time and their fastest since — by a single event, or averaged across every event. Meet times only; trials and practice never count."
       />
 
-      <SeasonControls
-        mode={mode}
-        onMode={setMode}
-        events={events?.map((e) => ({
-          distance: e.distance,
-          stroke: e.stroke as Stroke,
-          allowedCourses: e.allowedCourses as Course[],
-        }))}
-        event={event}
-        onEvent={setEvent}
+      {/* Slim toolbar: mode + event inline; the season window behind the popover
+          so the ranking leads. */}
+      <FilterBar
+        primary={
+          <>
+            <Segmented
+              ariaLabel="Ranking mode"
+              value={mode}
+              onChange={(v) => setMode(v as Mode)}
+              options={[
+                { value: "event", label: "By event" },
+                { value: "overall", label: "Overall" },
+              ]}
+            />
+            {mode === "event" && (
+              <EventFilter
+                events={events?.map((e) => ({
+                  distance: e.distance,
+                  stroke: e.stroke as Stroke,
+                  allowedCourses: e.allowedCourses as Course[],
+                }))}
+                value={event}
+                onChange={setEvent}
+              />
+            )}
+          </>
+        }
+        filters={<SeasonStartEditor settings={settings} />}
+        filterCount={settings?.source === "custom" ? 1 : 0}
+        filtersLabel="Season"
       />
-
-      <SeasonStartEditor settings={settings} />
 
       {waitingForEvent ? (
         <EmptyState
@@ -153,55 +173,7 @@ export function SeasonScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// Controls — mode toggle + (event mode) the event picker
-// ---------------------------------------------------------------------------
-
-function SeasonControls({
-  mode,
-  onMode,
-  events,
-  event,
-  onEvent,
-}: {
-  mode: Mode;
-  onMode: (m: Mode) => void;
-  events:
-    | { distance: number; stroke: Stroke; allowedCourses: Course[] }[]
-    | undefined;
-  event: EventValue;
-  onEvent: (v: EventValue) => void;
-}) {
-  return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-semibold text-ink">Rank by</h2>
-        <p className="text-xs text-ink-muted">
-          One event, or the average across every event a swimmer has raced.
-        </p>
-      </div>
-      <div className="mt-3">
-        <Segmented
-          ariaLabel="Ranking mode"
-          value={mode}
-          onChange={(v) => onMode(v as Mode)}
-          options={[
-            { value: "event", label: "By event" },
-            { value: "overall", label: "Overall" },
-          ]}
-        />
-      </div>
-
-      {mode === "event" && (
-        <div className="mt-5 border-t border-gray-100 pt-5">
-          <EventPicker events={events} value={event} onChange={onEvent} />
-        </div>
-      )}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Season-start editor (the app-setting)
+// Season-start editor (the app-setting) — compact body for the Filters popover
 // ---------------------------------------------------------------------------
 
 type Settings = {
@@ -256,76 +228,73 @@ function SeasonStartEditor({ settings }: { settings: Settings | undefined }) {
   }
 
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <CalendarDays
-              aria-hidden
-              className="size-4 text-ink-faint"
-              strokeWidth={1.75}
-            />
-            <h2 className="text-sm font-semibold text-ink">Season start</h2>
-          </div>
-          <p className="mt-0.5 max-w-[52ch] text-xs text-ink-muted">
-            The window every ranking measures over. Currently{" "}
-            <span className="font-medium text-ink">
-              {settings ? formatShortDate(settings.effectiveSeasonStart) : "…"}
-            </span>{" "}
-            {settings?.source === "rolling"
-              ? "— the default rolling 12 months. Set a fixed date to pin the season."
-              : "— a fixed season start you set."}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-ink-muted">Start date</span>
-            <input
-              type="date"
-              value={value}
-              max={today}
-              onChange={(e) => setOverride(e.target.value)}
-              disabled={!settings || saving}
-              aria-label="Season start date"
-              aria-invalid={invalid || undefined}
-              className={
-                "time h-9 rounded-lg border bg-white px-3 text-base text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50 " +
-                (invalid
-                  ? "border-error-500 bg-error-50"
-                  : "border-gray-300 hover:border-gray-400")
-              }
-            />
-          </label>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={save}
-            disabled={!dirty || invalid}
-            loading={saving && dirty}
-          >
-            Save
-          </Button>
-          {isCustom && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={reset}
-              disabled={saving}
-              title="Revert to a rolling 12-month window"
-            >
-              <RotateCcw aria-hidden className="size-3.5" strokeWidth={2} />
-              Rolling 12 months
-            </Button>
-          )}
-        </div>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <CalendarDays
+          aria-hidden
+          className="size-4 text-ink-faint"
+          strokeWidth={1.75}
+        />
+        <span className="text-sm font-semibold text-ink">Season window</span>
       </div>
+      <p className="text-xs text-ink-muted">
+        Every ranking measures over this window. Currently{" "}
+        <span className="font-medium text-ink">
+          {settings ? formatShortDate(settings.effectiveSeasonStart) : "…"}
+        </span>{" "}
+        {settings?.source === "rolling"
+          ? "— the default rolling 12 months."
+          : "— a fixed start you set."}
+      </p>
+
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-ink-muted">Start date</span>
+        <input
+          type="date"
+          value={value}
+          max={today}
+          onChange={(e) => setOverride(e.target.value)}
+          disabled={!settings || saving}
+          aria-label="Season start date"
+          aria-invalid={invalid || undefined}
+          className={
+            "time h-9 w-full rounded-lg border bg-white px-3 text-base text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50 " +
+            (invalid
+              ? "border-error-500 bg-error-50"
+              : "border-gray-300 hover:border-gray-400")
+          }
+        />
+      </label>
       {invalid && (
-        <p className="mt-2 text-xs text-danger-ink">
+        <p className="text-xs text-danger-ink">
           Season start cannot be in the future.
         </p>
       )}
-    </section>
+
+      <div className="flex items-center gap-2">
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={save}
+          disabled={!dirty || invalid}
+          loading={saving && dirty}
+        >
+          Save
+        </Button>
+        {isCustom && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={reset}
+            disabled={saving}
+            title="Revert to a rolling 12-month window"
+          >
+            <RotateCcw aria-hidden className="size-3.5" strokeWidth={2} />
+            Rolling 12 months
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 

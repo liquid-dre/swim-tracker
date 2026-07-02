@@ -8,10 +8,13 @@ import { ArrowDown, ArrowUp, BarChart3 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { Select } from "@/components/ui/Select";
+import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { trailForHref } from "@/lib/nav";
 import { formatTime, type Course, type Stroke, type Tier } from "@/lib/swim";
 import { formatShortDate, formatSeconds } from "@/lib/format";
-import { EventPicker, type EventValue } from "@/components/analysis/EventPicker";
+import { EventFilter } from "@/components/analysis/EventFilter";
+import { type EventValue } from "@/components/analysis/EventPicker";
 import {
   ComparisonBarChart,
   ComparisonTierLegend,
@@ -149,43 +152,65 @@ export function CompareScreen() {
         description="Rank swimmers on one event and course by their fastest meet time. Trials and practice never count."
       />
 
-      {/* Event selection */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
-        <h2 className="text-sm font-semibold text-ink">Event</h2>
-        <p className="mt-0.5 text-xs text-ink-muted">
-          Choose a distance, stroke and course to build the leaderboard.
-        </p>
-        <div className="mt-4">
-          <EventPicker events={events} value={event} onChange={setEvent} />
-        </div>
-      </section>
+      {/* Slim toolbar: event inline; gender + age behind the Filters popover. */}
+      <FilterBar
+        primary={<EventFilter events={events} value={event} onChange={setEvent} />}
+        filters={
+          complete ? (
+            <>
+              <FilterField label="Gender">
+                <Segmented
+                  ariaLabel="Filter by gender"
+                  value={gender}
+                  onChange={setGender}
+                  options={[
+                    { value: "ALL", label: "All" },
+                    { value: "F", label: "Female" },
+                    { value: "M", label: "Male" },
+                  ]}
+                />
+              </FilterField>
+              <FilterField label="Age">
+                <Select
+                  aria-label="Filter by exact age"
+                  value={effectiveAge === "ALL" ? "ALL" : String(effectiveAge)}
+                  onChange={(e) =>
+                    setAgeFilter(
+                      e.target.value === "ALL" ? "ALL" : Number(e.target.value),
+                    )
+                  }
+                >
+                  <option value="ALL">All ages</option>
+                  {ages.map((a) => (
+                    <option key={a} value={a}>
+                      Age {a}
+                    </option>
+                  ))}
+                </Select>
+              </FilterField>
+            </>
+          ) : undefined
+        }
+        filterCount={
+          complete
+            ? (effectiveAge !== "ALL" ? 1 : 0) + (gender !== "ALL" ? 1 : 0)
+            : 0
+        }
+        onClear={() => {
+          setAgeFilter("ALL");
+          setGender("ALL");
+        }}
+      />
 
       {!complete ? (
         <EmptyState
           title="Pick an event to compare"
-          body="Select a distance, stroke and course above. A course is required — you can’t rank short-course and long-course times together."
+          body="Choose a distance, stroke and course in the toolbar. A course is required — you can’t rank short-course and long-course times together."
         />
       ) : data === undefined ? (
         <ResultsSkeleton />
       ) : (
         <div className="flex flex-col gap-5">
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-3">
-            <AgeSelect value={effectiveAge} ages={ages} onChange={setAgeFilter} />
-            <div className="ml-auto">
-              <Segmented
-                ariaLabel="Filter by gender"
-                value={gender}
-                onChange={setGender}
-                options={[
-                  { value: "ALL", label: "All" },
-                  { value: "F", label: "Female" },
-                  { value: "M", label: "Male" },
-                ]}
-              />
-            </div>
-          </div>
-
           {rows.length === 0 ? (
             <EmptyState
               title="No meet times yet"
@@ -326,39 +351,6 @@ export function CompareScreen() {
 // Small pieces
 // ---------------------------------------------------------------------------
 
-function AgeSelect({
-  value,
-  ages,
-  onChange,
-}: {
-  value: "ALL" | number;
-  ages: number[];
-  onChange: (v: "ALL" | number) => void;
-}) {
-  return (
-    <div className="relative">
-      <select
-        // Standards match a swimmer's EXACT single-year age (§4.9), never a
-        // two-year band — so the filter offers exact ages, driven by the data.
-        aria-label="Filter by exact age"
-        value={value === "ALL" ? "ALL" : String(value)}
-        onChange={(e) =>
-          onChange(e.target.value === "ALL" ? "ALL" : Number(e.target.value))
-        }
-        className="h-9 appearance-none rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-sm text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
-      >
-        <option value="ALL">All ages</option>
-        {ages.map((a) => (
-          <option key={a} value={a}>
-            Age {a}
-          </option>
-        ))}
-      </select>
-      <Chevron />
-    </div>
-  );
-}
-
 function SortHeader({
   label,
   active,
@@ -409,26 +401,8 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 function ResultsSkeleton() {
   return (
     <div className="flex flex-col gap-5" aria-busy>
-      <div className="h-9 w-64 animate-pulse rounded-lg bg-surface-2" />
       <div className="h-64 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm" />
       <div className="h-48 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm" />
     </div>
-  );
-}
-
-function Chevron() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 20 20"
-      className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-faint"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m6 8 4 4 4-4" />
-    </svg>
   );
 }

@@ -7,6 +7,8 @@ import { Check, Target } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Select } from "@/components/ui/Select";
+import { FilterBar } from "@/components/ui/FilterBar";
 import { TargetTierToggle } from "@/components/qualifying/TargetTierToggle";
 import { useTargetTier } from "@/lib/useTargetTier";
 import { trailForHref } from "@/lib/nav";
@@ -74,38 +76,31 @@ export function RoadScreen() {
         description="For one swimmer, the gap from their fastest long-course meet time to each qualifying cut, closest first. Trials and practice never count; standards resolve to the swimmer's exact age."
       />
 
-      {/* Controls: who + which target tier */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-ink">Swimmer</h2>
-            <p className="mt-0.5 text-xs text-ink-muted">
-              Pick a swimmer to see their road to the cut.
-            </p>
-            <div className="mt-3">
-              <SwimmerSelect
-                swimmers={(swimmers ?? []).map((s) => ({
-                  _id: s._id,
-                  name: s.name,
-                  age: s.age,
-                }))}
+      {/* Slim toolbar: swimmer + target tier inline, so the gap chart leads. */}
+      <FilterBar
+        primary={
+          <>
+            <div className="w-full max-w-xs sm:w-56">
+              <Select
+                aria-label="Swimmer"
                 value={swimmerId}
-                onChange={setSwimmerId}
-                loading={loadingSwimmers}
-              />
+                onChange={(e) => setSwimmerId(e.target.value as Id<"swimmers">)}
+                disabled={loadingSwimmers}
+              >
+                <option value="" disabled>
+                  {loadingSwimmers ? "Loading swimmers…" : "Select a swimmer"}
+                </option>
+                {(swimmers ?? []).map((s) => (
+                  <option key={s._id} value={s._id}>
+                    {s.name} · {s.age}
+                  </option>
+                ))}
+              </Select>
             </div>
-          </div>
-          <div className="md:text-right">
-            <h2 className="text-sm font-semibold text-ink">Target tier</h2>
-            <p className="mt-0.5 text-xs text-ink-muted">
-              Reframes every event to this meet. Long course only.
-            </p>
-            <div className="mt-3 md:flex md:justify-end">
-              <TargetTierToggle value={tier} onChange={setTier} />
-            </div>
-          </div>
-        </div>
-      </section>
+            <TargetTierToggle value={tier} onChange={setTier} />
+          </>
+        }
+      />
 
       {!swimmerChosen ? (
         <EmptyState
@@ -475,44 +470,6 @@ function ProfileLegend() {
 }
 
 // ---------------------------------------------------------------------------
-// Swimmer select (mirrors the Progression picker)
-// ---------------------------------------------------------------------------
-
-function SwimmerSelect({
-  swimmers,
-  value,
-  onChange,
-  loading,
-}: {
-  swimmers: { _id: Id<"swimmers">; name: string; age: number }[];
-  value: Id<"swimmers"> | "";
-  onChange: (v: Id<"swimmers">) => void;
-  loading: boolean;
-}) {
-  return (
-    <div className="relative max-w-sm">
-      <select
-        aria-label="Swimmer"
-        value={value}
-        onChange={(e) => onChange(e.target.value as Id<"swimmers">)}
-        disabled={loading}
-        className="h-11 w-full appearance-none rounded-lg border border-gray-300 bg-white px-3 pr-9 text-base text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50"
-      >
-        <option value="" disabled>
-          {loading ? "Loading swimmers…" : "Select a swimmer"}
-        </option>
-        {swimmers.map((s) => (
-          <option key={s._id} value={s._id}>
-            {s.name} · {s.age}
-          </option>
-        ))}
-      </select>
-      <Chevron />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // States
 // ---------------------------------------------------------------------------
 
@@ -535,22 +492,5 @@ function RoadSkeleton() {
       <div className="h-72 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm" />
       <div className="h-56 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm" />
     </div>
-  );
-}
-
-function Chevron() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 20 20"
-      className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-faint"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m6 8 4 4 4-4" />
-    </svg>
   );
 }

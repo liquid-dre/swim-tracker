@@ -8,6 +8,8 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { Select } from "@/components/ui/Select";
+import { FilterBar } from "@/components/ui/FilterBar";
 import { useContainerWidth } from "@/hooks/use-container-width";
 import { trailForHref } from "@/lib/nav";
 import { StrokeWheel } from "./StrokeWheel";
@@ -82,60 +84,41 @@ export function StrokeProfileScreen() {
         description="Each bar is one event’s fastest long-course meet time, placed on that event’s own L2/L3/SANJ scale — further out is faster. Bars are grouped into coloured stroke arcs. Trials and practice never count."
       />
 
-      {/* Controls: who + coverage */}
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
-        <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-ink">
-              {canCompare ? "Swimmers" : "Swimmer"}
-            </h2>
-            <p className="mt-0.5 text-xs text-ink-muted">
-              {canCompare
-                ? `Compare up to ${MAX_COMPARE} on one shared scale — for reading strength across strokes.`
-                : "Your linked swimmer’s profile."}
-            </p>
-            <div className="mt-3">
-              {loading ? (
-                <div className="h-11 w-64 animate-pulse rounded-lg bg-surface-2" />
-              ) : swimmers.length === 0 ? (
-                <p className="text-sm text-ink-muted">No swimmers available.</p>
-              ) : canCompare ? (
-                <CoachPicker
-                  swimmers={swimmers}
-                  selected={selected}
-                  onAdd={addSwimmer}
-                  onRemove={removeSwimmer}
-                  nameById={nameById}
-                />
-              ) : (
-                <ViewerPicker
-                  swimmers={swimmers}
-                  value={selected[0]}
-                  onChange={pickSingle}
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="md:text-right">
-            <h2 className="text-sm font-semibold text-ink">Events</h2>
-            <p className="mt-0.5 text-xs text-ink-muted">
-              Partial events show only the rings they have.
-            </p>
-            <div className="mt-3 md:flex md:justify-end">
-              <Segmented
-                ariaLabel="Event coverage"
-                value={coverage}
-                onChange={setCoverage}
-                options={[
-                  { value: "full", label: "Full coverage" },
-                  { value: "all", label: "Include partial" },
-                ]}
-              />
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* Slim toolbar: who inline; coverage on the right. The wheel leads. */}
+      <FilterBar
+        primary={
+          loading ? (
+            <div className="h-9 w-56 animate-pulse rounded-lg bg-surface-2" />
+          ) : swimmers.length === 0 ? (
+            <p className="text-sm text-ink-muted">No swimmers available.</p>
+          ) : canCompare ? (
+            <CoachPicker
+              swimmers={swimmers}
+              selected={selected}
+              onAdd={addSwimmer}
+              onRemove={removeSwimmer}
+              nameById={nameById}
+            />
+          ) : (
+            <ViewerPicker
+              swimmers={swimmers}
+              value={selected[0]}
+              onChange={pickSingle}
+            />
+          )
+        }
+        trailing={
+          <Segmented
+            ariaLabel="Event coverage"
+            value={coverage}
+            onChange={setCoverage}
+            options={[
+              { value: "full", label: "Full coverage" },
+              { value: "all", label: "Include partial" },
+            ]}
+          />
+        }
+      />
 
       {loading ? (
         <WheelSkeleton />
@@ -278,35 +261,34 @@ function CoachPicker({
   const available = swimmers.filter((s) => !selected.includes(s._id));
   const atMax = selected.length >= MAX_COMPARE;
 
+  // One wrapping row: the selected-swimmer chips followed by the add control, so
+  // the whole picker sits in the slim toolbar.
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {selected.map((id) => (
-          <span
-            key={id}
-            className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-surface-2 py-1 pl-3 pr-1.5 text-sm text-ink"
-          >
-            {nameById.get(id) ?? "—"}
-            {selected.length > 1 && (
-              <button
-                type="button"
-                onClick={() => onRemove(id)}
-                aria-label={`Remove ${nameById.get(id) ?? "swimmer"}`}
-                className="flex size-5 items-center justify-center rounded-full text-ink-faint transition-colors hover:bg-gray-200 hover:text-ink"
-              >
-                <X className="size-3.5" strokeWidth={2} />
-              </button>
-            )}
-          </span>
-        ))}
-      </div>
-      <div className="relative max-w-sm">
-        <select
+    <div className="flex flex-wrap items-center gap-2">
+      {selected.map((id) => (
+        <span
+          key={id}
+          className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-surface-2 py-1 pl-3 pr-1.5 text-sm text-ink"
+        >
+          {nameById.get(id) ?? "—"}
+          {selected.length > 1 && (
+            <button
+              type="button"
+              onClick={() => onRemove(id)}
+              aria-label={`Remove ${nameById.get(id) ?? "swimmer"}`}
+              className="flex size-5 items-center justify-center rounded-full text-ink-faint transition-colors hover:bg-gray-200 hover:text-ink"
+            >
+              <X className="size-3.5" strokeWidth={2} />
+            </button>
+          )}
+        </span>
+      ))}
+      <div className="w-52">
+        <Select
           aria-label="Add a swimmer to compare"
           value=""
           disabled={atMax || available.length === 0}
           onChange={(e) => e.target.value && onAdd(e.target.value as Id<"swimmers">)}
-          className="h-10 w-full appearance-none rounded-lg border border-gray-300 bg-white px-3 pr-9 text-sm text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50"
         >
           <option value="">
             {atMax
@@ -321,8 +303,7 @@ function CoachPicker({
                 {s.name} · {s.age}
               </option>
             ))}
-        </select>
-        <Chevron />
+        </Select>
       </div>
     </div>
   );
@@ -347,20 +328,18 @@ function ViewerPicker({
     );
   }
   return (
-    <div className="relative max-w-sm">
-      <select
+    <div className="w-56">
+      <Select
         aria-label="Swimmer"
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value as Id<"swimmers">)}
-        className="h-11 w-full appearance-none rounded-lg border border-gray-300 bg-white px-3 pr-9 text-base text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
       >
         {swimmers.map((s) => (
           <option key={s._id} value={s._id}>
             {s.name} · {s.age}
           </option>
         ))}
-      </select>
-      <Chevron />
+      </Select>
     </div>
   );
 }
@@ -425,22 +404,5 @@ function WheelSkeleton() {
         <div className="size-80 animate-pulse rounded-full bg-surface-2" />
       </div>
     </div>
-  );
-}
-
-function Chevron() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 20 20"
-      className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-faint"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m6 8 4 4 4-4" />
-    </svg>
   );
 }
