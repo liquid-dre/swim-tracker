@@ -11,6 +11,7 @@ import {
 } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
 import { TierBadge } from "@/components/ui/TierBadge";
+import { cn } from "@/lib/utils";
 
 /*
   Qualifying progress (Step R3, BRD §5.11) — the per-event readiness view that
@@ -37,6 +38,51 @@ const NEXT_LABEL: Record<Tier, string> = {
   LEVEL_3: "L3",
   LEVEL_2: "L2",
 };
+
+// The swimmer's PB, drawn ONTO the coloured fill. When the fill is at least this
+// wide (% of track) the time sits inside it, left-aligned, in a high-contrast
+// on-fill colour; below it the fill is too short to read a time legibly, so the
+// time is placed just past the fill's end in ink instead. Tabular throughout so
+// the digits line up bar-to-bar. Decorative (aria-hidden) — the number is always
+// carried in accessible row text elsewhere.
+const INSIDE_MIN_PCT = 24;
+
+function BarTime({
+  ms,
+  fillPct,
+  insideClass,
+}: {
+  ms: number;
+  fillPct: number;
+  insideClass: string; // on-fill text colour when the label rides inside
+}) {
+  const label = formatTime(ms);
+
+  if (fillPct >= INSIDE_MIN_PCT) {
+    // Clip the label to the fill's width so it never bleeds onto the empty track.
+    return (
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-y-0 left-0 flex items-center overflow-hidden"
+        style={{ maxWidth: `${fillPct}%` }}
+      >
+        <span className={cn("time truncate pl-2.5 pr-1.5 text-2xs", insideClass)}>
+          {label}
+        </span>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      aria-hidden
+      className="time pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1.5 text-2xs text-ink"
+      style={{ left: `${fillPct}%` }}
+    >
+      {label}
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Single-tier progress
@@ -80,7 +126,7 @@ export function SingleTierProgress({ bars }: { bars: SingleBar[] }) {
             </div>
 
             <div
-              className="h-7 min-w-16 flex-1 overflow-hidden rounded-md bg-gray-100"
+              className="relative h-7 min-w-16 flex-1 overflow-hidden rounded-md bg-gray-100"
               aria-hidden
             >
               <div
@@ -92,6 +138,7 @@ export function SingleTierProgress({ bars }: { bars: SingleBar[] }) {
                     : "var(--color-brand-500)",
                 }}
               />
+              <BarTime ms={b.pbMs} fillPct={pct} insideClass="text-white" />
             </div>
 
             <div className="w-24 shrink-0 text-right sm:w-28">
@@ -225,6 +272,12 @@ function AllRowView({ row }: { row: AllRow }) {
   const hasPb = row.pbMs !== null;
   const fillPct = hasPb ? posPct(row.calibratedRadius ?? 0) : 0;
   const fillColor = row.tier ? TIER_FILL[row.tier] : NONE_FILL;
+  // On-fill text colour tuned per fill for contrast: white on the deep L3/L2
+  // fills, near-black on the light gold (SANJ) and grey (no-tier) fills.
+  const insideClass =
+    row.tier === "LEVEL_3" || row.tier === "LEVEL_2"
+      ? "text-white"
+      : "text-gray-900";
 
   // Faint zone tints: each present tier tints the band leading up to its marker;
   // the region past the hardest present tier is neutral headroom.
@@ -242,6 +295,9 @@ function AllRowView({ row }: { row: AllRow }) {
       <div className="flex w-24 shrink-0 flex-col gap-1 sm:w-28">
         <span className="font-medium text-ink">{row.label}</span>
         <TierBadge tier={row.tier ?? "NONE"} />
+        {hasPb && (
+          <span className="sr-only">PB {formatTime(row.pbMs as number)}</span>
+        )}
       </div>
 
       <div
@@ -265,6 +321,14 @@ function AllRowView({ row }: { row: AllRow }) {
           <div
             className="absolute inset-y-0 left-0 rounded-r-md transition-[width] [transition-duration:var(--dur-2)]"
             style={{ width: `${Math.max(2, fillPct)}%`, background: fillColor }}
+          />
+        )}
+        {/* PB time, drawn on (or just past) the fill */}
+        {hasPb && (
+          <BarTime
+            ms={row.pbMs as number}
+            fillPct={fillPct}
+            insideClass={insideClass}
           />
         )}
         {/* tier markers (only where a cut exists) */}
