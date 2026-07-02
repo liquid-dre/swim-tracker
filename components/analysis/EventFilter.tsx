@@ -93,53 +93,39 @@ export function EventFilter({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Select
-        aria-label="Distance"
-        value={value.distance === null ? "" : String(value.distance)}
-        onChange={(e) => selectDistance(Number(e.target.value))}
-        disabled={!events}
-      >
-        <option value="" disabled>
-          Distance
-        </option>
-        {distances.map((d) => (
-          <option key={d} value={d}>
-            {d} m
-          </option>
-        ))}
-      </Select>
-      <Select
-        aria-label="Stroke"
-        value={value.stroke ?? ""}
-        onChange={(e) => selectStroke(e.target.value as Stroke)}
-        disabled={value.distance === null}
-      >
-        <option value="" disabled>
-          Stroke
-        </option>
-        {strokes.map((s) => (
-          <option key={s} value={s}>
-            {STROKE_LABEL[s]}
-          </option>
-        ))}
-      </Select>
-      <Select
-        aria-label="Course"
-        value={value.course ?? ""}
-        onChange={(e) =>
-          onChange({ ...value, course: e.target.value as Course })
-        }
-        disabled={value.stroke === null}
-      >
-        <option value="" disabled>
-          Course
-        </option>
-        {courses.map((c) => (
-          <option key={c} value={c}>
-            {c === "SCM" ? "SCM · 25m" : "LCM · 50m"}
-          </option>
-        ))}
-      </Select>
+      <div className="w-32">
+        <Select
+          aria-label="Distance"
+          placeholder="Distance"
+          value={value.distance === null ? "" : String(value.distance)}
+          onValueChange={(v) => selectDistance(Number(v))}
+          disabled={!events}
+          options={distances.map((d) => ({ value: String(d), label: `${d} m` }))}
+        />
+      </div>
+      <div className="w-36">
+        <Select
+          aria-label="Stroke"
+          placeholder="Stroke"
+          value={value.stroke ?? ""}
+          onValueChange={(v) => selectStroke(v as Stroke)}
+          disabled={value.distance === null}
+          options={strokes.map((s) => ({ value: s, label: STROKE_LABEL[s] }))}
+        />
+      </div>
+      <div className="w-36">
+        <Select
+          aria-label="Course"
+          placeholder="Course"
+          value={value.course ?? ""}
+          onValueChange={(v) => onChange({ ...value, course: v as Course })}
+          disabled={value.stroke === null}
+          options={courses.map((c) => ({
+            value: c,
+            label: c === "SCM" ? "SCM · 25m" : "LCM · 50m",
+          }))}
+        />
+      </div>
     </div>
   );
 }

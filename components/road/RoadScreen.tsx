@@ -10,7 +10,6 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
 import { Segmented } from "@/components/ui/Segmented";
 import { FilterBar } from "@/components/ui/FilterBar";
-import { useTargetTier } from "@/lib/useTargetTier";
 import { trailForHref } from "@/lib/nav";
 import { formatTime, type Tier } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
@@ -71,8 +70,10 @@ export type RoadData = {
 
 export function RoadScreen() {
   const swimmers = useQuery(api.swimmers.listSwimmers, {});
-  const [tier, setTier] = useTargetTier();
-  const [showAll, setShowAll] = useState(false);
+  // Opens on the all-tiers zoned view by default; the specific-tier choice is a
+  // per-session, page-local override (no global default any more).
+  const [showAll, setShowAll] = useState(true);
+  const [tier, setTier] = useState<Tier>("LEVEL_2");
   const [swimmerId, setSwimmerId] = useState<Id<"swimmers"> | "">("");
 
   const target: RoadTarget = showAll ? "ALL" : tier;
@@ -114,19 +115,15 @@ export function RoadScreen() {
             <div className="w-full max-w-xs sm:w-56">
               <Select
                 aria-label="Swimmer"
+                placeholder={loadingSwimmers ? "Loading swimmers…" : "Select a swimmer"}
                 value={swimmerId}
-                onChange={(e) => setSwimmerId(e.target.value as Id<"swimmers">)}
+                onValueChange={(v) => setSwimmerId(v as Id<"swimmers">)}
                 disabled={loadingSwimmers}
-              >
-                <option value="" disabled>
-                  {loadingSwimmers ? "Loading swimmers…" : "Select a swimmer"}
-                </option>
-                {(swimmers ?? []).map((s) => (
-                  <option key={s._id} value={s._id}>
-                    {s.name} · {s.age}
-                  </option>
-                ))}
-              </Select>
+                options={(swimmers ?? []).map((s) => ({
+                  value: s._id,
+                  label: `${s.name} · ${s.age}`,
+                }))}
+              />
             </div>
             <Segmented
               ariaLabel="Target qualifying tier"

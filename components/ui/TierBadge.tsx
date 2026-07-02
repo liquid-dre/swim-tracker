@@ -1,48 +1,54 @@
-// Tier badge — the standard hierarchy SANJ > LEVEL_3 > LEVEL_2 > none.
-// Colour is NEVER the sole signal: each badge carries a text label AND a glyph,
-// so it reads in greyscale and under colour-blindness (DESIGN.md, PRODUCT.md A11y).
+// Tier badge — the standard hierarchy SANJ > LEVEL_3 > LEVEL_2 > none, rendered
+// on the shared shadcn Badge (components/ui/badge.tsx) so the tier scale reads as
+// one deliberate system across the status matrix, standards and Road screens.
+//
+// Colour is NEVER the sole signal: each badge carries its text label (SANJ / L3 /
+// L2 / —), so it reads in greyscale and under colour-blindness (DESIGN.md,
+// PRODUCT.md A11y). The medal glyph rides only on the top tier (SANJ) as an
+// optional flourish, aria-hidden, never the meaning itself.
+
+import { Medal } from "lucide-react";
+
+import { Badge, type badgeVariants } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import type { VariantProps } from "class-variance-authority";
 
 export type Tier = "SANJ" | "LEVEL_3" | "LEVEL_2" | "NONE";
 
-type TierSpec = { label: string; glyph: string; className: string };
+type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>["variant"]>;
 
-const TIERS: Record<Tier, TierSpec> = {
-  SANJ: {
-    label: "SANJ",
-    glyph: "◆",
-    className: "bg-tier-sanj-bg text-tier-sanj-ink border-tier-sanj-border",
-  },
-  LEVEL_3: {
-    label: "L3",
-    glyph: "●",
-    className: "bg-tier-l3-bg text-tier-l3-ink border-tier-l3-border",
-  },
-  LEVEL_2: {
-    label: "L2",
-    glyph: "○",
-    className: "bg-tier-l2-bg text-tier-l2-ink border-tier-l2-border",
-  },
-  NONE: {
-    label: "—",
-    glyph: "",
-    className: "bg-transparent text-ink-muted border-border border-dashed",
-  },
+const TIER_VARIANT: Record<Tier, BadgeVariant> = {
+  SANJ: "sanj",
+  LEVEL_3: "l3",
+  LEVEL_2: "l2",
+  NONE: "none",
 };
 
-export function TierBadge({ tier }: { tier: Tier }) {
-  const spec = TIERS[tier];
+const TIER_LABEL: Record<Tier, string> = {
+  SANJ: "SANJ",
+  LEVEL_3: "L3",
+  LEVEL_2: "L2",
+  NONE: "—",
+};
+
+export function TierBadge({
+  tier,
+  className,
+}: {
+  tier: Tier;
+  className?: string;
+}) {
   const isNone = tier === "NONE";
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-xs font-medium leading-none ${spec.className}`}
-      title={isNone ? "No tier met" : `${spec.label} standard met`}
+    <Badge
+      variant={TIER_VARIANT[tier]}
+      className={cn("gap-0.5", className)}
+      title={isNone ? "No tier met" : `${TIER_LABEL[tier]} standard met`}
     >
-      {spec.glyph && (
-        <span aria-hidden className="text-[0.65em] leading-none">
-          {spec.glyph}
-        </span>
+      {tier === "SANJ" && (
+        <Medal aria-hidden strokeWidth={2.25} className="-ml-0.5" />
       )}
-      <span>{spec.label}</span>
-    </span>
+      <span>{TIER_LABEL[tier]}</span>
+    </Badge>
   );
 }

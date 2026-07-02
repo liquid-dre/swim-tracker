@@ -99,29 +99,23 @@ export function StatusMatrixScreen() {
               <Select
                 aria-label="Filter by age band"
                 value={band}
-                onChange={(e) => setBand(e.target.value)}
-              >
-                <option value="ALL">All age bands</option>
-                {DEFAULT_AGE_BANDS.map((b) => (
-                  <option key={b.label} value={b.label}>
-                    {b.label}
-                  </option>
-                ))}
-              </Select>
+                onValueChange={setBand}
+                options={[
+                  { value: "ALL", label: "All age bands" },
+                  ...DEFAULT_AGE_BANDS.map((b) => ({ value: b.label, label: b.label })),
+                ]}
+              />
             </FilterField>
             <FilterField label="Squad">
               <Select
                 aria-label="Filter by squad"
                 value={effectiveSquad}
-                onChange={(e) => setSquad(e.target.value)}
-              >
-                <option value="ALL">All squads</option>
-                {(squads ?? []).map((s) => (
-                  <option key={s._id} value={s._id}>
-                    {s.name}
-                  </option>
-                ))}
-              </Select>
+                onValueChange={setSquad}
+                options={[
+                  { value: "ALL", label: "All squads" },
+                  ...(squads ?? []).map((s) => ({ value: s._id, label: s.name })),
+                ]}
+              />
             </FilterField>
           </>
         }

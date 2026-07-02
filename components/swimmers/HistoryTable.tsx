@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronDown, MoreHorizontal } from "lucide-react";
+import { ArrowDown, ArrowUp, MoreHorizontal } from "lucide-react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Course, SwimType } from "@/lib/swim";
 import { formatTime } from "@/lib/swim";
 import { formatShortDate } from "@/lib/format";
 import { Segmented } from "@/components/ui/Segmented";
+import { Select } from "@/components/ui/Select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -329,23 +330,15 @@ function NativeSelect({
   options: { value: string; label: string }[];
   ariaLabel: string;
 }) {
+  // Thin fixed-width wrapper over the shared styled Select so the history
+  // filters read like every other picker in the app.
   return (
-    <div className="relative">
-      <select
+    <div className="w-44">
+      <Select
         aria-label={ariaLabel}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 appearance-none rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-sm text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <ChevronDown
-        aria-hidden
-        className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-faint"
+        onValueChange={onChange}
+        options={options}
       />
     </div>
   );

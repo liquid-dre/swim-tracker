@@ -399,6 +399,42 @@
   }
 }
 
+/* Shared popover-menu item entrance (Step R11) — one staggered fade/slide for
+   every select / dropdown / action menu. Applied to the item container's direct
+   children; the nth-child ramp is short so the last row still lands quickly. The
+   prefers-reduced-motion rule below zeroes both the duration and the delay. */
+@keyframes menu-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.stagger-menu > * {
+  animation: menu-pop-in var(--dur-1) var(--ease-out) both;
+}
+.stagger-menu > *:nth-child(2) {
+  animation-delay: 24ms;
+}
+.stagger-menu > *:nth-child(3) {
+  animation-delay: 48ms;
+}
+.stagger-menu > *:nth-child(4) {
+  animation-delay: 72ms;
+}
+.stagger-menu > *:nth-child(5) {
+  animation-delay: 96ms;
+}
+.stagger-menu > *:nth-child(6) {
+  animation-delay: 116ms;
+}
+.stagger-menu > *:nth-child(n + 7) {
+  animation-delay: 136ms;
+}
+
 @keyframes collapsible-up {
   from {
     height: var(--radix-collapsible-content-height);
@@ -414,6 +450,8 @@
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    /* Also kill staggered menu delays so rows don't pop in one-by-one. */
+    animation-delay: 0s !important;
     transition-duration: 0.01ms !important;
   }
 }

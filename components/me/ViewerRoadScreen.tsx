@@ -1,12 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "convex/react";
 import { UserRound } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { TargetTierToggle } from "@/components/qualifying/TargetTierToggle";
-import { useTargetTier } from "@/lib/useTargetTier";
+import type { Tier } from "@/lib/swim";
 import { RoadResults } from "@/components/road/RoadScreen";
 import { useViewer } from "./ViewerContext";
 import { MiniEmpty, ReadOnlyChip } from "./viewerShared";
@@ -18,7 +19,8 @@ import { MiniEmpty, ReadOnlyChip } from "./viewerShared";
 */
 export function ViewerRoadScreen() {
   const { selectedId } = useViewer();
-  const [tier, setTier] = useTargetTier();
+  // Per-session tier for this page (default L2, the nearest cut); no global default.
+  const [tier, setTier] = useState<Tier>("LEVEL_2");
 
   const data = useQuery(api.analysis.getRoadToQualify, {
     swimmerId: selectedId,

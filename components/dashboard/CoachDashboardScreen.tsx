@@ -14,8 +14,6 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { PageHeader } from "@/components/ui/PageHeader";
-import { TargetTierToggle } from "@/components/qualifying/TargetTierToggle";
-import { useTargetTier } from "@/lib/useTargetTier";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { useGreeting } from "@/lib/useGreeting";
 import { trailForHref } from "@/lib/nav";
@@ -23,10 +21,10 @@ import { trailForHref } from "@/lib/nav";
 /*
   Coach home (Step 16). The landing route for a coach after sign-in. Poolside,
   the first job is almost always "log a time", so that is the hero action; below
-  it, a calm set of jump-offs into the working surfaces, and the shared target
-  tier (BRD §5.10) surfaced here so it is set once and carried into every
-  qualifying view. Deliberately not the full squad-analytics overview — that
-  lands in a later step; this is a fast, honest home, not a metrics wall.
+  it, a calm set of jump-offs into the working surfaces. Deliberately not the
+  full squad-analytics overview — that lands in a later step; this is a fast,
+  honest home, not a metrics wall. (There is no global target-tier control: the
+  qualifying views open on "All" tiers and each carries its own per-view toggle.)
 */
 
 type Shortcut = {
@@ -49,7 +47,6 @@ const SHORTCUTS: Shortcut[] = [
 
 export function CoachDashboardScreen() {
   const profile = useCurrentProfile();
-  const [tier, setTier] = useTargetTier();
 
   // Time-aware greeting as the heading. The breadcrumb still reads "Dashboard"
   // (where you are); the h1 greets by first name at the coach's local time.
@@ -99,21 +96,6 @@ export function CoachDashboardScreen() {
             </li>
           ))}
         </ul>
-      </section>
-
-      {/* Target tier — the shared control (§5.10), set once, used everywhere. */}
-      <section className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:flex-row md:items-center md:justify-between md:p-6">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-ink">Target tier</h2>
-          <p className="mt-1 max-w-[56ch] text-sm text-ink-muted">
-            The qualifying meet you&rsquo;re aiming at. Set it once here and it
-            frames the status matrix, road to qualify and the progression
-            projection. Long course only.
-          </p>
-        </div>
-        <div className="shrink-0 md:pl-6">
-          <TargetTierToggle value={tier} onChange={setTier} />
-        </div>
       </section>
 
       <p className="text-xs text-ink-faint">

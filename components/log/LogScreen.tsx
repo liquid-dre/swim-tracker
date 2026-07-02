@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { Select } from "@/components/ui/Select";
 import { errorMessage, notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
 import { computeAge, STROKE_LABEL, type Course, type Stroke } from "@/lib/swim";
@@ -177,25 +178,20 @@ export function LogScreen({ today }: { today: string }) {
             {/* 1 — swimmer */}
             <Field label="Swimmer" htmlFor="swimmer">
               <div className="flex flex-col gap-1.5">
-                <div className="relative">
-                  <select
-                    id="swimmer"
-                    value={swimmerId}
-                    onChange={(e) => setSwimmerId(e.target.value as Id<"swimmers">)}
-                    disabled={loading}
-                    className="h-11 w-full appearance-none rounded-lg border border-gray-300 bg-white px-3 pr-9 text-base text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50"
-                  >
-                    <option value="" disabled>
-                      {loading ? "Loading swimmers…" : "Select a swimmer"}
-                    </option>
-                    {swimmers?.map((s) => (
-                      <option key={s._id} value={s._id}>
-                        {s.name} · {s.age}
-                      </option>
-                    ))}
-                  </select>
-                  <Chevron />
-                </div>
+                <Select
+                  id="swimmer"
+                  size="md"
+                  placeholder={loading ? "Loading swimmers…" : "Select a swimmer"}
+                  value={swimmerId}
+                  onValueChange={(v) => setSwimmerId(v as Id<"swimmers">)}
+                  disabled={loading}
+                  options={
+                    swimmers?.map((s) => ({
+                      value: s._id,
+                      label: `${s.name} · ${s.age}`,
+                    })) ?? []
+                  }
+                />
                 {selectedSwimmer && (
                   <p className="text-xs text-ink-muted">
                     {ageAtSwim !== null
@@ -384,22 +380,5 @@ function EmptyRoster() {
         Go to roster
       </Button>
     </div>
-  );
-}
-
-function Chevron() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 20 20"
-      className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-ink-faint"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m6 8 4 4 4-4" />
-    </svg>
   );
 }

@@ -9,7 +9,6 @@ import { api } from "@/convex/_generated/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { useGreeting } from "@/lib/useGreeting";
-import { useTargetTier } from "@/lib/useTargetTier";
 import { formatTime, type Tier } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
 import { PbBoard } from "@/components/swimmers/PbBoard";
@@ -33,7 +32,9 @@ export function ViewerOverviewScreen() {
   const { selectedId } = useViewer();
   const profile = useCurrentProfile();
   const greeting = useGreeting(profile?.name);
-  const [tier] = useTargetTier();
+  // The overview's "closest to qualifying" teaser reads the easiest cut (L2 —
+  // the nearest to reach); the full Road page has the per-tier toggle.
+  const tier: Tier = "LEVEL_2";
 
   const data = useQuery(api.personalBests.getSwimmerProfile, {
     swimmerId: selectedId,

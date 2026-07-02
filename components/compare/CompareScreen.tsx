@@ -174,19 +174,14 @@ export function CompareScreen() {
                 <Select
                   aria-label="Filter by exact age"
                   value={effectiveAge === "ALL" ? "ALL" : String(effectiveAge)}
-                  onChange={(e) =>
-                    setAgeFilter(
-                      e.target.value === "ALL" ? "ALL" : Number(e.target.value),
-                    )
+                  onValueChange={(v) =>
+                    setAgeFilter(v === "ALL" ? "ALL" : Number(v))
                   }
-                >
-                  <option value="ALL">All ages</option>
-                  {ages.map((a) => (
-                    <option key={a} value={a}>
-                      Age {a}
-                    </option>
-                  ))}
-                </Select>
+                  options={[
+                    { value: "ALL", label: "All ages" },
+                    ...ages.map((a) => ({ value: String(a), label: `Age ${a}` })),
+                  ]}
+                />
               </FilterField>
             </>
           ) : undefined
