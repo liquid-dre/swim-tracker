@@ -57,11 +57,16 @@ don't strip the system to chase points.
 ## 3. App-semantic tokens (qualifying tiers)
 Mapped onto the reference palette so they harmonise. **Tiers are never colour-only — every tier
 badge carries a text label** (`SANJ` / `L3` / `L2`), per the domain rules.
+**One distinctive hue per tier**, forming an ascending prestige ramp
+(sapphire → purple → gold) so each colour reads as the same tier everywhere it
+appears — badges, cut lines, progress bars, the matrix. Deliberately clear of
+the reserved signals (green = qualified, red = error, brand indigo = action) so
+a tier is never mistaken for a state.
 ```css
 :root {
-  --tier-sanj:  #f79009;  /* warning/gold — top (hardest) */
-  --tier-l3:    #465fff;  /* brand indigo — mid */
-  --tier-l2:    #0086c9;  /* deep sky — entry */
+  --tier-sanj:  #f79009;  /* gold — top (hardest) */
+  --tier-l3:    #9333ea;  /* vivid purple — mid */
+  --tier-l2:    #0086c9;  /* sapphire / deep sky — entry */
   --tier-none:  #98a2b3;  /* gray-400 — no standard met */
   --qualified:  #12b76a;  /* success green — used ONLY for qualified states */
 }

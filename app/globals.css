@@ -78,18 +78,26 @@
   --shadow-sm: var(--shadow-theme-sm);
   --shadow-md: var(--shadow-theme-md);
 
-  /* ---- App-semantic tier tokens (DESIGN.md §3) — never colour-only ---- */
-  --color-tier-sanj: #f79009; /* warning/gold — top (hardest) */
-  --color-tier-l3: #465fff; /* brand indigo — mid */
-  --color-tier-l2: #0086c9; /* deep sky — entry */
+  /* ---- App-semantic tier tokens (DESIGN.md §3) — never colour-only ----
+     One distinctive hue per tier, forming an ascending prestige ramp:
+     sapphire (L2, entry) → purple (L3, mid) → gold (SANJ, top). Each is the
+     tier's ONE colour everywhere it appears (badges, cut lines, progress bars,
+     the matrix), so a colour reads as the same tier system-wide. Kept clear of
+     the reserved signals — green = qualified, red = error, brand indigo =
+     action — so a tier is never mistaken for a state. */
+  --color-tier-sanj: #f79009; /* gold — top (hardest) */
+  --color-tier-l3: #9333ea; /* vivid purple — mid */
+  --color-tier-l2: #0086c9; /* sapphire / deep sky — entry */
   --color-tier-none: #98a2b3; /* gray-400 — no standard met */
   --color-qualified: #12b76a; /* success green — qualified states ONLY */
 
   /* ---- Stroke identity palette (DESIGN.md §3b) — categorical, NOT a scale ----
      Five distinct hues that group the wheel's bars into contiguous stroke arcs.
-     Deliberately clear of the --tier-* (gold/indigo/sky) and semantic
-     (green/red/amber) signals so a stroke arc never reads as a tier or a state.
-     The stroke-profile rings stay NEUTRAL grey — colour here means STROKE only. */
+     Kept clear of the semantic (green/red/amber) and action (brand indigo)
+     signals so a stroke arc never reads as a state. Strokes and tiers never
+     share one chart's encoding (the wheel's tier rings are NEUTRAL grey; the
+     tier charts never colour by stroke), so the stroke violet and the tier
+     purple never appear together as meaning. Colour here means STROKE only. */
   --color-stroke-free: #0e9384; /* teal */
   --color-stroke-back: #7839ee; /* violet */
   --color-stroke-breast: #dd2590; /* magenta */
@@ -100,11 +108,11 @@
   --color-tier-sanj-bg: #fffaeb;
   --color-tier-sanj-ink: #b54708;
   --color-tier-sanj-border: #fedf89;
-  --color-tier-l3-bg: #ecf3ff;
-  --color-tier-l3-ink: #3641f5;
-  --color-tier-l3-border: #c2d6ff;
+  --color-tier-l3-bg: #faf5ff;
+  --color-tier-l3-ink: #7e22ce;
+  --color-tier-l3-border: #e9d5ff;
   --color-tier-l2-bg: #f0f9ff;
-  --color-tier-l2-ink: #0086c9;
+  --color-tier-l2-ink: #026aa2;
   --color-tier-l2-border: #b9e6fe;
 
   /* ---- Type scale (14px base — DESIGN.md §1) ---- */
