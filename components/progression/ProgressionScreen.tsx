@@ -16,9 +16,8 @@ import {
 } from "@/components/ui/FilterBar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TargetTierToggle } from "@/components/qualifying/TargetTierToggle";
-import { useTargetTier } from "@/lib/useTargetTier";
 import { trailForHref } from "@/lib/nav";
-import { formatTime, type Course, type Stroke } from "@/lib/swim";
+import { formatTime, type Course, type Stroke, type Tier } from "@/lib/swim";
 import { EventFilter } from "@/components/analysis/EventFilter";
 import { type EventValue } from "@/components/analysis/EventPicker";
 import { ProgressionChart } from "./ProgressionChart";
@@ -43,7 +42,9 @@ export function ProgressionScreen() {
   const events = useQuery(api.events.listActiveEvents, {});
 
   const [mode, setMode] = useState<Mode>("one");
-  const [projectionTier, setProjectionTier] = useTargetTier();
+  // The projection needs one cut to aim at, so it owns its target tier locally
+  // (default SANJ — the hardest, so the line reaches the furthest goal).
+  const [projectionTier, setProjectionTier] = useState<Tier>("SANJ");
   const [singleId, setSingleId] = useState<Id<"swimmers"> | "">("");
   const [groupIds, setGroupIds] = useState<Id<"swimmers">[]>([]);
   const [squadFilter, setSquadFilter] = useState<string>("ALL");

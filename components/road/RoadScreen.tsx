@@ -10,7 +10,6 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
 import { Segmented } from "@/components/ui/Segmented";
 import { FilterBar } from "@/components/ui/FilterBar";
-import { useTargetTier } from "@/lib/useTargetTier";
 import { trailForHref } from "@/lib/nav";
 import { formatTime, type Tier } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
@@ -71,8 +70,10 @@ export type RoadData = {
 
 export function RoadScreen() {
   const swimmers = useQuery(api.swimmers.listSwimmers, {});
-  const [tier, setTier] = useTargetTier();
-  const [showAll, setShowAll] = useState(false);
+  // Opens on the all-tiers zoned view by default; the specific-tier choice is a
+  // per-session, page-local override (no global default any more).
+  const [showAll, setShowAll] = useState(true);
+  const [tier, setTier] = useState<Tier>("LEVEL_2");
   const [swimmerId, setSwimmerId] = useState<Id<"swimmers"> | "">("");
 
   const target: RoadTarget = showAll ? "ALL" : tier;
