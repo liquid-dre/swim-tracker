@@ -1,9 +1,10 @@
-import { ViewerHomeScreen } from "@/components/me/ViewerHomeScreen";
+import { ViewerOverviewScreen } from "@/components/me/ViewerOverviewScreen";
 
-// Viewer home (Step 15, BRD §5.9). A linked viewer's read-only window onto their
-// own swimmer(s): personal bests, progression with their qualifying lines, and
-// road-to-qualify. Coaches are redirected away by the shell's RoleGuard; every
-// read is scoped to the linked swimmer(s) server-side regardless.
-export default function ViewerHomePage() {
-  return <ViewerHomeScreen />;
+// Viewer Overview (Step R6, BRD §5.9). The lean landing summary for a linked
+// viewer: greeting, PB board and a short "closest to qualifying" read. The full
+// charts live in the focused sections (/me/progress, /me/road, /me/history).
+// Wrapped by the /me layout's ViewerProvider; every read is scoped to the
+// viewer's linked swimmer(s) server-side.
+export default function ViewerOverviewPage() {
+  return <ViewerOverviewScreen />;
 }

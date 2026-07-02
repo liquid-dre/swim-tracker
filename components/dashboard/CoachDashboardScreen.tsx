@@ -17,6 +17,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { TargetTierToggle } from "@/components/qualifying/TargetTierToggle";
 import { useTargetTier } from "@/lib/useTargetTier";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
+import { useGreeting } from "@/lib/useGreeting";
 import { trailForHref } from "@/lib/nav";
 
 /*
@@ -50,19 +51,16 @@ export function CoachDashboardScreen() {
   const profile = useCurrentProfile();
   const [tier, setTier] = useTargetTier();
 
-  // Greet by first name once known. The greeting lives in the description, not
-  // the h1, so the primary heading stays stable ("Dashboard") and never flashes
-  // a placeholder while the profile loads.
-  const firstName = profile?.name?.trim().split(/\s+/)[0];
+  // Time-aware greeting as the heading. The breadcrumb still reads "Dashboard"
+  // (where you are); the h1 greets by first name at the coach's local time.
+  const greeting = useGreeting(profile?.name);
 
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
-        title="Dashboard"
+        title={greeting}
         breadcrumb={trailForHref("/dashboard")}
-        description={`${
-          firstName ? `Welcome back, ${firstName}. ` : ""
-        }Log a swim and jump into your squad's readiness. Times you log flow straight into progression, the status matrix and the road to every cut.`}
+        description="Log a swim and jump into your squad's readiness. Times you log flow straight into progression, the status matrix and the road to every cut."
       />
 
       {/* Hero — log a time. The one action a coach reaches for most, poolside. */}

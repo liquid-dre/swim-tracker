@@ -47,10 +47,10 @@ export type CompareBar = {
 /** Vertical cut lines for one pinned (age, gender); empty suppresses them. */
 export type ComparisonCut = { tier: Tier; timeMs: number };
 
-// "No tier" must not read as a tier. --tier-l3 is literally the brand accent
-// (#465fff), so an accent bar would be indistinguishable from an L3-met bar —
-// on LCM the no-tier bar uses the gray --tier-none the system reserves for it.
-// SCM has no standards at all, so its bars keep the plain brand accent.
+// "No tier" must not read as a tier: on LCM the no-tier bar uses the gray
+// --tier-none the system reserves for it, never the brand accent (which would
+// read as an action, not a standard). SCM has no standards at all, so its bars
+// keep the plain brand accent.
 function barColor(tier: Tier | null, overlay: boolean): string {
   if (!overlay) return CHART.accent;
   return tier ? TIER_STYLE[tier].color : "var(--color-tier-none)";

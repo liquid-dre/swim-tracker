@@ -1,21 +1,37 @@
 "use client";
 
-import { forwardRef } from "react";
+import { forwardRef, useCallback, useEffect, useRef } from "react";
 import { Check } from "lucide-react";
 
 import { clockFromDigits, formatTime, parseTime } from "@/lib/swim";
 
 /*
-  The single anchor of the /log screen (Step 5). Poolside, one-thumb entry:
-  the coach types digits only and they right-fill calculator-style into
-  `m:ss:hh` (last two = hundredths). Big tabular mono so it reads at arm's
-  length; a live line below echoes the exact canonical time that will be stored
-  (via formatTime) or flags an out-of-range entry. No colon typing required —
-  pasted times regroup too.
+  The single anchor of the /log screen (Step 5, hardened in R1). Poolside,
+  one-thumb entry: the coach types digits only and they shift in from the RIGHT,
+  calculator/stopwatch style — hundredths → seconds → minutes. Backspace shifts
+  the last digit back out. There is no caret to place and no per-segment focus,
+  so a digit can never land in the wrong segment and Backspace can never delete
+  the wrong one.
 
-  State lives in the parent as the raw `digits` string; this component is a pure
-  view over it. `onDigits` receives the new (capped, digits-only) string.
+  The model is the raw `digits` string in the parent (leading zeros stripped —
+  they carry no meaning in a right-to-left fill). This component is a pure view
+  over it: it renders the formatted `m:ss:hh`, echoes the exact canonical time
+  that will be stored (via formatTime), and flags an out-of-range entry. It
+  drives the model from `beforeinput` (not the caret) so entry is identical on a
+  desktop keyboard and a mobile numeric keypad, and stays correct under fast
+  repeated typing.
 */
+
+const MAX_DIGITS = 6; // 99:59:99 — the largest clock the three fields hold.
+
+/**
+ * Canonicalise any raw text into the accumulator string: digits only, no
+ * leading zeros, capped at the last 6. Pasted times ("5:48.28", "33,68") and
+ * padded display strings both regroup through this to the same value.
+ */
+export function normaliseDigits(raw: string): string {
+  return (raw.match(/\d/g)?.join("") ?? "").replace(/^0+/, "").slice(-MAX_DIGITS);
+}
 
 export type TimeParse =
   | { ms: number; text: string; error: null }
@@ -31,7 +47,7 @@ export function parseDigits(digits: string): TimeParse {
     const ms = parseTime(`${minutes}:${ss}:${hh}`);
     return { ms, text: formatTime(ms), error: null };
   } catch {
-    // Only ss/hh out of range can land here (the shape is always valid).
+    // Only ss out of range can land here (the shape is always well-formed).
     return { ms: null, text: null, error: "Seconds must be 00–59." };
   }
 }
@@ -39,7 +55,57 @@ export function parseDigits(digits: string): TimeParse {
 export const TimeField = forwardRef<
   HTMLInputElement,
   { digits: string; onDigits: (digits: string) => void }
->(function TimeField({ digits, onDigits }, ref) {
+>(function TimeField({ digits, onDigits }, forwardedRef) {
+  const innerRef = useRef<HTMLInputElement | null>(null);
+  // Keep the latest digits reachable from the (stable) beforeinput listener.
+  const digitsRef = useRef(digits);
+  digitsRef.current = digits;
+
+  const setDigits = useCallback(
+    (next: string) => onDigits(normaliseDigits(next)),
+    [onDigits],
+  );
+
+  // Right-to-left accumulator. We read the intent from `beforeinput` and mutate
+  // the model ourselves, then preventDefault so the browser never edits the
+  // formatted string underneath us — that is what keeps the fill caret-free.
+  useEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    const onBeforeInput = (event: Event) => {
+      const e = event as InputEvent;
+      const type = e.inputType;
+      if (
+        type === "insertText" ||
+        type === "insertFromPaste" ||
+        type === "insertReplacementText"
+      ) {
+        const add = (
+          e.data ??
+          e.dataTransfer?.getData("text") ??
+          ""
+        ).replace(/\D/g, "");
+        e.preventDefault();
+        if (add) setDigits(digitsRef.current + add);
+      } else if (type.startsWith("delete")) {
+        // Any backspace/delete shifts out exactly the last digit.
+        e.preventDefault();
+        setDigits(digitsRef.current.slice(0, -1));
+      }
+    };
+    el.addEventListener("beforeinput", onBeforeInput);
+    return () => el.removeEventListener("beforeinput", onBeforeInput);
+  }, [setDigits]);
+
+  const setRefs = useCallback(
+    (node: HTMLInputElement | null) => {
+      innerRef.current = node;
+      if (typeof forwardedRef === "function") forwardedRef(node);
+      else if (forwardedRef) forwardedRef.current = node;
+    },
+    [forwardedRef],
+  );
+
   const { minutes, ss, hh } = clockFromDigits(digits);
   const display = `${minutes}:${ss}:${hh}`;
   const parsed = parseDigits(digits);
@@ -52,17 +118,17 @@ export const TimeField = forwardRef<
       </label>
 
       <input
-        ref={ref}
+        ref={setRefs}
         id="time-entry"
-        // Digit-only numeric keypad on mobile; colons/dots are added for us.
+        // Digit-only numeric keypad on mobile; colons are formatting only.
         inputMode="numeric"
         autoComplete="off"
         value={display}
         aria-describedby="time-echo"
         aria-invalid={parsed.error ? true : undefined}
-        onChange={(e) =>
-          onDigits((e.target.value.match(/\d/g)?.join("") ?? "").slice(-6))
-        }
+        // Fallback for the rare browser without a cancelable `beforeinput`:
+        // re-canonicalise whatever landed in the field (right-to-left preserved).
+        onChange={(e) => setDigits(e.target.value)}
         className={
           "time h-20 w-full rounded-lg border bg-white text-center text-[2.75rem] " +
           "font-semibold leading-none tracking-tight text-gray-800 tabular-nums outline-none " +

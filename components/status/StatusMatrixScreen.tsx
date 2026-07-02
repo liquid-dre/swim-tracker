@@ -9,6 +9,8 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { Select } from "@/components/ui/Select";
+import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { TierBadge } from "@/components/ui/TierBadge";
 import { trailForHref } from "@/lib/nav";
 import { DEFAULT_AGE_BANDS, formatTime, type Tier } from "@/lib/swim";
@@ -76,23 +78,64 @@ export function StatusMatrixScreen() {
         description="Who's ready for what. Each swimmer's hardest long-course tier met per event, with the gap to the next tier up. Meet times only — trials and practice never count."
       />
 
-      {/* Filters */}
-      <section className="flex flex-wrap items-center gap-3">
-        <BandSelect value={band} onChange={setBand} />
-        <SquadSelect value={effectiveSquad} squads={squads} onChange={setSquad} />
-        <div className="ml-auto">
-          <Segmented
-            ariaLabel="Filter by gender"
-            value={gender}
-            onChange={setGender}
-            options={[
-              { value: "ALL", label: "All" },
-              { value: "F", label: "Female" },
-              { value: "M", label: "Male" },
-            ]}
-          />
-        </div>
-      </section>
+      {/* Slim toolbar: all three cross-cutting filters behind the popover so the
+          matrix itself is the hero. */}
+      <FilterBar
+        filters={
+          <>
+            <FilterField label="Gender">
+              <Segmented
+                ariaLabel="Filter by gender"
+                value={gender}
+                onChange={setGender}
+                options={[
+                  { value: "ALL", label: "All" },
+                  { value: "F", label: "Female" },
+                  { value: "M", label: "Male" },
+                ]}
+              />
+            </FilterField>
+            <FilterField label="Age band">
+              <Select
+                aria-label="Filter by age band"
+                value={band}
+                onChange={(e) => setBand(e.target.value)}
+              >
+                <option value="ALL">All age bands</option>
+                {DEFAULT_AGE_BANDS.map((b) => (
+                  <option key={b.label} value={b.label}>
+                    {b.label}
+                  </option>
+                ))}
+              </Select>
+            </FilterField>
+            <FilterField label="Squad">
+              <Select
+                aria-label="Filter by squad"
+                value={effectiveSquad}
+                onChange={(e) => setSquad(e.target.value)}
+              >
+                <option value="ALL">All squads</option>
+                {(squads ?? []).map((s) => (
+                  <option key={s._id} value={s._id}>
+                    {s.name}
+                  </option>
+                ))}
+              </Select>
+            </FilterField>
+          </>
+        }
+        filterCount={
+          (gender !== "ALL" ? 1 : 0) +
+          (band !== "ALL" ? 1 : 0) +
+          (effectiveSquad !== "ALL" ? 1 : 0)
+        }
+        onClear={() => {
+          setGender("ALL");
+          setBand("ALL");
+          setSquad("ALL");
+        }}
+      />
 
       {data === undefined ? (
         <MatrixSkeleton />
@@ -283,76 +326,6 @@ function MatrixCell({
 }
 
 // ---------------------------------------------------------------------------
-// Filters
-// ---------------------------------------------------------------------------
-
-function BandSelect({
-  value,
-  onChange,
-}: {
-  value: BandFilter;
-  onChange: (v: BandFilter) => void;
-}) {
-  return (
-    <SelectShell ariaLabel="Filter by age band" value={value} onChange={onChange}>
-      <option value="ALL">All age bands</option>
-      {DEFAULT_AGE_BANDS.map((b) => (
-        <option key={b.label} value={b.label}>
-          {b.label}
-        </option>
-      ))}
-    </SelectShell>
-  );
-}
-
-function SquadSelect({
-  value,
-  squads,
-  onChange,
-}: {
-  value: SquadFilter;
-  squads: Array<{ _id: string; name: string }> | undefined;
-  onChange: (v: SquadFilter) => void;
-}) {
-  return (
-    <SelectShell ariaLabel="Filter by squad" value={value} onChange={onChange}>
-      <option value="ALL">All squads</option>
-      {(squads ?? []).map((s) => (
-        <option key={s._id} value={s._id}>
-          {s.name}
-        </option>
-      ))}
-    </SelectShell>
-  );
-}
-
-function SelectShell({
-  ariaLabel,
-  value,
-  onChange,
-  children,
-}: {
-  ariaLabel: string;
-  value: string;
-  onChange: (v: string) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="relative">
-      <select
-        aria-label={ariaLabel}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 appearance-none rounded-lg border border-gray-300 bg-white pl-3 pr-9 text-sm text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
-      >
-        {children}
-      </select>
-      <Chevron />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Legend + states
 // ---------------------------------------------------------------------------
 
@@ -406,25 +379,7 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 function MatrixSkeleton() {
   return (
     <div className="flex flex-col gap-3" aria-busy>
-      <div className="h-9 w-72 animate-pulse rounded-lg bg-surface-2" />
       <div className="h-[420px] animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm" />
     </div>
-  );
-}
-
-function Chevron() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 20 20"
-      className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-faint"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m6 8 4 4 4-4" />
-    </svg>
   );
 }

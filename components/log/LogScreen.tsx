@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Timer, Trash2 } from "lucide-react";
 
@@ -12,19 +12,10 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { errorMessage, notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
-import { computeAge, type Course, type Stroke } from "@/lib/swim";
+import { computeAge, STROKE_LABEL, type Course, type Stroke } from "@/lib/swim";
 import { parseDigits, TimeField } from "./TimeField";
+import { EventSelectors, isValidEventTriple } from "./EventSelectors";
 
-// Fixed domain orders (BRD §4.3) so the pickers read the same on every screen.
-const DISTANCE_ORDER = [50, 100, 200, 400, 800, 1500] as const;
-const STROKE_ORDER: Stroke[] = ["FREE", "BACK", "BREAST", "FLY", "IM"];
-const STROKE_LABEL: Record<Stroke, string> = {
-  FREE: "Free",
-  BACK: "Back",
-  BREAST: "Breast",
-  FLY: "Fly",
-  IM: "IM",
-};
 type SwimType = "MEET" | "TIME_TRIAL" | "PRACTICE";
 
 // Last-used meet/date/type persist across visits (BRD Step 5) — poolside you log
@@ -84,60 +75,16 @@ export function LogScreen({ today }: { today: string }) {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
-  // --- derive valid options from the whitelist ------------------------------
-  const distances = useMemo(() => {
-    if (!events) return [];
-    const present = new Set(events.map((e) => e.distance));
-    return DISTANCE_ORDER.filter((d) => present.has(d));
-  }, [events]);
-
-  const strokesForDistance = useMemo(() => {
-    if (!events || distance === null) return [];
-    const present = new Set(
-      events.filter((e) => e.distance === distance).map((e) => e.stroke),
-    );
-    return STROKE_ORDER.filter((s) => present.has(s));
-  }, [events, distance]);
-
-  const coursesForEvent = useMemo<Course[]>(() => {
-    if (!events || distance === null || stroke === null) return [];
-    const event = events.find((e) => e.distance === distance && e.stroke === stroke);
-    return (event?.allowedCourses ?? []) as Course[];
-  }, [events, distance, stroke]);
-
-  // Keep dependent selections valid as the event narrows.
-  function selectDistance(d: number) {
-    setDistance(d);
-    if (stroke !== null) {
-      const stillValid = events?.some((e) => e.distance === d && e.stroke === stroke);
-      if (!stillValid) {
-        setStroke(null);
-        setCourse(null);
-      }
-    }
-  }
-
-  function selectStroke(s: Stroke) {
-    setStroke(s);
-    const allowed = (
-      events?.find((e) => e.distance === distance && e.stroke === s)?.allowedCourses ??
-      []
-    ) as Course[];
-    // Auto-pick when there's no choice (e.g. 100 IM ⇒ SCM only); otherwise keep
-    // a still-valid course, else clear so the coach picks deliberately.
-    if (allowed.length === 1) setCourse(allowed[0]);
-    else if (course === null || !allowed.includes(course)) setCourse(null);
-  }
-
   // --- validity -------------------------------------------------------------
   const selectedSwimmer = swimmers?.find((s) => s._id === swimmerId) ?? null;
   const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(swimDate) && swimDate <= today;
   const parsedTime = parseDigits(digits);
+  // The event trio is only valid as a whole whitelist event — a stale (now
+  // invalid) selection left after changing one control can never be saved.
+  const eventValid = isValidEventTriple(events, distance, stroke, course);
   const canSave =
     swimmerId !== "" &&
-    distance !== null &&
-    stroke !== null &&
-    course !== null &&
+    eventValid &&
     dateValid &&
     parsedTime.ms !== null &&
     !saving;
@@ -259,53 +206,18 @@ export function LogScreen({ today }: { today: string }) {
               </div>
             </Field>
 
-            {/* 2 — event: distance → stroke → course */}
-            <Field label="Distance" htmlFor="">
-              <ChipGroup
-                ariaLabel="Distance"
-                options={distances.map((d) => ({ value: String(d), label: String(d) }))}
-                value={distance === null ? null : String(distance)}
-                onChange={(v) => selectDistance(Number(v))}
-              />
-            </Field>
-
-            {distance !== null && (
-              <Field label="Stroke" htmlFor="">
-                <ChipGroup
-                  ariaLabel="Stroke"
-                  options={strokesForDistance.map((s) => ({
-                    value: s,
-                    label: STROKE_LABEL[s],
-                  }))}
-                  value={stroke}
-                  onChange={(v) => selectStroke(v as Stroke)}
-                />
-              </Field>
-            )}
-
-            {stroke !== null && (
-              <Field label="Course" htmlFor="">
-                {coursesForEvent.length === 1 ? (
-                  <p className="text-sm text-ink-muted">
-                    This event runs{" "}
-                    <span className="font-medium text-ink">
-                      {coursesForEvent[0] === "SCM" ? "short course (25m)" : "long course (50m)"}
-                    </span>{" "}
-                    only.
-                  </p>
-                ) : (
-                  <Segmented
-                    ariaLabel="Course"
-                    value={course ?? ("" as Course)}
-                    onChange={(v) => setCourse(v)}
-                    options={coursesForEvent.map((c) => ({
-                      value: c,
-                      label: c === "SCM" ? "SCM · 25m" : "LCM · 50m",
-                    }))}
-                  />
-                )}
-              </Field>
-            )}
+            {/* 2 — event: distance, stroke, course all visible at once, each
+                driven live off the whitelist (invalid options disabled). */}
+            <EventSelectors
+              events={events}
+              distance={distance}
+              stroke={stroke}
+              course={course}
+              onDistance={setDistance}
+              onStroke={setStroke}
+              onCourse={setCourse}
+              disabled={loading}
+            />
 
             {/* 3 — the anchor */}
             <TimeField ref={timeRef} digits={digits} onDigits={setDigits} />
@@ -409,45 +321,6 @@ function Field({
         <span className="text-sm font-medium text-ink">{label}</span>
       )}
       {children}
-    </div>
-  );
-}
-
-// A wrapping single-select chip row — the distance/stroke picker. Radio
-// semantics so it's keyboard- and screen-reader-operable.
-function ChipGroup({
-  options,
-  value,
-  onChange,
-  ariaLabel,
-}: {
-  options: { value: string; label: string }[];
-  value: string | null;
-  onChange: (value: string) => void;
-  ariaLabel: string;
-}) {
-  return (
-    <div role="radiogroup" aria-label={ariaLabel} className="flex flex-wrap gap-2">
-      {options.map((opt) => {
-        const active = opt.value === value;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            onClick={() => onChange(opt.value)}
-            className={
-              "h-11 min-w-11 rounded-lg border px-4 text-base font-medium tabular-nums outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
-              (active
-                ? "border-brand-500 bg-brand-50 text-brand-500"
-                : "border-gray-300 bg-white text-gray-500 hover:border-gray-400 hover:text-gray-800")
-            }
-          >
-            {opt.label}
-          </button>
-        );
-      })}
     </div>
   );
 }
