@@ -207,8 +207,10 @@ export function ProgressionScreen() {
           {single && <SingleSummary series={withData[0]} />}
 
           {/* Projection control (§5.6) — single swimmer on LCM only, since the
-              qualifying cuts it projects toward are long-course only (§4.9). */}
-          {single && data.event.course === "LCM" && (
+              qualifying cuts it projects toward are long-course only (§4.9).
+              Projections are coach-only (docs/access-control.md), so the server
+              tells us via canSeeProjections whether to show the control at all. */}
+          {single && data.event.course === "LCM" && data.canSeeProjections && (
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg bg-surface-2 px-3 py-2.5">
               <div className="min-w-0">
                 <p className="text-xs font-medium text-ink">
@@ -231,7 +233,9 @@ export function ProgressionScreen() {
             course={data.event.course}
             standards={data.standards}
             projectionTier={
-              single && data.event.course === "LCM" ? projectionTier : null
+              single && data.event.course === "LCM" && data.canSeeProjections
+                ? projectionTier
+                : null
             }
           />
         </section>

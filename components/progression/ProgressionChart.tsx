@@ -73,7 +73,9 @@ export type ProgressionSeries = {
   swimmerId: string;
   name: string;
   gender: "M" | "F";
-  dob: string;
+  // null when the caller may not see this swimmer's exact DOB (a "public" view);
+  // the qualifying-cut overlay is then omitted for the series (see buildTierOverlay).
+  dob: string | null;
   points: ProgressionPoint[];
 };
 
@@ -310,9 +312,12 @@ function buildProjection(
     return null;
   }
   const s = series[0];
+  // No DOB (a "public" view) => no exact age => nothing to project against.
+  if (s.dob === null) return null;
+  const dob = s.dob;
   const today = todayIso();
   const rows = standards.filter((r) => r.gender === s.gender);
-  const cuts = pickApplicableStandards(rows, computeAge(s.dob, today));
+  const cuts = pickApplicableStandards(rows, computeAge(dob, today));
   const cutMs = cuts[tier] ?? null;
   const meets = s.points
     .filter((p) => p.isMeet)
@@ -466,15 +471,18 @@ function buildTierOverlay(
 
   if (single) {
     const s = series[0];
+    // No DOB (a "public" view of another swimmer) => no exact-age cut to draw.
+    if (s.dob === null) return null;
+    const dob = s.dob;
     const rows = cutsFor(s.gender);
     if (rows.length === 0) return null;
 
     // Breakpoints: the padded start, each birthday inside the window, the end.
-    const ageAtStart = computeAge(s.dob, new Date(x0));
-    const ageAtEnd = computeAge(s.dob, new Date(x1));
+    const ageAtStart = computeAge(dob, new Date(x0));
+    const ageAtEnd = computeAge(dob, new Date(x1));
     const breaks = [x0];
     for (let a = ageAtStart + 1; a <= ageAtEnd; a++) {
-      const b = birthdayMs(s.dob, a);
+      const b = birthdayMs(dob, a);
       if (b > x0 && b < x1) breaks.push(b);
     }
     breaks.push(x1);
@@ -488,7 +496,7 @@ function buildTierOverlay(
     for (let i = 0; i < breaks.length - 1; i++) {
       const segStart = breaks[i];
       const segEnd = breaks[i + 1];
-      const age = computeAge(s.dob, new Date(segStart));
+      const age = computeAge(dob, new Date(segStart));
       const cuts = pickApplicableStandards(rows, age);
       for (const tier of OVERLAY_TIER_ORDER) {
         const y = cuts[tier];
@@ -538,16 +546,20 @@ function buildTierOverlay(
     }
 
     // Legend anchors to the cut at the swimmer's age TODAY — "how close now".
-    const legend = legendFor(rows, computeAge(s.dob, todayIso()));
+    const legend = legendFor(rows, computeAge(dob, todayIso()));
     return lines.length > 0 ? { lines, legend } : null;
   }
 
-  // Group: draw only when every swimmer shares one exact age and one gender.
+  // Group: draw only when every swimmer shares one exact age and one gender —
+  // and only when EVERY swimmer's DOB is visible (a public view hides it, and a
+  // single shared line can't honestly stand in for a swimmer whose age is unknown).
   const today = todayIso();
-  const gender = series[0].gender;
-  const age = computeAge(series[0].dob, today);
+  const first = series[0];
+  if (first.dob === null) return null;
+  const gender = first.gender;
+  const age = computeAge(first.dob, today);
   const uniform = series.every(
-    (s) => s.gender === gender && computeAge(s.dob, today) === age,
+    (s) => s.dob !== null && s.gender === gender && computeAge(s.dob, today) === age,
   );
   if (!uniform) return null;
 

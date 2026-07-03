@@ -68,10 +68,14 @@ sign-in, so a coach can pre-authorise people **before** they have signed up.
 1. **Foundations** *(done)* — schema: `clubs`, `profiles.clubId`, `swimmers.clubId`,
    `heightCm`/`weightKg`, `settings.seasonEnd`; this spec. (All additive/optional,
    so the running app is unaffected until later phases consume them.)
-2. **Field-level privacy** — split public/sensitive in every swimmer read; hide
-   projections from non-coaches.
-3. **Open viewer reads** — viewers browse any swimmer's history/progression + a
-   comparison/leaderboard.
+2. **Field-level privacy** *(done)* — `authz.swimmerViewer` (`full`/`sensitive`/
+   `public` per swimmer); `getProgression` redacts DOB for a public view and gates
+   projections (`canSeeProjections`); the chart omits the cut overlay when DOB is
+   hidden.
+3. **Open viewer reads** — *server done:* `getEventComparison` + `getProgression`
+   accept any signed-in user with public-scoped payloads (non-regressive — coaches
+   unchanged). *Next:* viewer-facing UI — a `/me/rankings` leaderboard and a
+   browse-any-swimmer progression picker, with viewer nav entries.
 4. **Super-user admin** — add the `SUPER_USER` role (nav, guards, return
    validators); standards, season start/end, tour dates editable only by the
    super-user; read-only elsewhere.

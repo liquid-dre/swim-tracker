@@ -3,8 +3,9 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import {
   requireCoach,
+  requireSignedIn,
   requireSwimmerAccess,
-  requireSwimmersAccess,
+  swimmerViewer,
 } from "./authz";
 import {
   computeAge,
@@ -123,7 +124,10 @@ export const getEventComparison = query({
     rows: v.array(comparisonRow),
   }),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    // Open to any signed-in user (docs/access-control.md): the leaderboard is
+    // the "where do I stand vs everyone" view, and every field here is public
+    // (name, age band, PB, tier) — no DOB/notes. Coaches and viewers alike.
+    await requireSignedIn(ctx);
 
     const results = await ctx.db
       .query("results")
@@ -271,7 +275,12 @@ const progressionSeries = v.object({
   swimmerId: v.id("swimmers"),
   name: v.string(),
   gender,
-  dob: v.string(), // ISO — lets the chart step tier cuts across a birthday (§4.9)
+  // ISO DOB lets the chart step tier cuts across a birthday (§4.9). SENSITIVE:
+  // null for a "public" view (another swimmer) so an exact birth date never
+  // leaks — the chart just omits the qualifying-cut overlay for that series.
+  dob: v.union(v.string(), v.null()),
+  // How much of this swimmer the caller may see (docs/access-control.md).
+  view: v.union(v.literal("full"), v.literal("sensitive"), v.literal("public")),
   pbTimeMs: v.union(v.number(), v.null()), // null => no MEET swim yet
   points: v.array(progressionPoint),
 });
@@ -301,21 +310,27 @@ export const getProgression = query({
     // The charted event's cut rows for the genders in this selection (LCM only;
     // empty on SCM). The chart resolves them to each swimmer's exact age.
     standards: v.array(standardCut),
+    // Projections are coach-only (docs/access-control.md) — the client shows the
+    // time-to-qualify control only when this is true.
+    canSeeProjections: v.boolean(),
   }),
   handler: async (ctx, args) => {
     // De-dupe and cap so a squad with repeats or a huge selection stays bounded.
     const ids = [...new Set(args.swimmerIds)].slice(0, MAX_SERIES);
 
-    // Role gate: coach → any swimmer; viewer → only their linked swimmer(s), and
-    // the WHOLE call is rejected if any requested id isn't theirs (§5.9). A
-    // viewer's own progression (their own qualifying lines) flows through here.
-    await requireSwimmersAccess(ctx, ids);
+    // Any signed-in user may chart any swimmer; the payload is what's scoped
+    // (docs/access-control.md). `viewOf` decides per swimmer whether the DOB —
+    // and thus the qualifying-cut overlay — is included; projections are coach-
+    // only. This replaces the old own-swimmer-only gate: viewers now browse the
+    // whole roster's progression, just without other swimmers' sensitive fields.
+    const { profile, viewOf } = await swimmerViewer(ctx);
 
     const series: Array<{
       swimmerId: Id<"swimmers">;
       name: string;
       gender: "M" | "F";
-      dob: string;
+      dob: string | null;
+      view: "full" | "sensitive" | "public";
       pbTimeMs: number | null;
       points: Array<{
         resultId: Id<"results">;
@@ -373,11 +388,15 @@ export const getProgression = query({
           isPB: pb !== null && r._id === pb.resultId,
         }));
 
+      const view = viewOf(swimmer);
       series.push({
         swimmerId: id,
         name: swimmer.name,
         gender: swimmer.gender,
-        dob: swimmer.dob,
+        // Redact the exact DOB unless the caller may see this swimmer's
+        // sensitive fields; "public" gets null and no cut overlay.
+        dob: view === "public" ? null : swimmer.dob,
+        view,
         pbTimeMs: pb ? pb.timeMs : null,
         points,
       });
@@ -429,6 +448,9 @@ export const getProgression = query({
       },
       series,
       standards,
+      // Projections are coach-only (docs/access-control.md). Phase 4 adds the
+      // SUPER_USER to this; Phase 5 leaves it (any coach may project).
+      canSeeProjections: profile.role === "COACH",
     };
   },
 });
