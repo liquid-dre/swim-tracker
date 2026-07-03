@@ -12,6 +12,7 @@ import type * as admin from "../admin.js";
 import type * as analysis from "../analysis.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
+import type * as clubs from "../clubs.js";
 import type * as dashboard from "../dashboard.js";
 import type * as events from "../events.js";
 import type * as http from "../http.js";
@@ -36,6 +37,7 @@ declare const fullApi: ApiFromModules<{
   analysis: typeof analysis;
   auth: typeof auth;
   authz: typeof authz;
+  clubs: typeof clubs;
   dashboard: typeof dashboard;
   events: typeof events;
   http: typeof http;

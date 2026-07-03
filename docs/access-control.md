@@ -80,9 +80,12 @@ sign-in, so a coach can pre-authorise people **before** they have signed up.
    browse-any-swimmer picker on `/me/progress` (public `listSwimmersForPicker`)
    lets a viewer chart any swimmer's progression; cuts/projection stay to their
    own swimmer.
-4. **Super-user admin** — add the `SUPER_USER` role (nav, guards, return
-   validators); standards, season start/end, tour dates editable only by the
-   super-user; read-only elsewhere.
+4. **Super-user admin** *(done)* — `SUPER_USER` role wired through auth (env
+   allow-list bootstrap `SUPER_USER_EMAILS`), authz (superset of a coach), and
+   nav/guards (`/admin/*` reserved). Standards + season start/end are
+   super-user-write / everyone-read; the editors show read-only for coaches. New
+   `convex/clubs.ts` (create/rename clubs, assign/remove coaches) + a super-user
+   `/admin/clubs` screen (impeccable 36/40). Tour dates still deferred.
 5. **Club-scoped editing** — coaches edit only their own club's swimmers.
 6. **Email-at-creation linking** + UI/nav for every role (each screen re-passing
    the impeccable ≥ 35/40 gate).

@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Award,
   BarChart3,
+  Building2,
   Gauge,
   Grid3x3,
   History,
@@ -9,6 +10,7 @@ import {
   LineChart,
   Radar,
   Ruler,
+  Shield,
   Target,
   Timer,
   TrendingUp,
@@ -110,6 +112,15 @@ export const NAV: NavNode[] = [
       { label: "Road to qualify", href: "/road", icon: Target },
       { label: "Standards", href: "/standards", icon: Ruler },
     ],
+  },
+  // Super-user only (access-control Phase 4). Reserved under /admin, which
+  // isRouteAllowed keeps coaches out of.
+  {
+    kind: "group",
+    label: "Admin",
+    icon: Shield,
+    roles: ["SUPER_USER"],
+    items: [{ label: "Clubs & coaches", href: "/admin/clubs", icon: Building2 }],
   },
 ];
 
