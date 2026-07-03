@@ -76,8 +76,10 @@ sign-in, so a coach can pre-authorise people **before** they have signed up.
    any signed-in user with public-scoped payloads (non-regressive); public read on
    `getApplicableStandards`; a `/me/rankings` viewer leaderboard (reuses the coach
    `ComparisonBarChart`, highlights the viewer's own swimmer, personal standing
-   callout) with a viewer nav entry. Passed impeccable critique 36/40.
-   *Still to add:* a browse-any-swimmer picker on `/me/progress`.
+   callout) with a viewer nav entry. Passed impeccable critique 36/40. A
+   browse-any-swimmer picker on `/me/progress` (public `listSwimmersForPicker`)
+   lets a viewer chart any swimmer's progression; cuts/projection stay to their
+   own swimmer.
 4. **Super-user admin** — add the `SUPER_USER` role (nav, guards, return
    validators); standards, season start/end, tour dates editable only by the
    super-user; read-only elsewhere.

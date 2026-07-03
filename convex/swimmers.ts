@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import { accessibleSwimmerIds, requireCoach } from "./authz";
+import { accessibleSwimmerIds, requireCoach, requireSignedIn } from "./authz";
 import { computeAge } from "../lib/swim";
 
 // Swimmer management (BRD §5, Step 4). Coaches only. Swimmers are never
@@ -253,5 +253,45 @@ export const listForProfile = query({
         active: s.active,
       })),
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// listSwimmersForPicker — the whole roster as PUBLIC picker rows
+// ---------------------------------------------------------------------------
+//
+// Any signed-in user may list every swimmer here (docs/access-control.md): this
+// powers the "chart any swimmer" progression picker a viewer uses to see how
+// another swimmer has progressed. Public fields only — name, gender, age band,
+// active flag; no DOB/notes. The heavy per-swimmer detail (and any sensitive
+// field) still flows through the scoped reads, redacted per viewer.
+export const listSwimmersForPicker = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("swimmers"),
+      name: v.string(),
+      gender,
+      age: v.number(),
+      active: v.boolean(),
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireSignedIn(ctx);
+    const swimmers = await ctx.db.query("swimmers").take(500);
+    const today = new Date().toISOString().slice(0, 10);
+    return swimmers
+      .map((s) => ({
+        _id: s._id,
+        name: s.name,
+        gender: s.gender,
+        age: computeAge(s.dob, today),
+        active: s.active,
+      }))
+      // Active first, then by name — the current squad reads at the top.
+      .sort(
+        (a, b) =>
+          Number(b.active) - Number(a.active) || a.name.localeCompare(b.name),
+      );
   },
 });
