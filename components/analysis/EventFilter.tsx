@@ -10,7 +10,7 @@ import {
   type Course,
   type Stroke,
 } from "@/lib/swim";
-import type { EventOption, EventValue } from "./EventPicker";
+import { defaultCourse, type EventOption, type EventValue } from "./EventPicker";
 
 /*
   Compact inline event picker for the analysis toolbars (Step R2). Same
@@ -65,12 +65,7 @@ export function EventFilter({
       onChange({
         distance: d,
         stroke: value.stroke,
-        course:
-          allowed.length === 1
-            ? allowed[0]
-            : value.course && allowed.includes(value.course)
-              ? value.course
-              : null,
+        course: defaultCourse(allowed, value.course),
       });
       return;
     }
@@ -81,14 +76,13 @@ export function EventFilter({
     const allowed = (events?.find(
       (e) => e.distance === value.distance && e.stroke === s,
     )?.allowedCourses ?? []) as Course[];
-    // Auto-pick when there's no choice (e.g. 100 IM ⇒ SCM only).
-    const course =
-      allowed.length === 1
-        ? allowed[0]
-        : value.course && allowed.includes(value.course)
-          ? value.course
-          : null;
-    onChange({ distance: value.distance, stroke: s, course });
+    // Default to LCM (the qualifying lens) when both are open; auto-pick when
+    // there's no choice (e.g. 100 IM ⇒ SCM only).
+    onChange({
+      distance: value.distance,
+      stroke: s,
+      course: defaultCourse(allowed, value.course),
+    });
   }
 
   return (

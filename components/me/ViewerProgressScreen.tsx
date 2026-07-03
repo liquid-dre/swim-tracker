@@ -76,7 +76,7 @@ function ProgressionSection({ swimmerId }: { swimmerId: Id<"swimmers"> }) {
   return (
     <Section
       title="Progression"
-      hint="Every logged time for one event over the season, with your qualifying cuts drawn on long course. The axis is inverted, so faster sits higher and improvement reads as a climb."
+      hint="Every logged time for one event over the season, with your qualifying cuts drawn on long course. The time axis starts at zero, so faster sits lower and improvement reads as a descent toward the cut."
     >
       <div className="flex flex-col gap-5">
         <EventFilter events={events} value={event} onChange={setEvent} />
@@ -104,7 +104,7 @@ function ProgressionSection({ swimmerId }: { swimmerId: Id<"swimmers"> }) {
               <h3 className="text-sm font-semibold text-ink">
                 {data.event.label} · {data.event.course}
               </h3>
-              <p className="text-xs text-ink-faint">Higher = faster</p>
+              <p className="text-xs text-ink-faint">Lower = faster</p>
             </div>
             <ProgressionChart
               series={withData}

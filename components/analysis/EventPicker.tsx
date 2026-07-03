@@ -31,6 +31,21 @@ export type EventOption = {
   allowedCourses: Course[];
 };
 
+/**
+ * Resolve the course to hold after a distance/stroke change. When both courses
+ * are open we default to LCM — qualifying standards are long-course (§4.2), so
+ * LCM is the primary lens — while still keeping the SCM option in the dropdown.
+ * A single allowed course is auto-picked (e.g. 100 IM ⇒ SCM only), and a prior
+ * deliberate choice that's still valid is preserved so switching event doesn't
+ * silently drop a chosen SCM.
+ */
+export function defaultCourse(allowed: Course[], prev: Course | null): Course | null {
+  if (allowed.length === 1) return allowed[0];
+  if (prev && allowed.includes(prev)) return prev;
+  if (allowed.includes("LCM")) return "LCM";
+  return allowed[0] ?? null;
+}
+
 export function EventPicker({
   events,
   value,
@@ -78,12 +93,7 @@ export function EventPicker({
       onChange({
         distance: d,
         stroke: value.stroke,
-        course:
-          allowed.length === 1
-            ? allowed[0]
-            : value.course && allowed.includes(value.course)
-              ? value.course
-              : null,
+        course: defaultCourse(allowed, value.course),
       });
       return;
     }
@@ -94,14 +104,13 @@ export function EventPicker({
     const allowed = (events?.find(
       (e) => e.distance === value.distance && e.stroke === s,
     )?.allowedCourses ?? []) as Course[];
-    // Auto-pick when there's no choice (e.g. 100 IM ⇒ SCM only).
-    const course =
-      allowed.length === 1
-        ? allowed[0]
-        : value.course && allowed.includes(value.course)
-          ? value.course
-          : null;
-    onChange({ distance: value.distance, stroke: s, course });
+    // Default to LCM (the qualifying lens) when both are open; auto-pick when
+    // there's no choice (e.g. 100 IM ⇒ SCM only).
+    onChange({
+      distance: value.distance,
+      stroke: s,
+      course: defaultCourse(allowed, value.course),
+    });
   }
 
   return (

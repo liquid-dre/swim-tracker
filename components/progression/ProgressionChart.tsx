@@ -35,17 +35,18 @@ import {
 
 /*
   Progression line chart (Step 7, BRD §5.6). x = date, y = time, with the y-axis
-  INVERTED so a faster (lower) time sits higher and improvement reads as "up".
-  Every logged swim is plotted (all types); MEET swims are filled dots, trials /
-  practice are hollow, and the current PB carries a ring. One line per swimmer
-  for a group.
+  UPRIGHT and anchored at zero: 0 sits at the origin and a faster (lower) time
+  sits LOWER, so the axis reads like a stopwatch. Every logged swim is plotted
+  (all types); MEET swims are filled dots, trials / practice are hollow, and the
+  current PB carries a ring. One line per swimmer for a group.
 
   Step 10 overlays the qualifying cuts (LCM only, §4.9): applicable L2/L3/SANJ
   cuts for the swimmer's EXACT age become horizontal tier lines. A cut can step
-  across a birthday, so a single swimmer's line is drawn as dated segments; a
-  swim plotted on the fast side of a line (above it, since the axis is inverted)
-  has met that tier. For a group the lines only appear when every swimmer shares
-  one exact age (and gender) — otherwise a single line would be a lie.
+  across a birthday, so a single swimmer's line is drawn as dated segments joined
+  by a vertical riser at each birthday — one stepped line, not two floating cuts;
+  a swim plotted on the fast side of a line (below it, on the upright axis) has
+  met that tier. For a group the lines only appear when every swimmer shares one
+  exact age (and gender) — otherwise a single line would be a lie.
 
   Step 14 adds the time-to-qualify projection (single swimmer, LCM, one target
   tier — §5.6). All the judgement is the pure `computeQualifyProjection`; here we
@@ -135,10 +136,13 @@ export function ProgressionChart({
   // Fold the drawn cut values (and the projection's endpoints) into the y-domain
   // so a cut faster or slower than every swim still shows — the gap to the next
   // tier is the point of the view.
-  const cutYs = overlay ? overlay.lines.map((l) => l.y) : [];
+  const cutYs = overlay
+    ? overlay.lines.flatMap((l) => (l.y2 === undefined ? [l.y] : [l.y, l.y2]))
+    : [];
   const projYs = projected ? [projected.fromMs, projected.toMs] : [];
   const yLo = Math.min(...allTimes, ...cutYs, ...projYs);
   const yHi = Math.max(...allTimes, ...cutYs, ...projYs);
+  // The axis is anchored at 0 (origin), so only the TOP needs breathing room.
   const yPad = Math.max(500, Math.round((yHi - yLo) * 0.12));
 
   const projColor = projectionTier ? TIER_STYLE[projectionTier].color : CHART.accent;
@@ -159,7 +163,7 @@ export function ProgressionChart({
       <div
         style={{ width: "100%", height: 360 }}
         role="img"
-        aria-label={`Progression chart, time over date with a faster time plotted higher. ${summary}`}
+        aria-label={`Progression chart, time over date on a zero-anchored axis with a faster time plotted lower. ${summary}`}
       >
         <ResponsiveContainer width="100%" height="100%">
           <LineChart margin={{ top: 8, right: 20, bottom: 4, left: 8 }}>
@@ -177,8 +181,7 @@ export function ProgressionChart({
             />
             <YAxis
               type="number"
-              reversed
-              domain={[yLo - yPad, yHi + yPad]}
+              domain={[0, yHi + yPad]}
               tickFormatter={(v: number) => formatTime(v)}
               tick={{ fill: CHART.tick, fontSize: 11 }}
               tickLine={false}
@@ -194,10 +197,19 @@ export function ProgressionChart({
                 key={l.key}
                 {...(l.full
                   ? { y: l.y }
-                  : { segment: [
-                      { x: l.x1, y: l.y },
-                      { x: l.x2, y: l.y },
-                    ] })}
+                  : l.y2 !== undefined
+                    ? {
+                        segment: [
+                          { x: l.x1, y: l.y },
+                          { x: l.x1, y: l.y2 },
+                        ],
+                      }
+                    : {
+                        segment: [
+                          { x: l.x1, y: l.y },
+                          { x: l.x2, y: l.y },
+                        ],
+                      })}
                 stroke={l.color}
                 strokeWidth={1.5}
                 strokeDasharray={l.dash}
@@ -414,6 +426,9 @@ type OverlayLine = {
   full: boolean; // spans the whole x-domain (group) vs a dated segment (single)
   x1: number;
   x2: number;
+  // When set, this line is a vertical RISER at x1 connecting the cut before a
+  // birthday (y) to the cut after it (y2) — so a stepped cut reads as one line.
+  y2?: number;
 };
 
 type OverlayLegendEntry = {
@@ -494,7 +509,7 @@ function buildTierOverlay(
       const segs = byTier.get(tier);
       if (!segs) continue;
       const st = TIER_STYLE[tier];
-      segs.forEach((seg, i) =>
+      segs.forEach((seg, i) => {
         lines.push({
           key: `${tier}-${i}`,
           color: st.color,
@@ -503,8 +518,23 @@ function buildTierOverlay(
           full: false,
           x1: seg.x1,
           x2: seg.x2,
-        }),
-      );
+        });
+        // Bridge a birthday step with a vertical riser so the two dated segments
+        // read as one cut that moved, not two separate cuts for the same tier.
+        const next = segs[i + 1];
+        if (next && next.y !== seg.y) {
+          lines.push({
+            key: `${tier}-riser-${i}`,
+            color: st.color,
+            dash: st.dash,
+            y: seg.y,
+            y2: next.y,
+            full: false,
+            x1: seg.x2,
+            x2: seg.x2,
+          });
+        }
+      });
     }
 
     // Legend anchors to the cut at the swimmer's age TODAY — "how close now".

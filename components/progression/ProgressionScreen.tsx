@@ -24,8 +24,8 @@ import { ProgressionChart } from "./ProgressionChart";
 
 /*
   Progression view (Step 7, BRD §5.6). One swimmer OR a group (squad or ad-hoc
-  multi-select) + an event. The chart plots every logged swim over time with an
-  inverted y-axis so improvement reads upward; one line per swimmer for a group.
+  multi-select) + an event. The chart plots every logged swim over time on a
+  zero-anchored y-axis so a faster time sits lower; one line per swimmer for a group.
   On LCM the chart overlays the applicable L2/L3/SANJ cuts for the swimmer's
   exact age (Step 10, §4.9); SCM shows none.
 */
@@ -120,7 +120,7 @@ export function ProgressionScreen() {
       <PageHeader
         title="Progression"
         breadcrumb={trailForHref("/progression")}
-        description="Chart every logged time for one swimmer or a group. The axis is inverted, so faster times sit higher and improvement reads as a climb."
+        description="Chart every logged time for one swimmer or a group. The time axis starts at zero, so faster times sit lower and improvement reads as a descent toward the cut."
       />
 
       {/* Slim toolbar: who + event inline. The group builder lives in a popover
@@ -201,7 +201,7 @@ export function ProgressionScreen() {
             <h2 className="text-sm font-semibold text-ink">
               {data.event.label} · {data.event.course}
             </h2>
-            <p className="text-xs text-ink-faint">Higher = faster</p>
+            <p className="text-xs text-ink-faint">Lower = faster</p>
           </div>
 
           {single && <SingleSummary series={withData[0]} />}
