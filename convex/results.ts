@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { assertCoachManagesSwimmer, requireCoach } from "./authz";
 import { computeAge, isValidEvent, parseTime } from "../lib/swim";
 
 // Result logging (BRD §6, Step 5) — the core data-entry flow. Coaches only.
@@ -115,6 +115,7 @@ export const logResult = mutation({
 
     const swimmer = await ctx.db.get(args.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
 
     await assertValidEvent(ctx, args.distance, args.stroke, args.course);
 
@@ -159,12 +160,13 @@ export const updateResult = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
 
     const existing = await ctx.db.get(args.resultId);
     if (!existing) throw new Error("Result not found.");
     const swimmer = await ctx.db.get(existing.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
 
     // Merge the event fields so we validate the resulting combination as a whole
     // (e.g. changing only the stroke must still land on the whitelist).
@@ -218,9 +220,12 @@ export const deleteResult = mutation({
   args: { resultId: v.id("results") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
     const existing = await ctx.db.get(args.resultId);
     if (!existing) throw new Error("Result not found.");
+    const swimmer = await ctx.db.get(existing.swimmerId);
+    if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
     await ctx.db.delete(args.resultId);
     return null;
   },

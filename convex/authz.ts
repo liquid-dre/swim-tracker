@@ -131,6 +131,31 @@ export async function requireSwimmersAccess(
   return profile;
 }
 
+/**
+ * Assert that `profile` (already known to be staff) may EDIT `swimmer`
+ * (docs/access-control.md, Phase 5). A SUPER_USER edits any swimmer; a COACH
+ * edits only swimmers in their own club. Reads are unaffected — coaches still see
+ * every swimmer for comparison; this is purely the write boundary. Sync (the
+ * caller already loaded both docs) so it composes after an `await requireCoach`.
+ */
+export function assertCoachManagesSwimmer(
+  profile: Doc<"profiles">,
+  swimmer: Doc<"swimmers">,
+): void {
+  if (profile.role === "SUPER_USER") return;
+  if (profile.role !== "COACH") {
+    throw new Error("Only coaches can do that.");
+  }
+  if (!profile.clubId) {
+    throw new Error(
+      "You aren't assigned to a club yet. Ask an admin to add you to one.",
+    );
+  }
+  if (swimmer.clubId !== profile.clubId) {
+    throw new Error("You can only edit swimmers in your own club.");
+  }
+}
+
 /** How much of a given swimmer the caller may see (docs/access-control.md). */
 export type SwimmerView = "full" | "sensitive" | "public";
 
