@@ -48,12 +48,15 @@ export default defineSchema({
     authId: v.string(), // subject from auth provider (the users-table id)
     name: v.string(),
     email: v.string(),
-    // COACH: edits their own club's swimmers, reads all as public. VIEWER:
-    // read-only; sensitive view only for their linked swimmer(s). The SUPER_USER
-    // literal is added in Phase 4 (super-user admin), together with the nav,
-    // guards, and return validators that must handle it.
-    role: v.union(v.literal("COACH"), v.literal("VIEWER")),
-    // The club a COACH manages (their edit scope). Unset for VIEWER.
+    // SUPER_USER: global reference data (standards, season dates, clubs) + sees
+    // everything. COACH: edits their own club's swimmers, reads all as public.
+    // VIEWER: read-only; sensitive view only for their linked swimmer(s).
+    role: v.union(
+      v.literal("SUPER_USER"),
+      v.literal("COACH"),
+      v.literal("VIEWER"),
+    ),
+    // The club a COACH manages (their edit scope). Unset for SUPER_USER/VIEWER.
     clubId: v.optional(v.id("clubs")),
   })
     .index("by_authId", ["authId"])

@@ -36,10 +36,12 @@ export async function requireSignedIn(
 }
 
 /**
- * Assert the caller is a signed-in COACH and return their profile. Coach-only
- * screens (swimmers, squads, standards, logging, cross-roster analysis) gate
- * every server function on this. A VIEWER is rejected server-side (BRD §2): the
- * client never gets to decide, so a hidden nav item is never the only guard.
+ * Assert the caller has STAFF (coach-level) access and return their profile.
+ * Coach screens (swimmers, squads, logging, cross-roster analysis) gate on this.
+ * A SUPER_USER is a superset of a coach, so they pass too; a VIEWER is rejected
+ * server-side (BRD §2) — the client never gets to decide. Club-scoped editing
+ * (a coach only edits their own club) is layered on top in Phase 5; this gate is
+ * the coarse "is this a staff member at all" check.
  */
 export async function requireCoach(
   ctx: QueryCtx | MutationCtx,
@@ -48,8 +50,27 @@ export async function requireCoach(
   if (profile === null) {
     throw new Error("You are not signed in.");
   }
-  if (profile.role !== "COACH") {
+  if (profile.role === "VIEWER") {
     throw new Error("Only coaches can do that.");
+  }
+  return profile;
+}
+
+/**
+ * Assert the caller is the SUPER_USER and return their profile. Gates global
+ * reference data that only the system owner may change: qualifying standards,
+ * season start/end dates, and club / coach administration (docs/access-control.md).
+ * Coaches and viewers can READ these, but only a super-user may write them.
+ */
+export async function requireSuperUser(
+  ctx: QueryCtx | MutationCtx,
+): Promise<Doc<"profiles">> {
+  const profile = await getProfile(ctx);
+  if (profile === null) {
+    throw new Error("You are not signed in.");
+  }
+  if (profile.role !== "SUPER_USER") {
+    throw new Error("Only the super-user can do that.");
   }
   return profile;
 }
@@ -70,7 +91,7 @@ export async function requireSwimmerAccess(
   if (profile === null) {
     throw new Error("You are not signed in.");
   }
-  if (profile.role === "COACH") return profile;
+  if (profile.role !== "VIEWER") return profile; // coach / super-user
 
   const link = await ctx.db
     .query("swimmerAccess")
@@ -95,7 +116,7 @@ export async function requireSwimmersAccess(
   swimmerIds: Id<"swimmers">[],
 ): Promise<Doc<"profiles">> {
   const profile = await requireSignedIn(ctx);
-  if (profile.role === "COACH") return profile;
+  if (profile.role !== "VIEWER") return profile; // coach / super-user
 
   const links = await ctx.db
     .query("swimmerAccess")
@@ -131,7 +152,9 @@ export async function swimmerViewer(ctx: QueryCtx | MutationCtx): Promise<{
   viewOf: (swimmer: Doc<"swimmers">) => SwimmerView;
 }> {
   const profile = await requireSignedIn(ctx);
-  if (profile.role === "COACH") {
+  if (profile.role !== "VIEWER") {
+    // Coach or super-user: full view of every swimmer. Phase 5 narrows a coach
+    // to their own club; a super-user keeps the unrestricted view.
     return { profile, viewOf: () => "full" };
   }
   const links = await ctx.db
@@ -157,7 +180,7 @@ export async function accessibleSwimmerIds(
   if (profile === null) {
     throw new Error("You are not signed in.");
   }
-  if (profile.role === "COACH") return { profile, swimmerIds: "ALL" };
+  if (profile.role !== "VIEWER") return { profile, swimmerIds: "ALL" }; // staff
 
   const links = await ctx.db
     .query("swimmerAccess")

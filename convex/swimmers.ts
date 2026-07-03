@@ -217,7 +217,11 @@ export const listSwimmers = query({
 export const listForProfile = query({
   args: {},
   returns: v.object({
-    role: v.union(v.literal("COACH"), v.literal("VIEWER")),
+    role: v.union(
+      v.literal("SUPER_USER"),
+      v.literal("COACH"),
+      v.literal("VIEWER"),
+    ),
     swimmers: v.array(
       v.object({
         _id: v.id("swimmers"),

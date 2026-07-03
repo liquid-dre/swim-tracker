@@ -448,9 +448,9 @@ export const getProgression = query({
       },
       series,
       standards,
-      // Projections are coach-only (docs/access-control.md). Phase 4 adds the
-      // SUPER_USER to this; Phase 5 leaves it (any coach may project).
-      canSeeProjections: profile.role === "COACH",
+      // Projections are staff-only (docs/access-control.md): coaches and the
+      // super-user, never a viewer — not even for their own swimmer.
+      canSeeProjections: profile.role !== "VIEWER",
     };
   },
 });

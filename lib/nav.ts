@@ -26,7 +26,7 @@ import {
   in every query/mutation regardless (see convex/authz.ts).
 */
 
-export type Role = "COACH" | "VIEWER";
+export type Role = "SUPER_USER" | "COACH" | "VIEWER";
 
 export type NavLeaf = {
   label: string;
@@ -119,19 +119,31 @@ export function homeForRole(role: Role): string {
 }
 
 /**
- * The route-access boundary, mirrored server-side in every Convex function. A
- * VIEWER may only be under their own home (`/me`); a COACH owns everything else.
- * `/me` is exclusively the viewer's, so a coach landing there is bounced home —
- * this keeps the two experiences from bleeding into each other. Deny-by-default:
- * a brand-new route is coach-only until it opts a viewer in here.
+ * The route-access boundary, mirrored server-side in every Convex function.
+ *   - VIEWER: only their own home (`/me/*`).
+ *   - COACH: everything except `/me/*` and the super-user `/admin/*` area.
+ *   - SUPER_USER: everything except `/me/*` (they own `/admin/*` too).
+ * `/me` is exclusively the viewer's, so staff landing there is bounced home.
+ * Deny-by-default: a brand-new coach route is coach-visible, a new `/admin`
+ * route is super-user-only, and a new viewer route opts in via `roles` below.
  */
 export function isRouteAllowed(role: Role, pathname: string): boolean {
   const underViewerHome = pathname === "/me" || pathname.startsWith("/me/");
-  return role === "VIEWER" ? underViewerHome : !underViewerHome;
+  const underAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
+  if (role === "VIEWER") return underViewerHome;
+  if (role === "SUPER_USER") return !underViewerHome;
+  return !underViewerHome && !underAdmin; // COACH
 }
 
+/**
+ * Whether `role` may see a nav node with the given `roles` allow-list. A
+ * SUPER_USER is a superset of a coach, so they see every coach item too (but
+ * never viewer-only items, which live under the viewer's `/me` home).
+ */
 function allowed(roles: Role[] | undefined, role: Role): boolean {
-  return !roles || roles.includes(role);
+  if (!roles) return true;
+  if (roles.includes(role)) return true;
+  return role === "SUPER_USER" && roles.includes("COACH");
 }
 
 /**

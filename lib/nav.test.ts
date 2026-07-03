@@ -5,10 +5,11 @@ import {
   isRouteAllowed,
   navForRole,
   type NavLeaf,
+  type Role,
 } from "./nav";
 
 // Flatten the role's nav to the set of hrefs it can navigate to.
-function hrefsFor(role: "COACH" | "VIEWER"): string[] {
+function hrefsFor(role: Role): string[] {
   const out: string[] = [];
   for (const node of navForRole(role)) {
     if (node.kind === "item") out.push(node.href);
@@ -41,6 +42,14 @@ describe("navForRole — role decides which nav renders (R6)", () => {
     expect(coach).toContain("/road");
     for (const href of coach) expect(href.startsWith("/me")).toBe(false);
   });
+
+  it("gives the super-user every coach item (superset) and no viewer routes", () => {
+    const superUser = hrefsFor("SUPER_USER");
+    // Sees the coach tree…
+    for (const href of hrefsFor("COACH")) expect(superUser).toContain(href);
+    // …and never the viewer-only home.
+    for (const href of superUser) expect(href.startsWith("/me")).toBe(false);
+  });
 });
 
 describe("isRouteAllowed — read-only scoping holds via direct URL", () => {
@@ -61,6 +70,18 @@ describe("isRouteAllowed — read-only scoping holds via direct URL", () => {
       expect(isRouteAllowed("COACH", href)).toBe(false);
     }
     expect(isRouteAllowed("COACH", "/dashboard")).toBe(true);
+  });
+
+  it("reserves /admin for the super-user only", () => {
+    expect(isRouteAllowed("SUPER_USER", "/admin/clubs")).toBe(true);
+    expect(isRouteAllowed("COACH", "/admin/clubs")).toBe(false);
+    expect(isRouteAllowed("VIEWER", "/admin/clubs")).toBe(false);
+  });
+
+  it("gives the super-user the coach area but not the viewer home", () => {
+    expect(isRouteAllowed("SUPER_USER", "/dashboard")).toBe(true);
+    expect(isRouteAllowed("SUPER_USER", "/standards")).toBe(true);
+    expect(isRouteAllowed("SUPER_USER", "/me")).toBe(false);
   });
 });
 
