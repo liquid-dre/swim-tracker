@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { requireCoach } from "./authz";
+import { requireCoach, requireSignedIn } from "./authz";
 import {
   prepareStandardImport,
   pickApplicableStandards,
@@ -395,7 +395,10 @@ export const getApplicableStandards = query({
     SANJ: v.optional(v.number()),
   }),
   handler: async (ctx, { gender, distance, stroke, age }) => {
-    await requireCoach(ctx);
+    // Qualifying standards are public reference data (docs/access-control.md):
+    // any signed-in user may read them — coaches for their charts, viewers for
+    // the rankings cut lines. Only editing them is restricted (super-user).
+    await requireSignedIn(ctx);
     const rows: Doc<"standards">[] = await ctx.db
       .query("standards")
       .withIndex("by_event", (q) =>

@@ -72,10 +72,12 @@ sign-in, so a coach can pre-authorise people **before** they have signed up.
    `public` per swimmer); `getProgression` redacts DOB for a public view and gates
    projections (`canSeeProjections`); the chart omits the cut overlay when DOB is
    hidden.
-3. **Open viewer reads** — *server done:* `getEventComparison` + `getProgression`
-   accept any signed-in user with public-scoped payloads (non-regressive — coaches
-   unchanged). *Next:* viewer-facing UI — a `/me/rankings` leaderboard and a
-   browse-any-swimmer progression picker, with viewer nav entries.
+3. **Open viewer reads** — *done:* `getEventComparison` + `getProgression` accept
+   any signed-in user with public-scoped payloads (non-regressive); public read on
+   `getApplicableStandards`; a `/me/rankings` viewer leaderboard (reuses the coach
+   `ComparisonBarChart`, highlights the viewer's own swimmer, personal standing
+   callout) with a viewer nav entry. Passed impeccable critique 36/40.
+   *Still to add:* a browse-any-swimmer picker on `/me/progress`.
 4. **Super-user admin** — add the `SUPER_USER` role (nav, guards, return
    validators); standards, season start/end, tour dates editable only by the
    super-user; read-only elsewhere.

@@ -18,10 +18,11 @@ function hrefsFor(role: "COACH" | "VIEWER"): string[] {
 }
 
 describe("navForRole — role decides which nav renders (R6)", () => {
-  it("gives a viewer exactly the four compartmentalised sections", () => {
+  it("gives a viewer exactly the compartmentalised sections", () => {
     expect(hrefsFor("VIEWER")).toEqual([
       "/me",
       "/me/progress",
+      "/me/rankings",
       "/me/road",
       "/me/history",
     ]);
@@ -44,7 +45,7 @@ describe("navForRole — role decides which nav renders (R6)", () => {
 
 describe("isRouteAllowed — read-only scoping holds via direct URL", () => {
   it("lets a viewer reach every /me section", () => {
-    for (const href of ["/me", "/me/progress", "/me/road", "/me/history"]) {
+    for (const href of ["/me", "/me/progress", "/me/rankings", "/me/road", "/me/history"]) {
       expect(isRouteAllowed("VIEWER", href)).toBe(true);
     }
   });
