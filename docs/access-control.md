@@ -86,8 +86,17 @@ sign-in, so a coach can pre-authorise people **before** they have signed up.
    super-user-write / everyone-read; the editors show read-only for coaches. New
    `convex/clubs.ts` (create/rename clubs, assign/remove coaches) + a super-user
    `/admin/clubs` screen (impeccable 36/40). Tour dates still deferred.
-5. **Club-scoped editing** — coaches edit only their own club's swimmers.
+5. **Club-scoped editing** *(done)* — `authz.assertCoachManagesSwimmer` gates
+   every coach write (swimmer add/update/active, result add/edit/delete, squad
+   add/remove) on `swimmer.clubId === coach.clubId`; a super-user bypasses.
+   `addSwimmer` stamps the owning club (coach's own, or a super-user's pick via a
+   `SwimmerForm` club picker). The roster shows every swimmer but disables edit
+   actions on other clubs' rows (`editable` flag). `admin.backfillDefaultClub`
+   assigns legacy club-less coaches + swimmers to one default club — **run once
+   after deploy**.
 6. **Email-at-creation linking** + UI/nav for every role (each screen re-passing
-   the impeccable ≥ 35/40 gate).
+   the impeccable ≥ 35/40 gate). *Still to do:* enter swimmer/parent emails in the
+   SwimmerForm and pre-authorise viewer access by email before signup (today a
+   coach links viewers via the existing swimmerAccess flow after they sign up).
 
 **Deferred:** tour dates entity (fields TBD).
