@@ -20,6 +20,7 @@ import {
   STROKE_ORDER,
   eventLabel,
   findAgeInversions,
+  formatTime,
   tierCoversEvent,
   type Stroke,
   type Tier,
@@ -40,11 +41,14 @@ type TierFilter = "ALL" | Tier;
 
 export function StandardsScreen() {
   const profile = useCurrentProfile();
-  const isCoach = profile?.role === "COACH";
+  const role = profile?.role;
+  // Any staff member may VIEW the cuts; only the super-user may EDIT them
+  // (docs/access-control.md). Coaches see the table read-only.
+  const canView = role === "COACH" || role === "SUPER_USER";
+  const canEdit = role === "SUPER_USER";
 
-  // Every underlying query is coach-gated server-side; only ask when allowed.
-  const all = useQuery(api.standards.listStandards, isCoach ? {} : "skip");
-  const events = useQuery(api.events.listActiveEvents, isCoach ? {} : "skip");
+  const all = useQuery(api.standards.listStandards, canView ? {} : "skip");
+  const events = useQuery(api.events.listActiveEvents, canView ? {} : "skip");
   const updateStandard = useMutation(api.standards.updateStandard);
   const deleteStandard = useMutation(api.standards.deleteStandard);
 
@@ -175,15 +179,15 @@ export function StandardsScreen() {
   if (profile === undefined) {
     return <ScreenFrame>{null}</ScreenFrame>;
   }
-  if (!isCoach) {
+  if (!canView) {
     return (
       <ScreenFrame>
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-white px-6 py-16 text-center shadow-theme-sm">
           <Ruler aria-hidden className="size-6 text-ink-faint" strokeWidth={1.75} />
           <div className="space-y-1">
-            <p className="text-sm font-medium text-ink">Coaches only</p>
+            <p className="text-sm font-medium text-ink">Staff only</p>
             <p className="mx-auto max-w-[44ch] text-sm text-ink-muted">
-              Qualifying cuts are managed by coaches. Ask your coach if a standard
+              Qualifying cuts are managed by the club. Ask your coach if a standard
               looks wrong.
             </p>
           </div>
@@ -197,19 +201,22 @@ export function StandardsScreen() {
 
   return (
     <ScreenFrame
+      readOnly={!canEdit}
       actions={
-        <>
-          <Button variant="secondary" onClick={() => setImportOpen(true)}>
-            <Upload className="size-4" /> Import CSV
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => setAddTarget("new")}
-            disabled={distance === null || stroke === null}
-          >
-            <Plus className="size-4" /> Add cut
-          </Button>
-        </>
+        canEdit ? (
+          <>
+            <Button variant="secondary" onClick={() => setImportOpen(true)}>
+              <Upload className="size-4" /> Import CSV
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => setAddTarget("new")}
+              disabled={distance === null || stroke === null}
+            >
+              <Plus className="size-4" /> Add cut
+            </Button>
+          </>
+        ) : undefined
       }
     >
       {/* Filters */}
@@ -331,19 +338,27 @@ export function StandardsScreen() {
                       return (
                         <td key={t} className="px-3 py-1.5">
                           {cut ? (
-                            <EditableTimeCell
-                              timeMs={cut.timeMs}
-                              inverted={grid.invMsg.get(t)!.has(key)}
-                              invTitle={grid.invMsg.get(t)!.get(key)}
-                              onCommit={(ms) => requestCommit(t, cut, ms)}
-                              onDelete={() =>
-                                setPendingDelete({
-                                  id: cut._id,
-                                  label: `${label} ${eventLabel(distance!, stroke!)}`,
-                                })
-                              }
-                            />
-                          ) : covers ? (
+                            canEdit ? (
+                              <EditableTimeCell
+                                timeMs={cut.timeMs}
+                                inverted={grid.invMsg.get(t)!.has(key)}
+                                invTitle={grid.invMsg.get(t)!.get(key)}
+                                onCommit={(ms) => requestCommit(t, cut, ms)}
+                                onDelete={() =>
+                                  setPendingDelete({
+                                    id: cut._id,
+                                    label: `${label} ${eventLabel(distance!, stroke!)}`,
+                                  })
+                                }
+                              />
+                            ) : (
+                              <ReadOnlyTimeCell
+                                timeMs={cut.timeMs}
+                                inverted={grid.invMsg.get(t)!.has(key)}
+                                invTitle={grid.invMsg.get(t)!.get(key)}
+                              />
+                            )
+                          ) : covers && canEdit ? (
                             <button
                               type="button"
                               onClick={() =>
@@ -390,26 +405,28 @@ export function StandardsScreen() {
                   : "Add a cut for this event, or switch events above."}
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              {noData && (
-                <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
-                  <Upload className="size-4" /> Import CSV
+            {canEdit && (
+              <div className="flex items-center gap-2">
+                {noData && (
+                  <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+                    <Upload className="size-4" /> Import CSV
+                  </Button>
+                )}
+                <Button
+                  variant={noData ? "ghost" : "secondary"}
+                  size="sm"
+                  onClick={() => setAddTarget("new")}
+                >
+                  <Plus className="size-4" /> Add cut
                 </Button>
-              )}
-              <Button
-                variant={noData ? "ghost" : "secondary"}
-                size="sm"
-                onClick={() => setAddTarget("new")}
-              >
-                <Plus className="size-4" /> Add cut
-              </Button>
-            </div>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       {/* Add-cut sheet */}
-      {distance !== null && stroke !== null && (
+      {canEdit && distance !== null && stroke !== null && (
         <AddCutSheet
           key={
             addTarget === null
@@ -429,11 +446,13 @@ export function StandardsScreen() {
         />
       )}
 
-      <ImportStandardsSheet
-        key={importOpen ? "import-open" : "import-closed"}
-        open={importOpen}
-        onOpenChange={setImportOpen}
-      />
+      {canEdit && (
+        <ImportStandardsSheet
+          key={importOpen ? "import-open" : "import-closed"}
+          open={importOpen}
+          onOpenChange={setImportOpen}
+        />
+      )}
 
       {/* Monotonicity-breaking edit: warn, then save on confirm. */}
       <ConfirmDialog
@@ -484,19 +503,49 @@ export function StandardsScreen() {
 function ScreenFrame({
   children,
   actions,
+  readOnly,
 }: {
   children: React.ReactNode;
   actions?: React.ReactNode;
+  readOnly?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Standards"
         breadcrumb={trailForHref("/standards")}
-        description="The LCM qualifying cuts that drive every chart and the status matrix. Edits take effect immediately."
+        description={
+          readOnly
+            ? "The LCM qualifying cuts that drive every chart and the status matrix. View-only — the super-user maintains these."
+            : "The LCM qualifying cuts that drive every chart and the status matrix. Edits take effect immediately."
+        }
         actions={actions}
       />
       {children}
+    </div>
+  );
+}
+
+/** A cut shown to a viewer who can't edit it — the time, with the same
+ *  younger-faster-than-older warning tint the editable cell uses. */
+function ReadOnlyTimeCell({
+  timeMs,
+  inverted,
+  invTitle,
+}: {
+  timeMs: number;
+  inverted: boolean;
+  invTitle?: string;
+}) {
+  return (
+    <div
+      className={
+        "px-2 py-1 text-right text-sm tabular-nums " +
+        (inverted ? "text-warning-600" : "text-ink")
+      }
+      title={invTitle}
+    >
+      {formatTime(timeMs)}
     </div>
   );
 }

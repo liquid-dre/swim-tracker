@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { requireCoach, requireSignedIn } from "./authz";
+import { requireSignedIn, requireSuperUser } from "./authz";
 import {
   prepareStandardImport,
   pickApplicableStandards,
@@ -156,7 +156,7 @@ export const importStandards = mutation({
     ),
   }),
   handler: async (ctx, { rows }) => {
-    await requireCoach(ctx);
+    await requireSuperUser(ctx);
     const events = await loadEvents(ctx);
     const { accepted, rejected } = prepareStandardImport(
       rows as RawStandardRow[],
@@ -220,7 +220,9 @@ export const listStandards = query({
   args: {},
   returns: v.array(standardShape),
   handler: async (ctx) => {
-    await requireCoach(ctx);
+    // Standards are public reference data — any signed-in user may read the full
+    // table (the coach editor and, read-only, everyone else). Writes are gated.
+    await requireSignedIn(ctx);
     // The full table is small (a few hundred rows); a bounded read covers it.
     const rows = await ctx.db.query("standards").take(2000);
     return rows.map((r) => ({
@@ -286,7 +288,7 @@ export const createStandard = mutation({
   },
   returns: v.id("standards"),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    await requireSuperUser(ctx);
     const events = await loadEvents(ctx);
     assertValidCut(args, events);
 
@@ -325,7 +327,7 @@ export const updateStandard = mutation({
   args: { standardId: v.id("standards"), timeMs: v.number() },
   returns: v.null(),
   handler: async (ctx, { standardId, timeMs }) => {
-    await requireCoach(ctx);
+    await requireSuperUser(ctx);
     const existing = await ctx.db.get(standardId);
     if (!existing) throw new Error("That cut no longer exists.");
     if (!Number.isInteger(timeMs) || timeMs <= 0) {
@@ -341,7 +343,7 @@ export const deleteStandard = mutation({
   args: { standardId: v.id("standards") },
   returns: v.null(),
   handler: async (ctx, { standardId }) => {
-    await requireCoach(ctx);
+    await requireSuperUser(ctx);
     const existing = await ctx.db.get(standardId);
     if (existing) await ctx.db.delete(standardId);
     return null;
@@ -362,7 +364,7 @@ export const resolveStandard = query({
   },
   returns: v.union(v.number(), v.null()),
   handler: async (ctx, { gender, distance, stroke, tier, exactAge }) => {
-    await requireCoach(ctx);
+    await requireSignedIn(ctx);
     const cuts = await ctx.db
       .query("standards")
       .withIndex("by_lookup", (q) =>
