@@ -3,7 +3,11 @@ import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { assertCoachManagesSwimmer, requireCoach } from "./authz";
+import {
+  assertCoachManagesSwimmer,
+  requireCoach,
+  requireSignedIn,
+} from "./authz";
 
 // Viewer ↔ swimmer linkage (BRD §2, §5.9, Step 15; access-control Phase 6). A
 // coach grants a viewer read access to one or more swimmers; every viewer-facing
@@ -207,5 +211,151 @@ export const listSwimmerViewers = query({
       ...linked.filter((x): x is NonNullable<typeof x> => x !== null),
       ...pending,
     ].sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Self-service viewer access requests (access-control P2)
+// ---------------------------------------------------------------------------
+//
+// A viewer who has found their swimmer asks the owning club's coach for access,
+// instead of the coach having to invite them by email first. The coach approves
+// (→ a real swimmerAccess link) or denies from the swimmer's profile. Requests
+// are pending-only rows, deleted on either decision.
+
+export const requestSwimmerAccess = mutation({
+  args: { swimmerId: v.id("swimmers") },
+  returns: v.object({
+    status: v.union(
+      v.literal("requested"),
+      v.literal("already_requested"),
+      v.literal("already_linked"),
+    ),
+  }),
+  handler: async (ctx, { swimmerId }) => {
+    const profile = await requireSignedIn(ctx);
+    // Coaches / super-users already see every swimmer — a request is meaningless.
+    if (profile.role !== "VIEWER") {
+      throw new Error("Coaches and admins already see every swimmer.");
+    }
+    const swimmer = await ctx.db.get(swimmerId);
+    if (!swimmer) throw new Error("Swimmer not found.");
+
+    const linked = await ctx.db
+      .query("swimmerAccess")
+      .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
+      .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
+      .first();
+    if (linked) return { status: "already_linked" as const };
+
+    const existing = await ctx.db
+      .query("swimmerAccessRequests")
+      .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
+      .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
+      .first();
+    if (existing) return { status: "already_requested" as const };
+
+    await ctx.db.insert("swimmerAccessRequests", {
+      profileId: profile._id,
+      swimmerId,
+      createdAt: Date.now(),
+    });
+    return { status: "requested" as const };
+  },
+});
+
+// The signed-in viewer's own pending requests (swimmer ids), so the "find your
+// swimmer" screen can show a "Requested" state without leaking anyone else's.
+export const listMyAccessRequests = query({
+  args: {},
+  returns: v.array(v.id("swimmers")),
+  handler: async (ctx) => {
+    const profile = await requireSignedIn(ctx);
+    if (profile.role !== "VIEWER") return [];
+    const rows = await ctx.db
+      .query("swimmerAccessRequests")
+      .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
+      .take(200);
+    return rows.map((r) => r.swimmerId);
+  },
+});
+
+// Pending access requests for ONE swimmer, for the owning club's coach to action.
+export const listAccessRequestsForSwimmer = query({
+  args: { swimmerId: v.id("swimmers") },
+  returns: v.array(
+    v.object({
+      requestId: v.id("swimmerAccessRequests"),
+      name: v.string(),
+      email: v.string(),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, { swimmerId }) => {
+    const profile = await requireCoach(ctx);
+    const swimmer = await ctx.db.get(swimmerId);
+    if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
+
+    const rows = await ctx.db
+      .query("swimmerAccessRequests")
+      .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
+      .take(200);
+    const out = [];
+    for (const r of rows) {
+      const requester = await ctx.db.get(r.profileId);
+      if (!requester) continue;
+      out.push({
+        requestId: r._id,
+        name: requester.name,
+        email: requester.email,
+        createdAt: r.createdAt,
+      });
+    }
+    return out.sort((a, b) => a.createdAt - b.createdAt);
+  },
+});
+
+export const approveAccessRequest = mutation({
+  args: { requestId: v.id("swimmerAccessRequests") },
+  returns: v.null(),
+  handler: async (ctx, { requestId }) => {
+    const profile = await requireCoach(ctx);
+    const request = await ctx.db.get(requestId);
+    if (!request) return null;
+    const swimmer = await ctx.db.get(request.swimmerId);
+    if (!swimmer) {
+      await ctx.db.delete(requestId);
+      return null;
+    }
+    assertCoachManagesSwimmer(profile, swimmer);
+
+    const existing = await ctx.db
+      .query("swimmerAccess")
+      .withIndex("by_profile", (q) => q.eq("profileId", request.profileId))
+      .filter((q) => q.eq(q.field("swimmerId"), request.swimmerId))
+      .first();
+    if (!existing) {
+      await ctx.db.insert("swimmerAccess", {
+        profileId: request.profileId,
+        swimmerId: request.swimmerId,
+      });
+    }
+    await ctx.db.delete(requestId);
+    return null;
+  },
+});
+
+export const denyAccessRequest = mutation({
+  args: { requestId: v.id("swimmerAccessRequests") },
+  returns: v.null(),
+  handler: async (ctx, { requestId }) => {
+    const profile = await requireCoach(ctx);
+    const request = await ctx.db.get(requestId);
+    if (!request) return null;
+    const swimmer = await ctx.db.get(request.swimmerId);
+    if (swimmer) assertCoachManagesSwimmer(profile, swimmer);
+    await ctx.db.delete(requestId);
+    return null;
   },
 });

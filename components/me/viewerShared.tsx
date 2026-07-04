@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { CalendarClock, Eye, UserRound } from "lucide-react";
 
 import { formatShortDate } from "@/lib/format";
+import { FindSwimmerScreen } from "./FindSwimmerScreen";
 
 /*
   Shared presentational atoms for the viewer's compartmentalised experience
@@ -139,15 +140,18 @@ export function MiniEmpty({
 
 export function NoLinkState() {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-16 text-center shadow-theme-sm">
-      <UserRound aria-hidden className="size-7 text-ink-faint" strokeWidth={1.6} />
-      <div className="space-y-1">
-        <p className="text-base font-medium text-ink">No swimmer linked yet</p>
-        <p className="mx-auto max-w-[46ch] text-sm text-ink-muted">
-          Your account isn&rsquo;t linked to a swimmer. Ask your coach to link you
-          with the email you signed up with, and your bests will appear here.
-        </p>
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-10 text-center shadow-theme-sm">
+        <UserRound aria-hidden className="size-7 text-ink-faint" strokeWidth={1.6} />
+        <div className="space-y-1">
+          <p className="text-base font-medium text-ink">No swimmer linked yet</p>
+          <p className="mx-auto max-w-[46ch] text-sm text-ink-muted">
+            Find your swimmer below and request access — their coach approves it,
+            and their bests appear here. Or ask your coach to link you directly.
+          </p>
+        </div>
       </div>
+      <FindSwimmerScreen />
     </div>
   );
 }

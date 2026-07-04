@@ -26,6 +26,7 @@ describe("navForRole — role decides which nav renders (R6)", () => {
       "/me/rankings",
       "/me/road",
       "/me/history",
+      "/me/find",
     ]);
   });
 

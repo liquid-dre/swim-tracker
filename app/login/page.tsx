@@ -2,21 +2,28 @@
 
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Droplets } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { stashCoachInvite } from "@/lib/coachInvite";
 
 // Sign in (Step 1.2), themed to the design system (DESIGN.md): a single card on
 // the soft gray-50 canvas, the brand mark, Outfit type, and the shared Input /
-// Button components so the auth screens match the app shell.
+// Button components so the auth screens match the app shell. If a `?invite=`
+// coach token rode in (e.g. an existing account followed an invite link), it's
+// stashed and redeemed once the session is live in the app shell (P0).
 export default function LoginPage() {
   const { signIn } = useAuthActions();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    stashCoachInvite();
+  }, []);
 
   return (
     <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">

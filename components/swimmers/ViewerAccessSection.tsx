@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { Clock, Trash2, UserPlus } from "lucide-react";
+import { Check, Clock, Trash2, UserPlus, X } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -38,9 +38,15 @@ export function ViewerAccessSection({
     api.swimmerAccess.listSwimmerViewers,
     editable ? { swimmerId } : "skip",
   );
+  const requests = useQuery(
+    api.swimmerAccess.listAccessRequestsForSwimmer,
+    editable ? { swimmerId } : "skip",
+  );
   const grantViewerAccess = useMutation(api.swimmerAccess.grantViewerAccess);
   const unlinkViewer = useMutation(api.swimmerAccess.unlinkViewer);
   const cancelPendingViewer = useMutation(api.swimmerAccess.cancelPendingViewer);
+  const approveRequest = useMutation(api.swimmerAccess.approveAccessRequest);
+  const denyRequest = useMutation(api.swimmerAccess.denyAccessRequest);
 
   const [email, setEmail] = useState("");
   const [linking, setLinking] = useState(false);
@@ -80,10 +86,68 @@ export function ViewerAccessSection({
   }
 
   const list = viewers ?? [];
+  const pendingRequests = requests ?? [];
 
   return (
     <section className="flex flex-col gap-3">
       <SectionHeading swimmerName={swimmerName} />
+
+      {pendingRequests.length > 0 && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-brand-100 bg-brand-50/60 p-5 shadow-theme-sm md:p-6">
+          <div>
+            <h3 className="text-sm font-semibold text-ink">
+              Access {pendingRequests.length === 1 ? "request" : "requests"}
+            </h3>
+            <p className="text-sm text-ink-muted">
+              {pendingRequests.length === 1 ? "Someone has" : "These people have"}{" "}
+              asked to follow {swimmerName}. Approve to give them read-only access.
+            </p>
+          </div>
+          <ul className="flex flex-col divide-y divide-brand-100">
+            {pendingRequests.map((r) => (
+              <li
+                key={r.requestId}
+                className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0"
+              >
+                <span
+                  aria-hidden
+                  className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-xs font-semibold text-brand-500"
+                >
+                  {initials(r.name)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-ink">{r.name}</p>
+                  <p className="truncate text-xs text-ink-muted">{r.email}</p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    await notify.promise(approveRequest({ requestId: r.requestId }), {
+                      loading: "Approving…",
+                      success: `${r.name} can now see ${swimmerName}`,
+                    });
+                  }}
+                >
+                  <Check className="size-4" /> Approve
+                </Button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await notify.promise(denyRequest({ requestId: r.requestId }), {
+                      loading: "Dismissing…",
+                      success: "Request dismissed",
+                    });
+                  }}
+                  aria-label={`Dismiss ${r.name}'s request`}
+                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-white hover:text-danger-ink focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <X className="size-4" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="flex flex-col gap-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
         <form onSubmit={onLink} className="flex flex-col gap-3 sm:flex-row sm:items-end">

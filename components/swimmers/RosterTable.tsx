@@ -24,6 +24,11 @@ export type RosterRow = {
   active: boolean;
   notes?: string;
   age: number;
+  // The club that owns this swimmer (null/undefined => unassigned). Shown so a
+  // coach can tell at a glance which club each swimmer belongs to; the id is
+  // threaded to the edit form so a super-user can reassign the club.
+  clubId?: Id<"clubs">;
+  clubName?: string | null;
   squads: { _id: string; name: string }[];
   // Whether the current user may edit this swimmer (their own club / super-user).
   // Undefined (e.g. the design preview) is treated as editable.
@@ -56,6 +61,7 @@ export function RosterTable({
             <th scope="col" className="px-4 py-2.5 font-medium sm:px-6">Swimmer</th>
             <th scope="col" className="px-4 py-2.5 font-medium">Age</th>
             <th scope="col" className="hidden px-4 py-2.5 font-medium sm:table-cell">Gender</th>
+            <th scope="col" className="hidden px-4 py-2.5 font-medium lg:table-cell">Club</th>
             <th scope="col" className="hidden px-4 py-2.5 font-medium md:table-cell">Squads</th>
             <th scope="col" className="px-4 py-2.5 font-medium">Status</th>
             <th scope="col" className="px-4 py-2.5 sm:px-6">
@@ -87,6 +93,13 @@ export function RosterTable({
                 <td className="tnum px-4 py-3 text-ink-muted">{s.age}</td>
                 <td className="hidden px-4 py-3 text-ink-muted sm:table-cell">
                   {s.gender === "F" ? "Female" : "Male"}
+                </td>
+                <td className="hidden px-4 py-3 lg:table-cell">
+                  {s.clubName ? (
+                    <span className="text-ink-muted">{s.clubName}</span>
+                  ) : (
+                    <span className="text-ink-faint">—</span>
+                  )}
                 </td>
                 <td className="hidden px-4 py-3 md:table-cell">
                   <SquadChips squads={s.squads} />
@@ -208,6 +221,7 @@ function SkeletonRow() {
       <td className="px-4 py-3 sm:px-6"><Skeleton className="w-40" /></td>
       <td className="px-4 py-3"><Skeleton className="w-6" /></td>
       <td className="hidden px-4 py-3 sm:table-cell"><Skeleton className="w-14" /></td>
+      <td className="hidden px-4 py-3 lg:table-cell"><Skeleton className="w-20" /></td>
       <td className="hidden px-4 py-3 md:table-cell"><Skeleton className="w-24" /></td>
       <td className="px-4 py-3"><Skeleton className="w-16" /></td>
       <td className="px-4 py-3 sm:px-6"><Skeleton className="ml-auto w-8" /></td>

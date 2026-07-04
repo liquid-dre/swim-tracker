@@ -98,6 +98,36 @@ export default defineSchema({
     .index("by_profile", ["profileId"])
     .index("by_swimmer", ["swimmerId"]),
 
+  // Coach invites (access-control P0). A super-user issues a single-use, token-
+  // gated invite binding a future coach to a club. When the invitee signs up (or
+  // signs in) carrying the token, `redeemCoachInvite` sets their role to COACH and
+  // their clubId in one atomic step — so coach-hood is impossible without a super-
+  // user pre-authorising it, and unguessable rather than keyed on a spoofable
+  // email. Marked redeemed (not deleted) so the admin screen can show acceptance.
+  coachInvites: defineTable({
+    email: v.string(), // intended coach, normalised — display/audit only
+    clubId: v.id("clubs"),
+    token: v.string(), // unguessable, single-use
+    createdAt: v.number(),
+    createdBy: v.id("profiles"),
+    redeemedAt: v.optional(v.number()),
+    redeemedBy: v.optional(v.id("profiles")),
+  })
+    .index("by_token", ["token"])
+    .index("by_club", ["clubId"]),
+
+  // Self-service viewer access requests (access-control P2). A signed-in viewer
+  // who has found their swimmer asks the owning club's coach for read access; the
+  // coach approves (→ a real swimmerAccess row) or denies. Pending only: the row
+  // is deleted on either decision.
+  swimmerAccessRequests: defineTable({
+    profileId: v.id("profiles"), // the VIEWER asking
+    swimmerId: v.id("swimmers"),
+    createdAt: v.number(),
+  })
+    .index("by_swimmer", ["swimmerId"])
+    .index("by_profile", ["profileId"]),
+
   // Viewer access PRE-AUTHORISED by email before the account exists (Phase 6). A
   // coach can invite a parent/swimmer by email at any time; when that email
   // signs up, auth.ts materialises these into real swimmerAccess rows and clears

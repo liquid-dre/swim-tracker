@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { requireCoach, requireSuperUser } from "./authz";
+import { internal } from "./_generated/api";
+import { requireCoach, requireSignedIn, requireSuperUser } from "./authz";
 
 // Club administration (access-control Phase 4c). A club owns swimmers and is the
 // edit boundary for coaches (Phase 5). Only the SUPER_USER creates clubs and
@@ -173,6 +174,171 @@ export const removeCoach = mutation({
     }
     await ctx.db.patch(profileId, { role: "VIEWER", clubId: undefined });
     return null;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Coach invites (access-control P0) — token-gated, super-user issued
+// ---------------------------------------------------------------------------
+//
+// The smooth, non-spoofable coach onboarding path. A super-user issues an invite
+// for (email, club); we mint an unguessable single-use token and (best-effort)
+// email a sign-up link carrying it. Whoever signs up / signs in through that link
+// calls `redeemCoachInvite`, which sets THEIR account to COACH of that club in one
+// step. Possession of the token IS the authorisation, so a coach can never
+// self-promote or pick their own club, and it doesn't depend on email delivery or
+// verification being configured. `assignCoachToClub` remains for assigning an
+// account that already exists.
+
+function newToken(): string {
+  // 2× UUIDv4 → 244 bits of entropy, hex only (URL-safe). Unguessable.
+  return (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+}
+
+function normaliseEmail(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+export const createCoachInvite = mutation({
+  args: { email: v.string(), clubId: v.id("clubs") },
+  returns: v.object({ token: v.string(), email: v.string(), clubName: v.string() }),
+  handler: async (ctx, { email, clubId }) => {
+    const admin = await requireSuperUser(ctx);
+
+    const club = await ctx.db.get(clubId);
+    if (!club) throw new Error("That club no longer exists.");
+
+    const normalized = normaliseEmail(email);
+    if (normalized === "") throw new Error("Enter the coach's email.");
+
+    // If the account already exists, assigning directly is the better path than
+    // an invite link they'd have to click while already signed in.
+    const existing = await ctx.db
+      .query("profiles")
+      .filter((q) => q.eq(q.field("email"), normalized))
+      .unique();
+    if (existing) {
+      throw new Error(
+        "That email already has an account — use “Assign coach” to add them to a club instead.",
+      );
+    }
+
+    const token = newToken();
+    await ctx.db.insert("coachInvites", {
+      email: normalized,
+      clubId,
+      token,
+      createdAt: Date.now(),
+      createdBy: admin._id,
+    });
+
+    // Best-effort invite email (no-op if Resend isn't configured).
+    await ctx.scheduler.runAfter(0, internal.emails.sendCoachInvite, {
+      toEmail: normalized,
+      clubName: club.name,
+      token,
+    });
+
+    return { token, email: normalized, clubName: club.name };
+  },
+});
+
+export const listCoachInvites = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("coachInvites"),
+      email: v.string(),
+      clubName: v.union(v.string(), v.null()),
+      token: v.string(),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireSuperUser(ctx);
+    const invites = await ctx.db.query("coachInvites").take(500);
+    const outstanding = invites.filter((i) => i.redeemedAt === undefined);
+    const out = [];
+    for (const i of outstanding) {
+      const club = await ctx.db.get(i.clubId);
+      out.push({
+        _id: i._id,
+        email: i.email,
+        clubName: club?.name ?? null,
+        token: i.token,
+        createdAt: i.createdAt,
+      });
+    }
+    return out.sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+export const revokeCoachInvite = mutation({
+  args: { inviteId: v.id("coachInvites") },
+  returns: v.null(),
+  handler: async (ctx, { inviteId }) => {
+    await requireSuperUser(ctx);
+    const invite = await ctx.db.get(inviteId);
+    if (!invite) return null;
+    if (invite.redeemedAt !== undefined) {
+      throw new Error("That invite has already been accepted.");
+    }
+    await ctx.db.delete(inviteId);
+    return null;
+  },
+});
+
+// Public: resolve a token to the club it invites into, so the sign-up screen can
+// say "You've been invited to coach <Club>". Returns null for an unknown, revoked
+// or already-used token. No auth — the token itself is the secret.
+export const previewCoachInvite = query({
+  args: { token: v.string() },
+  returns: v.union(
+    v.object({ email: v.string(), clubName: v.string() }),
+    v.null(),
+  ),
+  handler: async (ctx, { token }) => {
+    const invite = await ctx.db
+      .query("coachInvites")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .unique();
+    if (!invite || invite.redeemedAt !== undefined) return null;
+    const club = await ctx.db.get(invite.clubId);
+    if (!club) return null;
+    return { email: invite.email, clubName: club.name };
+  },
+});
+
+// Redeem a coach invite for the SIGNED-IN account. Possession of a valid, unused
+// token authorises the promotion — so it works regardless of which email they
+// signed up with. Single-use: the invite is marked redeemed. A super-user is left
+// untouched (they already manage every club).
+export const redeemCoachInvite = mutation({
+  args: { token: v.string() },
+  returns: v.object({ clubName: v.string() }),
+  handler: async (ctx, { token }) => {
+    const profile = await requireSignedIn(ctx);
+
+    const invite = await ctx.db
+      .query("coachInvites")
+      .withIndex("by_token", (q) => q.eq("token", token))
+      .unique();
+    if (!invite || invite.redeemedAt !== undefined) {
+      throw new Error("This invite link is invalid or has already been used.");
+    }
+    const club = await ctx.db.get(invite.clubId);
+    if (!club) throw new Error("That club no longer exists.");
+
+    if (profile.role === "SUPER_USER") {
+      throw new Error("You're a super-user and already manage every club.");
+    }
+
+    await ctx.db.patch(profile._id, { role: "COACH", clubId: invite.clubId });
+    await ctx.db.patch(invite._id, {
+      redeemedAt: Date.now(),
+      redeemedBy: profile._id,
+    });
+    return { clubName: club.name };
   },
 });
 

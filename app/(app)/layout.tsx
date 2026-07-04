@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { AppSidebar } from "@/components/shell/AppSidebar";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { RoleGuard } from "@/components/shell/RoleGuard";
+import { InviteRedeemer } from "@/components/shell/InviteRedeemer";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 /*
@@ -21,6 +22,8 @@ export default async function AppLayout({
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
+      {/* Redeems a stashed coach invite once the session is live (P0). */}
+      <InviteRedeemer />
       <AppSidebar />
       <SidebarInset>
         <AppTopbar />

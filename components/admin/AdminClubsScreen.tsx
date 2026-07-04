@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { Building2, UserRound, X } from "lucide-react";
+import { Building2, Check, Copy, Mail, UserRound, X } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -31,10 +31,11 @@ export function AdminClubsScreen() {
       <PageHeader
         title="Clubs & coaches"
         breadcrumb={trailForHref("/admin/clubs")}
-        description="Create clubs and assign each coach to one. A coach edits only their own club's swimmers; the times and rankings stay shared across every club."
+        description="Create clubs and put a coach in each — invite a new one by link, or assign an existing account. Coaches never choose their own club; each edits only their own club's swimmers, while times and rankings stay shared across every club."
       />
 
       <ClubsSection clubs={clubs} />
+      <CoachInvitesSection clubs={clubs} />
       <CoachesSection clubs={clubs} coaches={coaches} />
     </div>
   );
@@ -213,7 +214,7 @@ function CoachesSection({
       <SectionHeader
         icon={<UserRound aria-hidden className="size-4 text-ink-faint" strokeWidth={1.75} />}
         title="Coaches"
-        hint="Assign a signed-up account to a club to make them its coach. Assigning again moves a coach between clubs."
+        hint="Assign an account that has already signed up to a club to make them its coach. Assigning again moves a coach between clubs. (For someone without an account, use “Invite a coach” above.)"
       />
 
       <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
@@ -333,6 +334,194 @@ function CoachRowView({ coach }: { coach: CoachRow }) {
       </td>
     </tr>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Coach invites (P0) — token links for accounts that don't exist yet
+// ---------------------------------------------------------------------------
+
+type InviteRow = {
+  _id: Id<"coachInvites">;
+  email: string;
+  clubName: string | null;
+  token: string;
+  createdAt: number;
+};
+
+function inviteLink(token: string): string {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/signup?invite=${encodeURIComponent(token)}`;
+}
+
+function CoachInvitesSection({ clubs }: { clubs: ClubRow[] | undefined }) {
+  const invites = useQuery(api.clubs.listCoachInvites, {});
+  const createInvite = useMutation(api.clubs.createCoachInvite);
+  const [email, setEmail] = useState("");
+  const [clubId, setClubId] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  const hasClubs = (clubs?.length ?? 0) > 0;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (email.trim() === "" || clubId === "" || saving) return;
+    setSaving(true);
+    try {
+      const res = await createInvite({ email, clubId: clubId as Id<"clubs"> });
+      const link = inviteLink(res.token);
+      const copied = await copyText(link);
+      notify.success(
+        copied
+          ? `Invite link for ${res.clubName} copied to clipboard`
+          : `Invite created for ${res.clubName}`,
+      );
+      setEmail("");
+    } catch {
+      /* notify surfaces the server message */
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const outstanding = invites ?? [];
+
+  return (
+    <section className="flex flex-col gap-4">
+      <SectionHeader
+        icon={<Mail aria-hidden className="size-4 text-ink-faint" strokeWidth={1.75} />}
+        title="Invite a coach"
+        hint="For someone without an account yet. We email a single-use sign-up link (and copy it here) that makes them a coach of this club the moment they join — they never pick their own club."
+      />
+
+      <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+        <div className="flex-1" style={{ minWidth: "16rem" }}>
+          <Input
+            label="Coach email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="newcoach@example.com"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5" style={{ minWidth: "12rem" }}>
+          <span className="text-sm font-medium text-gray-700">Club</span>
+          <Select
+            aria-label="Club for invite"
+            placeholder={hasClubs ? "Choose a club" : "Create a club first"}
+            value={clubId}
+            onValueChange={setClubId}
+            disabled={!hasClubs}
+            options={(clubs ?? []).map((c) => ({ value: c._id, label: c.name }))}
+          />
+        </div>
+        <Button
+          type="submit"
+          disabled={email.trim() === "" || clubId === "" || !hasClubs}
+          loading={saving}
+        >
+          Create invite
+        </Button>
+      </form>
+
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
+        {invites === undefined ? (
+          <RowsSkeleton />
+        ) : outstanding.length === 0 ? (
+          <EmptyRow>No outstanding invites. Create one above to onboard a new coach.</EmptyRow>
+        ) : (
+          <table className="w-full text-base">
+            <thead>
+              <tr className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+                <th scope="col" className="px-4 py-2.5 font-medium sm:px-5">Invited</th>
+                <th scope="col" className="hidden px-4 py-2.5 font-medium sm:table-cell">Club</th>
+                <th scope="col" className="px-4 py-2.5 text-right font-medium sm:px-5">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {outstanding.map((i) => (
+                <InviteRowView key={i._id} invite={i} />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function InviteRowView({ invite }: { invite: InviteRow }) {
+  const revokeInvite = useMutation(api.clubs.revokeCoachInvite);
+  const [copied, setCopied] = useState(false);
+
+  async function copyLink() {
+    const ok = await copyText(inviteLink(invite.token));
+    if (ok) {
+      setCopied(true);
+      notify.success("Invite link copied");
+      setTimeout(() => setCopied(false), 1500);
+    } else {
+      notify.error("Could not copy — check clipboard permissions.");
+    }
+  }
+
+  async function revoke() {
+    await notify.promise(revokeInvite({ inviteId: invite._id }), {
+      loading: "Revoking…",
+      success: "Invite revoked",
+    });
+  }
+
+  return (
+    <tr className="border-t border-border">
+      <td className="px-4 py-3 sm:px-5">
+        <div className="font-medium text-ink">{invite.email}</div>
+        <div className="mt-0.5 text-xs text-ink-muted sm:hidden">
+          {invite.clubName ?? "Unknown club"}
+        </div>
+      </td>
+      <td className="hidden px-4 py-3 text-ink-muted sm:table-cell">
+        {invite.clubName ?? "Unknown club"}
+      </td>
+      <td className="px-4 py-3 text-right sm:px-5">
+        <div className="inline-flex items-center gap-1">
+          <button
+            type="button"
+            onClick={copyLink}
+            aria-label={`Copy the invite link for ${invite.email}`}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {copied ? (
+              <Check aria-hidden className="size-3.5 text-success-ink" strokeWidth={2} />
+            ) : (
+              <Copy aria-hidden className="size-3.5" strokeWidth={2} />
+            )}
+            {copied ? "Copied" : "Copy link"}
+          </button>
+          <button
+            type="button"
+            onClick={revoke}
+            aria-label={`Revoke the invite for ${invite.email}`}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-danger-ink focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X aria-hidden className="size-3.5" strokeWidth={2} />
+            Revoke
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through */
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
