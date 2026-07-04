@@ -36,7 +36,7 @@ export default function LandingPage() {
       <WaterBackground />
       {/* Flat contrast scrim (not a gradient) so white copy stays legible over
           the brightest water rims; pointer-events-none keeps the cursor spike. */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[#04142e]/30" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[#04142e]/45" />
 
       <div className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-7 sm:px-8">
         <header className="flex items-center justify-between">

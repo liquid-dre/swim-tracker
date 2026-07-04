@@ -33,19 +33,19 @@ export function WaterBackground({ className = "" }: { className?: string }) {
     <div aria-hidden className={`absolute inset-0 ${className}`}>
       <Ferrofluid
         colors={WATER_COLORS}
-        speed={reduced ? 0 : 0.4}
-        scale={2.2}
-        turbulence={1.25}
-        fluidity={0.09}
-        rimWidth={0.26}
+        speed={reduced ? 0 : 0.14}
+        scale={2.6}
+        turbulence={0.75}
+        fluidity={0.1}
+        rimWidth={0.24}
         sharpness={3}
-        shimmer={1}
-        glow={1.3}
+        shimmer={0.8}
+        glow={1.1}
         flowDirection="up"
         opacity={1}
         mouseInteraction={!reduced}
-        mouseStrength={0.35}
-        mouseRadius={0.18}
+        mouseStrength={0.25}
+        mouseRadius={0.16}
       />
     </div>
   );
