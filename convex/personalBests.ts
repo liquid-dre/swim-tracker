@@ -60,6 +60,10 @@ const pbRow = v.object({
       timeMs: v.number(),
       swimDate: v.string(),
       meetName: v.union(v.string(), v.null()),
+      // Age at the gala where the PB was set (§4.9). computePersonalBests always
+      // returns this; it must be in the validator or Convex rejects the value and
+      // the profile query throws whenever a headline (meet) PB exists.
+      ageAtSwim: v.union(v.number(), v.null()),
     }),
   ),
   overallBest: v.object({
