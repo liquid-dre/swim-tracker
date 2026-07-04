@@ -61,7 +61,7 @@ export function AuthShell({
         <WaterBackground />
         {/* Flat contrast scrim (not a gradient); pointer-events-none keeps the
             cursor spike alive under it. */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 bg-[#04142e]/25" />
+        <div aria-hidden className="pointer-events-none absolute inset-0 bg-[#04142e]/35" />
         <div className="relative z-10 flex h-full flex-col justify-between p-6 text-white lg:p-10 xl:p-14">
           <BrandMark tone="light" />
           <div className="hidden max-w-md lg:block">
