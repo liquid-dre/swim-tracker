@@ -35,6 +35,10 @@ import { ProgressionChart } from "./ProgressionChart";
 const MAX_SELECTION = 12;
 
 type Mode = "one" | "group";
+// The chart either extends a time-to-qualify forecast (§5.6) or shows a clean
+// historic record with no projection line. Coaches asked for the latter to read
+// a swimmer's raw track record in an event without the forecast in the way.
+type ChartView = "projection" | "history";
 
 export function ProgressionScreen() {
   const swimmers = useQuery(api.swimmers.listSwimmers, {});
@@ -45,6 +49,7 @@ export function ProgressionScreen() {
   // The projection needs one cut to aim at, so it owns its target tier locally
   // (default SANJ — the hardest, so the line reaches the furthest goal).
   const [projectionTier, setProjectionTier] = useState<Tier>("SANJ");
+  const [chartView, setChartView] = useState<ChartView>("projection");
   const [singleId, setSingleId] = useState<Id<"swimmers"> | "">("");
   const [groupIds, setGroupIds] = useState<Id<"swimmers">[]>([]);
   const [squadFilter, setSquadFilter] = useState<string>("ALL");
@@ -214,16 +219,33 @@ export function ProgressionScreen() {
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg bg-surface-2 px-3 py-2.5">
               <div className="min-w-0">
                 <p className="text-xs font-medium text-ink">
-                  Project time to qualify
+                  {chartView === "projection"
+                    ? "Project time to qualify"
+                    : "Historic record"}
                 </p>
                 <p className="text-xs text-ink-muted">
-                  Extend the recent meet trend toward a target cut.
+                  {chartView === "projection"
+                    ? "Extend the recent meet trend toward a target cut."
+                    : "Every logged swim and the qualifying cuts — no forecast."}
                 </p>
               </div>
-              <TargetTierToggle
-                value={projectionTier}
-                onChange={setProjectionTier}
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Segmented
+                  ariaLabel="Chart view"
+                  value={chartView}
+                  onChange={(v) => setChartView(v)}
+                  options={[
+                    { value: "projection", label: "Projection" },
+                    { value: "history", label: "History" },
+                  ]}
+                />
+                {chartView === "projection" && (
+                  <TargetTierToggle
+                    value={projectionTier}
+                    onChange={setProjectionTier}
+                  />
+                )}
+              </div>
             </div>
           )}
 
@@ -235,7 +257,10 @@ export function ProgressionScreen() {
             course={data.event.course}
             standards={data.standards}
             projectionTier={
-              single && data.event.course === "LCM" && data.canSeeProjections
+              chartView === "projection" &&
+              single &&
+              data.event.course === "LCM" &&
+              data.canSeeProjections
                 ? projectionTier
                 : null
             }

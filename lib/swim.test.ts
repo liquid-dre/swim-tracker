@@ -323,6 +323,16 @@ describe("computePersonalBests", () => {
     meetName?: string,
   ): ResultForPB => ({ distance, stroke, course, timeMs, swimType, swimDate, meetName });
 
+  it("headline PB carries the age at the meet where it was swum (§4.9)", () => {
+    const pbs = computePersonalBests([
+      // The fastest MEET was swum at 13; a later slower meet was swum at 14.
+      { distance: 100, stroke: "BREAST", course: "LCM", timeMs: 80040, swimType: "MEET", swimDate: "2025-08-01", ageAtSwim: 13 },
+      { distance: 100, stroke: "BREAST", course: "LCM", timeMs: 81000, swimType: "MEET", swimDate: "2026-06-01", ageAtSwim: 14 },
+    ]);
+    // The qualifying cut for this PB must be resolved against 13, not today's age.
+    expect(pbs[0].headline?.ageAtSwim).toBe(13);
+  });
+
   it("headline PB is the fastest MEET time and ignores trials/practice", () => {
     const pbs = computePersonalBests([
       r(100, "FREE", "LCM", 61000, "PRACTICE", "2026-01-01"), // faster, but practice
@@ -335,6 +345,7 @@ describe("computePersonalBests", () => {
       timeMs: 62000,
       swimDate: "2026-02-01",
       meetName: "Autumn Open",
+      ageAtSwim: null,
     });
     // overallBest DOES consider the faster practice swim.
     expect(pbs[0].overallBest).toEqual({
@@ -354,6 +365,7 @@ describe("computePersonalBests", () => {
       timeMs: 128000,
       swimDate: "2026-03-20",
       meetName: "Champs",
+      ageAtSwim: null,
     });
   });
 
@@ -366,6 +378,7 @@ describe("computePersonalBests", () => {
       timeMs: 30000,
       swimDate: "2026-01-01",
       meetName: "First",
+      ageAtSwim: null,
     });
   });
 
@@ -1285,6 +1298,28 @@ describe("computeQualifyProjection", () => {
     const p = computeQualifyProjection(crawl, 60000, today);
     expect(p.status).toBe("beyond_horizon");
     if (p.status === "beyond_horizon") expect(p.slopeMsPerDay).toBeLessThan(0);
+  });
+
+  it("anchors the dashed start at the real recent best, not a fitted value skewed by a slow outlier", () => {
+    // Steady improvement, but one slow outlier meet mid-series (a bad swim). The
+    // least-squares line is pulled up by that point, so its fitted value at the
+    // last date floats ABOVE every recent time — the anchor must instead sit at a
+    // real personal-best point (<= the fastest actual meet), never above it.
+    const withOutlier = [
+      { swimDate: "2026-01-01", timeMs: 66000 },
+      { swimDate: "2026-02-01", timeMs: 64000 },
+      { swimDate: "2026-03-01", timeMs: 82000 }, // slow outlier
+      { swimDate: "2026-04-01", timeMs: 63000 },
+      { swimDate: "2026-05-01", timeMs: 62000 }, // recent best
+    ];
+    const p = computeQualifyProjection(withOutlier, 60000, "2026-05-15");
+    expect(p.status).toBe("projected");
+    if (p.status !== "projected") return;
+    // The dashed start is a real best, comfortably below the outlier and never
+    // above the fastest actual meet time.
+    expect(p.fromMs).toBeLessThanOrEqual(62000);
+    expect(p.toMs).toBeLessThan(p.fromMs);
+    expect(p.toT).toBeGreaterThan(p.fromT);
   });
 
   it("only fits the recent window, so a stale fast start doesn't fake a trend", () => {

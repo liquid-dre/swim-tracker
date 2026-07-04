@@ -140,7 +140,7 @@ export const getCoachDashboard = query({
         .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmer._id))
         .take(SWIMMER_RESULTS_LIMIT);
       const pbs = computePersonalBests(results as ResultForPB[]);
-      const age = computeAge(swimmer.dob, today);
+      const age = computeAge(swimmer.dob, today); // display age (as of today)
 
       // "PBs this week": any headline (fastest-ever MEET) whose date is inside the
       // window — i.e. the swimmer set a new lifetime best this week (any course).
@@ -163,9 +163,11 @@ export const getCoachDashboard = query({
 
       for (const pb of pbs) {
         if (pb.course !== "LCM" || !pb.headline) continue;
+        // Judge each PB against the cut for the swimmer's age AT THE GALA where it
+        // was swum (§4.9), not their age today.
         const applicable = pickApplicableStandards(
           cutsByEvent.get(`${swimmer.gender}|${pb.distance}|${pb.stroke}`) ?? [],
-          age,
+          pb.headline.ageAtSwim ?? age,
         );
         const cell = computeMatrixCell(pb.headline.timeMs, applicable);
         if (cell.tier !== null) cutsQualified += 1;
