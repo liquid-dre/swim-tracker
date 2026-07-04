@@ -7,6 +7,7 @@ import {
   requireCoach,
   requireSignedIn,
 } from "./authz";
+import { grantSwimmerAccess } from "./swimmerAccess";
 import { computeAge } from "../lib/swim";
 
 // Swimmer management (BRD §5, Step 4). Coaches only. Swimmers are never
@@ -62,6 +63,9 @@ export const addSwimmer = mutation({
     // A super-user must say which club owns the swimmer; a coach's own club is
     // used and this is ignored (Phase 5).
     clubId: v.optional(v.id("clubs")),
+    // Optional viewer (swimmer/parent) emails to grant access at creation
+    // (Phase 6): linked now if the account exists, else pre-authorised for signup.
+    viewerEmails: v.optional(v.array(v.string())),
   },
   returns: v.id("swimmers"),
   handler: async (ctx, args) => {
@@ -84,7 +88,7 @@ export const addSwimmer = mutation({
       clubId = args.clubId;
     }
 
-    return await ctx.db.insert("swimmers", {
+    const swimmerId = await ctx.db.insert("swimmers", {
       name: cleanName(args.name),
       dob: cleanDob(args.dob),
       gender: args.gender,
@@ -93,6 +97,15 @@ export const addSwimmer = mutation({
       active: true,
       createdAt: Date.now(),
     });
+
+    // Best-effort viewer grants — an empty / coach / invalid email is skipped so
+    // one bad address never blocks creating the swimmer. The coach can review and
+    // fix access on the swimmer's profile afterward.
+    for (const email of args.viewerEmails ?? []) {
+      await grantSwimmerAccess(ctx, swimmerId, email);
+    }
+
+    return swimmerId;
   },
 });
 

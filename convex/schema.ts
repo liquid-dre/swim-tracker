@@ -98,6 +98,17 @@ export default defineSchema({
     .index("by_profile", ["profileId"])
     .index("by_swimmer", ["swimmerId"]),
 
+  // Viewer access PRE-AUTHORISED by email before the account exists (Phase 6). A
+  // coach can invite a parent/swimmer by email at any time; when that email
+  // signs up, auth.ts materialises these into real swimmerAccess rows and clears
+  // them. Normalised lower-case email, matching how auth stores it.
+  pendingSwimmerAccess: defineTable({
+    email: v.string(),
+    swimmerId: v.id("swimmers"),
+  })
+    .index("by_email", ["email"])
+    .index("by_swimmer", ["swimmerId"]),
+
   // Editable event whitelist (seeded from §4.3).
   events: defineTable({
     distance,

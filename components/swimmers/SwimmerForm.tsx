@@ -61,6 +61,7 @@ export function SwimmerForm({
   const [gender, setGender] = useState<"M" | "F">(swimmer?.gender ?? "F");
   const [notes, setNotes] = useState(swimmer?.notes ?? "");
   const [clubId, setClubId] = useState<string>("");
+  const [viewerEmails, setViewerEmails] = useState("");
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -96,9 +97,15 @@ export function SwimmerForm({
         await updateSwimmer({ swimmerId: swimmer._id, ...payload });
         notify.success("Swimmer updated");
       } else {
-        await addSwimmer(
-          needsClub ? { ...payload, clubId: clubId as Id<"clubs"> } : payload,
-        );
+        const emails = viewerEmails
+          .split(/[,\s]+/)
+          .map((s) => s.trim())
+          .filter((s) => s !== "");
+        await addSwimmer({
+          ...payload,
+          ...(needsClub ? { clubId: clubId as Id<"clubs"> } : {}),
+          ...(emails.length > 0 ? { viewerEmails: emails } : {}),
+        });
         notify.success("Swimmer added");
       }
       onOpenChange(false);
@@ -187,6 +194,15 @@ export function SwimmerForm({
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Optional. Anything worth remembering."
             />
+            {!isEdit && (
+              <Input
+                label="Viewer access (optional)"
+                value={viewerEmails}
+                onChange={(e) => setViewerEmails(e.target.value)}
+                placeholder="parent@example.com, swimmer@example.com"
+                hint="Emails that get read-only access to this swimmer, comma-separated. If they haven't signed up yet, access binds when they do."
+              />
+            )}
           </div>
 
           <SheetFooter className="gap-2 border-t border-border">

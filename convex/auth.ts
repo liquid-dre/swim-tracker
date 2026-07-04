@@ -33,6 +33,9 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         .query("profiles")
         .filter((q) => q.eq(q.field("authId"), userId))
         .first();
+
+      let profileId;
+      let email: string;
       if (existing) {
         // Promote an already-provisioned account if it was just added to the
         // allow-list; never demote (a super-user removed from the list keeps
@@ -44,18 +47,49 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         ) {
           await ctx.db.patch(existing._id, { role: "SUPER_USER" });
         }
-        return;
+        profileId = existing._id;
+        email = existing.email ?? "";
+      } else {
+        const user = await ctx.db.get(userId);
+        const name = (user?.name as string | undefined) || undefined;
+        email = (user?.email as string | undefined) ?? "";
+        profileId = await ctx.db.insert("profiles", {
+          authId: userId,
+          name: name || email || "Swimmer",
+          email,
+          role: supers.has(email.toLowerCase()) ? "SUPER_USER" : "VIEWER",
+        });
       }
 
-      const user = await ctx.db.get(userId);
-      const name = (user?.name as string | undefined) || undefined;
-      const email = (user?.email as string | undefined) ?? "";
-      await ctx.db.insert("profiles", {
-        authId: userId,
-        name: name || email || "Swimmer",
-        email,
-        role: supers.has(email.toLowerCase()) ? "SUPER_USER" : "VIEWER",
-      });
+      // Claim any viewer access a coach pre-authorised for this email before the
+      // account existed (Phase 6): turn each pending grant into a real link, then
+      // clear it. Uses `.filter` (not `.withIndex`) because this callback's ctx
+      // uses the generic data model. Idempotent — safe on every sign-in.
+      const normalized = email.trim().toLowerCase();
+      if (normalized !== "") {
+        const pendings = await ctx.db
+          .query("pendingSwimmerAccess")
+          .filter((q) => q.eq(q.field("email"), normalized))
+          .collect();
+        for (const p of pendings) {
+          const already = await ctx.db
+            .query("swimmerAccess")
+            .filter((q) =>
+              q.and(
+                q.eq(q.field("profileId"), profileId),
+                q.eq(q.field("swimmerId"), p.swimmerId),
+              ),
+            )
+            .first();
+          if (!already) {
+            await ctx.db.insert("swimmerAccess", {
+              profileId,
+              swimmerId: p.swimmerId,
+            });
+          }
+          await ctx.db.delete(p._id);
+        }
+      }
     },
   },
 });

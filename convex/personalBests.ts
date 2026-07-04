@@ -147,14 +147,23 @@ export const getSwimmerProfile = query({
     swimmer: swimmerSummary,
     personalBests: v.array(pbRow),
     history: v.array(historyRow),
+    // Whether the caller may EDIT this swimmer (own-club coach / super-user) —
+    // drives the write controls (edit, log, viewer access) on the profile page.
+    editable: v.boolean(),
   }),
   handler: async (ctx, args) => {
     // Coach → any swimmer; viewer → only their linked swimmer(s). The read is
     // the same shape for both; write controls are gated separately (results.ts).
-    await requireSwimmerAccess(ctx, args.swimmerId);
+    const profile = await requireSwimmerAccess(ctx, args.swimmerId);
 
     const swimmer = await ctx.db.get(args.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
+
+    const editable =
+      profile.role === "SUPER_USER" ||
+      (profile.role === "COACH" &&
+        profile.clubId != null &&
+        swimmer.clubId === profile.clubId);
 
     const results = await loadResults(ctx, args.swimmerId);
     const personalBests = computePersonalBests(results as ResultForPB[]);
@@ -195,6 +204,7 @@ export const getSwimmerProfile = query({
       },
       personalBests,
       history,
+      editable,
     };
   },
 });

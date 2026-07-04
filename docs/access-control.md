@@ -45,12 +45,15 @@ even to the swimmer/parent:
 - **Standards, season start/end dates, tour dates** are written by the
   **SUPER_USER only**; every other role reads them (read-only).
 
-## Access by email (viewer linking)
+## Access by email (viewer linking) — *implemented*
 
-When a coach creates a swimmer they enter the swimmer's / parents' **email
-addresses**. Each becomes a grant so those accounts get the **sensitive** view of
-that swimmer. Grants are stored **by email** and bind to the account on first
-sign-in, so a coach can pre-authorise people **before** they have signed up.
+A coach grants viewer access by **email** (at swimmer creation or on the profile's
+Viewer access panel). If an account already uses that email it is linked
+immediately; otherwise the grant is stored in **`pendingSwimmerAccess`** and
+**binds automatically on first sign-in** (materialised in `auth.ts`) — so a coach
+can pre-authorise a parent/swimmer **before** they have an account. Pending
+invites are listed and can be withdrawn. Managing access is **club-scoped**: only
+the swimmer's own-club coach (or the super-user) can add or revoke viewers.
 
 ## Permission matrix
 
@@ -94,9 +97,11 @@ sign-in, so a coach can pre-authorise people **before** they have signed up.
    actions on other clubs' rows (`editable` flag). `admin.backfillDefaultClub`
    assigns legacy club-less coaches + swimmers to one default club — **run once
    after deploy**.
-6. **Email-at-creation linking** + UI/nav for every role (each screen re-passing
-   the impeccable ≥ 35/40 gate). *Still to do:* enter swimmer/parent emails in the
-   SwimmerForm and pre-authorise viewer access by email before signup (today a
-   coach links viewers via the existing swimmerAccess flow after they sign up).
+6. **Email-based viewer access** *(done)* — a coach grants access by email that
+   links an existing account now or PRE-AUTHORISES the email (`pendingSwimmerAccess`)
+   so it binds when they sign up (materialised in `auth.ts`). Emails can be entered
+   at swimmer creation (`SwimmerForm`) or on the profile; `ViewerAccessSection`
+   lists linked viewers and pending invites (withdrawable) and is read-only for a
+   coach outside the swimmer's club. All grant/revoke mutations are club-scoped.
 
 **Deferred:** tour dates entity (fields TBD).
