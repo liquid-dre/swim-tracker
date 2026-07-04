@@ -14,6 +14,7 @@ import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as clubs from "../clubs.js";
 import type * as dashboard from "../dashboard.js";
+import type * as emails from "../emails.js";
 import type * as events from "../events.js";
 import type * as http from "../http.js";
 import type * as personalBests from "../personalBests.js";
@@ -39,6 +40,7 @@ declare const fullApi: ApiFromModules<{
   authz: typeof authz;
   clubs: typeof clubs;
   dashboard: typeof dashboard;
+  emails: typeof emails;
   events: typeof events;
   http: typeof http;
   personalBests: typeof personalBests;

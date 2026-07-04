@@ -104,4 +104,9 @@ the swimmer's own-club coach (or the super-user) can add or revoke viewers.
    lists linked viewers and pending invites (withdrawable) and is read-only for a
    coach outside the swimmer's club. All grant/revoke mutations are club-scoped.
 
+7. **Invite emails (Resend)** *(done)* — granting viewer access schedules a
+   Resend invite (`convex/emails.ts`, an internal action) with a sign-up / open
+   link, so a parent gets a real email instead of being told out-of-band. No-op
+   when `RESEND_API_KEY` / `EMAIL_FROM` are unset. See `docs/environment.md`.
+
 **Deferred:** tour dates entity (fields TBD).

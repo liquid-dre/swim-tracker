@@ -88,8 +88,9 @@ export const addSwimmer = mutation({
       clubId = args.clubId;
     }
 
+    const name = cleanName(args.name);
     const swimmerId = await ctx.db.insert("swimmers", {
-      name: cleanName(args.name),
+      name,
       dob: cleanDob(args.dob),
       gender: args.gender,
       notes: cleanNotes(args.notes),
@@ -99,10 +100,10 @@ export const addSwimmer = mutation({
     });
 
     // Best-effort viewer grants — an empty / coach / invalid email is skipped so
-    // one bad address never blocks creating the swimmer. The coach can review and
-    // fix access on the swimmer's profile afterward.
+    // one bad address never blocks creating the swimmer. Each new grant schedules
+    // an invite email (Phase 7). The coach can review access on the profile after.
     for (const email of args.viewerEmails ?? []) {
-      await grantSwimmerAccess(ctx, swimmerId, email);
+      await grantSwimmerAccess(ctx, swimmerId, email, name);
     }
 
     return swimmerId;

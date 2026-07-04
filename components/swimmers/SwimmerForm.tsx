@@ -200,7 +200,7 @@ export function SwimmerForm({
                 value={viewerEmails}
                 onChange={(e) => setViewerEmails(e.target.value)}
                 placeholder="parent@example.com, swimmer@example.com"
-                hint="Emails that get read-only access to this swimmer, comma-separated. If they haven't signed up yet, access binds when they do."
+                hint="Read-only access for a swimmer/parent, comma-separated. We email each a link; access binds when they sign up."
               />
             )}
           </div>

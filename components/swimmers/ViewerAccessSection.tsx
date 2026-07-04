@@ -56,7 +56,7 @@ export function ViewerAccessSection({
       notify.success(
         res.status === "linked"
           ? `Linked ${res.email} to ${swimmerName}`
-          : `Invited ${res.email}. They'll get access when they sign up.`,
+          : `Invited ${res.email}. We've emailed them a sign-up link.`,
       );
       setEmail("");
     } catch (err) {
@@ -94,7 +94,7 @@ export function ViewerAccessSection({
               inputMode="email"
               autoComplete="off"
               placeholder="parent@example.com"
-              hint="If they haven't signed up yet, they'll get access automatically when they do."
+              hint="We email them a link. Access binds when they sign up, or right away if they already have an account."
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />

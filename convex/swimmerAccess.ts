@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { assertCoachManagesSwimmer, requireCoach } from "./authz";
 
 // Viewer ↔ swimmer linkage (BRD §2, §5.9, Step 15; access-control Phase 6). A
@@ -18,12 +19,18 @@ import { assertCoachManagesSwimmer, requireCoach } from "./authz";
  * Grant `email` viewer access to `swimmerId`: link an existing account now, or
  * pre-authorise the email for when it signs up. No auth here — the caller has
  * already checked staff + club scope. Idempotent (never double-links / -pends).
+ *
+ * On a NEWLY created link or pending invite it schedules a Resend invite email
+ * (`swimmerName` is used in the copy); an idempotent re-grant emails nothing.
  */
 export async function grantSwimmerAccess(
   ctx: MutationCtx,
   swimmerId: Id<"swimmers">,
   rawEmail: string,
-): Promise<"linked" | "pending" | "coach" | "skipped"> {
+  swimmerName: string,
+): Promise<
+  "linked" | "already_linked" | "pending" | "already_pending" | "coach" | "skipped"
+> {
   const email = rawEmail.trim().toLowerCase();
   if (email === "") return "skipped";
 
@@ -41,9 +48,13 @@ export async function grantSwimmerAccess(
       .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
       .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
       .first();
-    if (!existing) {
-      await ctx.db.insert("swimmerAccess", { profileId: profile._id, swimmerId });
-    }
+    if (existing) return "already_linked";
+    await ctx.db.insert("swimmerAccess", { profileId: profile._id, swimmerId });
+    await ctx.scheduler.runAfter(0, internal.emails.sendViewerInvite, {
+      toEmail: email,
+      swimmerName,
+      kind: "linked",
+    });
     return "linked";
   }
 
@@ -53,9 +64,13 @@ export async function grantSwimmerAccess(
     .withIndex("by_email", (q) => q.eq("email", email))
     .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
     .first();
-  if (!pending) {
-    await ctx.db.insert("pendingSwimmerAccess", { email, swimmerId });
-  }
+  if (pending) return "already_pending";
+  await ctx.db.insert("pendingSwimmerAccess", { email, swimmerId });
+  await ctx.scheduler.runAfter(0, internal.emails.sendViewerInvite, {
+    toEmail: email,
+    swimmerName,
+    kind: "pending",
+  });
   return "pending";
 }
 
@@ -82,14 +97,16 @@ export const grantViewerAccess = mutation({
     const email = viewerEmail.trim().toLowerCase();
     if (email === "") throw new Error("Enter the viewer's email.");
 
-    const status = await grantSwimmerAccess(ctx, swimmerId, email);
+    const status = await grantSwimmerAccess(ctx, swimmerId, email, swimmer.name);
     if (status === "coach") {
       throw new Error(
         "That account is a coach or admin and already sees every swimmer.",
       );
     }
     if (status === "skipped") throw new Error("Enter the viewer's email.");
-    return { status, email };
+    const simple: "pending" | "linked" =
+      status === "pending" || status === "already_pending" ? "pending" : "linked";
+    return { status: simple, email };
   },
 });
 
