@@ -1,22 +1,55 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Droplets } from "lucide-react";
+import { Droplets, Mail } from "lucide-react";
 
+import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { notify } from "@/lib/notify";
 
 // Sign up (Step 1.2), themed to the design system (DESIGN.md). A successful
 // sign-up creates the auth user and, via the afterUserCreatedOrUpdated callback,
 // a VIEWER profile. Shares the card / Input / Button vocabulary with /login.
+//
+// A `?invite=<token>` in the URL is a coach invite (access-control P0): we preview
+// the club it grants, and after sign-up we redeem the token so the account becomes
+// that club's coach — atomically, without the coach ever choosing a club.
 export default function SignUpPage() {
   const { signIn } = useAuthActions();
   const router = useRouter();
+  const redeemCoachInvite = useMutation(api.clubs.redeemCoachInvite);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Read the invite token client-side (after mount) so the preview query runs.
+  // A deliberate one-time read from an external store (the URL): the server and
+  // first client render use null, then we patch — which avoids a hydration
+  // mismatch that a lazy useState initialiser reading `window` would cause.
+  const [token, setToken] = useState<string | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setToken(new URLSearchParams(window.location.search).get("invite"));
+  }, []);
+  const invite = useQuery(
+    api.clubs.previewCoachInvite,
+    token ? { token } : "skip",
+  );
+
+  async function redeemIfInvited() {
+    const t = new URLSearchParams(window.location.search).get("invite");
+    if (!t) return;
+    try {
+      const res = await redeemCoachInvite({ token: t });
+      notify.success(`You're now a coach of ${res.clubName}.`);
+    } catch (err) {
+      notify.error(err);
+    }
+  }
 
   return (
     <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">
@@ -34,6 +67,23 @@ export default function SignUpPage() {
         </div>
       </div>
 
+      {token && invite && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-600">
+          <Mail aria-hidden className="mt-0.5 size-4 shrink-0" strokeWidth={2} />
+          <p>
+            You&rsquo;ve been invited to coach{" "}
+            <span className="font-semibold">{invite.clubName}</span>. Sign up to
+            accept — we&rsquo;ll set the club for you.
+          </p>
+        </div>
+      )}
+      {token && invite === null && (
+        <div className="rounded-xl border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm text-warning-600">
+          This coach invite link is invalid or has already been used. You can
+          still create a regular account below.
+        </div>
+      )}
+
       <form
         className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-sm"
         onSubmit={async (event) => {
@@ -44,6 +94,7 @@ export default function SignUpPage() {
           formData.set("flow", "signUp");
           try {
             await signIn("password", formData);
+            await redeemIfInvited();
             router.push("/");
           } catch {
             setError(

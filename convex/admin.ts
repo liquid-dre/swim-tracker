@@ -4,26 +4,12 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { computeAge, parseTime } from "../lib/swim";
 
-// TEMPORARY admin tooling (Step 1.4). Call from the Convex dashboard to create
-// the first coach:  admin:promoteToCoach  with  { "email": "you@example.com" }.
-// Not wired to any UI. Role management proper arrives with Step 15.
-export const promoteToCoach = internalMutation({
-  args: { email: v.string() },
-  handler: async (ctx, { email }) => {
-    const normalized = email.trim().toLowerCase();
-    const profile = await ctx.db
-      .query("profiles")
-      .filter((q) => q.eq(q.field("email"), normalized))
-      .unique();
-
-    if (!profile) {
-      throw new Error(`No profile found for email "${normalized}".`);
-    }
-
-    await ctx.db.patch(profile._id, { role: "COACH" });
-    return { profileId: profile._id, name: profile.name, role: "COACH" as const };
-  },
-});
+// NOTE: the legacy `promoteToCoach` was retired (access-control P0). It set
+// role=COACH WITHOUT a club, leaving a half-provisioned coach that `addSwimmer`
+// rejects ("You aren't assigned to a club yet"). Coach-hood is now always granted
+// WITH a club, atomically — via clubs.assignCoachToClub (existing account) or a
+// clubs.createCoachInvite → redeemCoachInvite link (new account). Both set role
+// and clubId together, so the broken club-less state can no longer be created.
 
 // One-time backfill for the club model (access-control Phase 5). Run ONCE from
 // the Convex dashboard after deploying the club-scoping change:

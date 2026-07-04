@@ -79,6 +79,61 @@ export const sendViewerInvite = internalAction({
   },
 });
 
+// Coach invite (access-control P0). A super-user invited this email to coach a
+// club; the link carries the single-use token that `redeemCoachInvite` consumes
+// after they sign up. No-op if Resend isn't configured, same as the viewer invite.
+export const sendCoachInvite = internalAction({
+  args: { toEmail: v.string(), clubName: v.string(), token: v.string() },
+  returns: v.null(),
+  handler: async (_ctx, { toEmail, clubName, token }) => {
+    const apiKey = process.env.RESEND_API_KEY;
+    const from = process.env.EMAIL_FROM;
+    if (!apiKey || !from) {
+      console.warn(
+        "Resend not configured (RESEND_API_KEY / EMAIL_FROM unset); skipping coach invite email.",
+      );
+      return null;
+    }
+
+    const appUrl = (process.env.SITE_URL ?? "").replace(/\/+$/, "");
+    const link = appUrl
+      ? `${appUrl}/signup?invite=${encodeURIComponent(token)}`
+      : "";
+    const club = escapeHtml(clubName);
+
+    const subject = `You've been invited to coach ${clubName} on Swim Tracker`;
+    const intro = `You've been invited to coach ${club} on Swim Tracker. Sign up with this link to get coaching access to the club — you don't need to pick a club, it's set for you.`;
+    const button = link
+      ? `<p style="margin:24px 0">
+           <a href="${link}" style="display:inline-block;background:#465fff;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600">
+             Accept invite &amp; sign up
+           </a>
+         </p>
+         <p style="color:#667085;font-size:13px;margin:0">Or paste this link into your browser: ${link}</p>`
+      : "";
+
+    const html = `<div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;max-width:520px;color:#101828;font-size:15px;line-height:1.55">
+        <p style="margin:0 0 4px">${intro}</p>
+        ${button}
+        <p style="color:#667085;font-size:13px;margin:20px 0 0">This invite can only be used once. If you weren't expecting it, you can ignore this email.</p>
+      </div>`;
+
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ from, to: toEmail, subject, html }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.error(`Resend coach invite failed (${res.status}): ${detail}`);
+    }
+    return null;
+  },
+});
+
 function escapeHtml(s: string): string {
   return s.replace(
     /[&<>"']/g,

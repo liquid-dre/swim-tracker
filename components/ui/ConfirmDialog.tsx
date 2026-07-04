@@ -18,6 +18,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = "Delete",
+  confirmVariant = "danger",
   onConfirm,
 }: {
   open: boolean;
@@ -25,6 +26,9 @@ export function ConfirmDialog({
   title: string;
   description: ReactNode;
   confirmLabel?: string;
+  // Destructive by default (the common case); pass "primary" for a non-
+  // destructive confirmation like "Add anyway".
+  confirmVariant?: "danger" | "primary";
   onConfirm: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -76,7 +80,7 @@ export function ConfirmDialog({
             >
               Cancel
             </Button>
-            <Button type="button" variant="danger" onClick={run} loading={busy}>
+            <Button type="button" variant={confirmVariant} onClick={run} loading={busy}>
               {confirmLabel}
             </Button>
           </div>

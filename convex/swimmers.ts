@@ -6,6 +6,7 @@ import {
   assertCoachManagesSwimmer,
   requireCoach,
   requireSignedIn,
+  requireSuperUser,
 } from "./authz";
 import { grantSwimmerAccess } from "./swimmerAccess";
 import { computeAge } from "../lib/swim";
@@ -66,6 +67,9 @@ export const addSwimmer = mutation({
     // Optional viewer (swimmer/parent) emails to grant access at creation
     // (Phase 6): linked now if the account exists, else pre-authorised for signup.
     viewerEmails: v.optional(v.array(v.string())),
+    // Set true to proceed past the duplicate-swimmer guard (P2): the coach has
+    // confirmed a same-name, same-DOB swimmer is genuinely a different person.
+    allowDuplicate: v.optional(v.boolean()),
   },
   returns: v.id("swimmers"),
   handler: async (ctx, args) => {
@@ -89,9 +93,28 @@ export const addSwimmer = mutation({
     }
 
     const name = cleanName(args.name);
+    const dob = cleanDob(args.dob);
+
+    // Duplicate guard (P2): warn — don't block — when a swimmer with the same
+    // name and DOB already exists (in ANY club, so the same child isn't entered
+    // twice across clubs). The coach re-submits with `allowDuplicate` to proceed.
+    if (!args.allowDuplicate) {
+      const key = name.toLowerCase();
+      const existing = (await ctx.db.query("swimmers").take(2000)).find(
+        (s) => s.name.trim().toLowerCase() === key && s.dob === dob,
+      );
+      if (existing) {
+        const club = existing.clubId ? await ctx.db.get(existing.clubId) : null;
+        const where = club ? `in ${club.name}` : "in another club";
+        throw new Error(
+          `A swimmer named "${name}" with that date of birth already exists ${where}. Add anyway?`,
+        );
+      }
+    }
+
     const swimmerId = await ctx.db.insert("swimmers", {
       name,
-      dob: cleanDob(args.dob),
+      dob,
       gender: args.gender,
       notes: cleanNotes(args.notes),
       clubId,
@@ -150,6 +173,26 @@ export const setSwimmerActive = mutation({
     if (!swimmer) throw new Error("Swimmer not found.");
     assertCoachManagesSwimmer(profile, swimmer);
     await ctx.db.patch(args.swimmerId, { active: args.active });
+    return null;
+  },
+});
+
+// reassignSwimmerClub — move a swimmer to another club (SUPER_USER only).
+//
+// A club transfer changes who may edit the swimmer, so it's deliberately kept out
+// of a coach's reach (a coach could otherwise raid another club's roster): only
+// the super-user can do it. `updateSwimmer` never touches clubId for the same
+// reason. (P2 — a request→approve flow between clubs can layer on top later.)
+export const reassignSwimmerClub = mutation({
+  args: { swimmerId: v.id("swimmers"), clubId: v.id("clubs") },
+  returns: v.null(),
+  handler: async (ctx, { swimmerId, clubId }) => {
+    await requireSuperUser(ctx);
+    const swimmer = await ctx.db.get(swimmerId);
+    if (!swimmer) throw new Error("Swimmer not found.");
+    const club = await ctx.db.get(clubId);
+    if (!club) throw new Error("That club no longer exists.");
+    await ctx.db.patch(swimmerId, { clubId });
     return null;
   },
 });

@@ -25,7 +25,9 @@ export type RosterRow = {
   notes?: string;
   age: number;
   // The club that owns this swimmer (null/undefined => unassigned). Shown so a
-  // coach can tell at a glance which club each swimmer belongs to.
+  // coach can tell at a glance which club each swimmer belongs to; the id is
+  // threaded to the edit form so a super-user can reassign the club.
+  clubId?: Id<"clubs">;
   clubName?: string | null;
   squads: { _id: string; name: string }[];
   // Whether the current user may edit this swimmer (their own club / super-user).

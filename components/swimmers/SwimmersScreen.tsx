@@ -97,6 +97,8 @@ export function SwimmersScreen({ today }: { today: string }) {
                 dob: editing.dob,
                 gender: editing.gender,
                 notes: editing.notes,
+                clubId: editing.clubId,
+                clubName: editing.clubName,
               }
         }
         today={today}
