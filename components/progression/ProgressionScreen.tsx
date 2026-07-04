@@ -49,7 +49,9 @@ export function ProgressionScreen() {
   // The projection needs one cut to aim at, so it owns its target tier locally
   // (default SANJ — the hardest, so the line reaches the furthest goal).
   const [projectionTier, setProjectionTier] = useState<Tier>("SANJ");
-  const [chartView, setChartView] = useState<ChartView>("projection");
+  // History (every logged swim + the cuts, no forecast) is the default view —
+  // the honest, unembellished read; Projection is opt-in.
+  const [chartView, setChartView] = useState<ChartView>("history");
   const [singleId, setSingleId] = useState<Id<"swimmers"> | "">("");
   const [groupIds, setGroupIds] = useState<Id<"swimmers">[]>([]);
   const [squadFilter, setSquadFilter] = useState<string>("ALL");
