@@ -167,6 +167,8 @@ const swimmerRow = v.object({
   active: v.boolean(),
   notes: v.optional(v.string()),
   clubId: v.optional(v.id("clubs")),
+  // The owning club's name, resolved for display (null when unassigned/legacy).
+  clubName: v.union(v.string(), v.null()),
   createdAt: v.number(),
   age: v.number(),
   squads: v.array(v.object({ _id: v.id("squads"), name: v.string() })),
@@ -222,6 +224,18 @@ export const listSwimmers = query({
 
     const today = new Date().toISOString().slice(0, 10);
 
+    // Resolve each swimmer's club name once, cached, so the roster can show
+    // "which club" without an N+1 read per row.
+    const clubNames = new Map<Id<"clubs">, string | null>();
+    const clubNameFor = async (id?: Id<"clubs">): Promise<string | null> => {
+      if (!id) return null;
+      if (clubNames.has(id)) return clubNames.get(id) ?? null;
+      const club = await ctx.db.get(id);
+      const name = club?.name ?? null;
+      clubNames.set(id, name);
+      return name;
+    };
+
     return await Promise.all(
       swimmers.map(async (s) => {
         const memberships = await ctx.db
@@ -248,6 +262,7 @@ export const listSwimmers = query({
           active: s.active,
           notes: s.notes,
           clubId: s.clubId,
+          clubName: await clubNameFor(s.clubId),
           createdAt: s.createdAt,
           age: computeAge(s.dob, today),
           squads,

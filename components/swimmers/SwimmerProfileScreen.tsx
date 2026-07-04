@@ -67,6 +67,7 @@ export function SwimmerProfileScreen({
         <IdentityStrip
           age={swimmer.age}
           gender={swimmer.gender}
+          club={swimmer.club}
           active={swimmer.active}
           inSystemSince={swimmer.inSystemSince}
           resultCount={swimmer.resultCount}
@@ -150,12 +151,14 @@ export function SwimmerProfileScreen({
 function IdentityStrip({
   age,
   gender,
+  club,
   active,
   inSystemSince,
   resultCount,
 }: {
   age: number;
   gender: "M" | "F";
+  club: string | null;
   active: boolean;
   inSystemSince: string;
   resultCount: number;
@@ -165,6 +168,8 @@ function IdentityStrip({
       <Stat label="Age" value={`${age}`} />
       <Divider />
       <Stat label="Gender" value={gender === "F" ? "Female" : "Male"} />
+      <Divider />
+      <Stat label="Club" value={club ?? "—"} />
       <Divider />
       <div className="flex items-center gap-1.5">
         <dt className="sr-only">Status</dt>

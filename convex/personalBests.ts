@@ -105,6 +105,7 @@ const swimmerSummary = v.object({
   age: v.number(), // as of today
   inSystemSince: v.string(), // ISO date derived from createdAt
   resultCount: v.number(),
+  club: v.union(v.string(), v.null()), // owning club's name (null if unassigned)
 });
 
 // ---------------------------------------------------------------------------
@@ -170,6 +171,7 @@ export const getSwimmerProfile = query({
 
     const today = new Date().toISOString().slice(0, 10);
     const inSystemSince = new Date(swimmer.createdAt).toISOString().slice(0, 10);
+    const club = swimmer.clubId ? await ctx.db.get(swimmer.clubId) : null;
 
     // History: newest first is the useful default for a log; the client can
     // re-sort. Attach the human event label so the table stays presentational.
@@ -201,6 +203,7 @@ export const getSwimmerProfile = query({
         age: computeAge(swimmer.dob, today),
         inSystemSince,
         resultCount: results.length,
+        club: club?.name ?? null,
       },
       personalBests,
       history,
