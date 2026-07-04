@@ -120,7 +120,7 @@ export function ProgressionScreen() {
       <PageHeader
         title="Progression"
         breadcrumb={trailForHref("/progression")}
-        description="Chart every logged time for one swimmer or a group. The time axis starts at zero, so faster times sit lower and improvement reads as a descent toward the cut."
+        description="Chart every logged time for one swimmer or a group. Faster times sit lower and the axis zooms to just under the world record, so improvement reads as a descent toward the cut."
       />
 
       {/* Slim toolbar: who + event inline. The group builder lives in a popover
@@ -230,6 +230,8 @@ export function ProgressionScreen() {
           <ProgressionChart
             series={withData}
             single={single}
+            distance={data.event.distance}
+            stroke={data.event.stroke}
             course={data.event.course}
             standards={data.standards}
             projectionTier={

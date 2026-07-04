@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { DateField } from "@/components/ui/DateField";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
@@ -140,12 +141,11 @@ export function SwimmerForm({
               autoFocus
               required
             />
-            <Input
+            <DateField
               label="Date of birth"
-              type="date"
               value={dob}
               max={today}
-              onChange={(e) => setDob(e.target.value)}
+              onChange={setDob}
               error={dobError}
               hint={
                 age !== null && age >= 0

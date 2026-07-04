@@ -17,8 +17,11 @@ import {
   computeQualifyProjection,
   formatTime,
   pickApplicableStandards,
+  worldRecordMs,
+  type Distance,
   type QualifyProjection,
   type StandardCut,
+  type Stroke,
   type Tier,
 } from "@/lib/swim";
 import { formatMonthYear, formatSeconds, formatShortDate } from "@/lib/format";
@@ -35,8 +38,11 @@ import {
 
 /*
   Progression line chart (Step 7, BRD §5.6). x = date, y = time, with the y-axis
-  UPRIGHT and anchored at zero: 0 sits at the origin and a faster (lower) time
-  sits LOWER, so the axis reads like a stopwatch. Every logged swim is plotted
+  UPRIGHT (a faster time sits LOWER, so the axis reads like a stopwatch) and its
+  floor pinned just under the event's world record — one second faster than the
+  record for the plotted gender(s). No club swim ever reaches the record, so the
+  line fills the grid instead of being crushed against a distant zero baseline.
+  Every logged swim is plotted
   (all types); MEET swims are filled dots, trials / practice are hollow, and the
   current PB carries a ring. One line per swimmer for a group.
 
@@ -89,12 +95,18 @@ function msToShort(ms: number): string {
 export function ProgressionChart({
   series,
   single,
+  distance,
+  stroke,
   course,
   standards,
   projectionTier = null,
 }: {
   series: ProgressionSeries[];
   single: boolean;
+  // The event (distance + stroke) — used to look up the world record that pins
+  // the y-axis floor. Course comes in separately since records differ per course.
+  distance: Distance;
+  stroke: Stroke;
   course: "SCM" | "LCM";
   standards: StandardRow[];
   // The target tier for the time-to-qualify projection (§5.6). Non-null only for
@@ -144,8 +156,22 @@ export function ProgressionChart({
   const projYs = projected ? [projected.fromMs, projected.toMs] : [];
   const yLo = Math.min(...allTimes, ...cutYs, ...projYs);
   const yHi = Math.max(...allTimes, ...cutYs, ...projYs);
-  // The axis is anchored at 0 (origin), so only the TOP needs breathing room.
-  const yPad = Math.max(500, Math.round((yHi - yLo) * 0.12));
+
+  // Y-axis floor: one second faster than the world record, so the line fills the
+  // grid rather than sinking toward zero. Use the fastest record among the
+  // genders actually plotted (mixed groups → the outright record) so no line can
+  // ever dip below the floor. Clamp below the fastest plotted value as a belt-
+  // and-braces guard against a stale record, and fall back to a zero-anchored
+  // axis when the event has no listed record.
+  const genders = Array.from(new Set(series.map((s) => s.gender)));
+  const wr =
+    genders.length === 1
+      ? worldRecordMs(distance, stroke, course, genders[0])
+      : worldRecordMs(distance, stroke, course);
+  const yFloor = wr === null ? 0 : Math.min(wr - 1_000, yLo);
+
+  // Breathing room above the top value; the floor sits at yFloor, not zero.
+  const yPad = Math.max(500, Math.round((yHi - yFloor) * 0.08));
 
   const projColor = projectionTier ? TIER_STYLE[projectionTier].color : CHART.accent;
 
@@ -165,7 +191,7 @@ export function ProgressionChart({
       <div
         style={{ width: "100%", height: 360 }}
         role="img"
-        aria-label={`Progression chart, time over date on a zero-anchored axis with a faster time plotted lower. ${summary}`}
+        aria-label={`Progression chart, time over date with a faster time plotted lower; the axis floor sits just under the world record. ${summary}`}
       >
         <ResponsiveContainer width="100%" height="100%">
           <LineChart margin={{ top: 8, right: 20, bottom: 4, left: 8 }}>
@@ -183,7 +209,7 @@ export function ProgressionChart({
             />
             <YAxis
               type="number"
-              domain={[0, yHi + yPad]}
+              domain={[yFloor, yHi + yPad]}
               tickFormatter={(v: number) => formatTime(v)}
               tick={{ fill: CHART.tick, fontSize: 11 }}
               tickLine={false}

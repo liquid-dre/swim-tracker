@@ -326,6 +326,134 @@ export function eventSortKey(
 }
 
 // ---------------------------------------------------------------------------
+// 6b. World records — chart-axis reference only (NOT a domain invariant)
+// ---------------------------------------------------------------------------
+//
+// These are the outright world-record times per (course, gender, event), used
+// for ONE purpose: scaling the progression chart's y-axis. Anchoring the axis
+// floor at (record − 1s) lets a swimmer's line fill the grid instead of being
+// squashed against a zero baseline. They are approximate reference values — the
+// only thing they affect is axis breathing room, and the floor logic clamps so
+// a record that is (impossibly) slower than a plotted swim can never clip data.
+// They are deliberately kept out of the qualifying-standard logic (§4.9), which
+// is driven solely by the SANJ/Level cuts. Times are integer milliseconds.
+
+type EventTimes = Partial<Record<string, number>>;
+
+/** Key for the record table: `${distance}:${stroke}`. */
+function wrKey(distance: Distance | number, stroke: Stroke | string): string {
+  return `${distance}:${stroke}`;
+}
+
+const WORLD_RECORDS_MS: Record<Course, Record<"M" | "F", EventTimes>> = {
+  LCM: {
+    M: {
+      "50:FREE": 20910,
+      "100:FREE": 46400,
+      "200:FREE": 102000,
+      "400:FREE": 220070,
+      "800:FREE": 452120,
+      "1500:FREE": 870670,
+      "50:BACK": 23550,
+      "100:BACK": 51600,
+      "200:BACK": 111920,
+      "50:BREAST": 25950,
+      "100:BREAST": 56880,
+      "200:BREAST": 125480,
+      "50:FLY": 22270,
+      "100:FLY": 49450,
+      "200:FLY": 110340,
+      "200:IM": 114000,
+      "400:IM": 242500,
+    },
+    F: {
+      "50:FREE": 23610,
+      "100:FREE": 51710,
+      "200:FREE": 112230,
+      "400:FREE": 235380,
+      "800:FREE": 484790,
+      "1500:FREE": 920480,
+      "50:BACK": 26860,
+      "100:BACK": 57130,
+      "200:BACK": 123140,
+      "50:BREAST": 29160,
+      "100:BREAST": 64130,
+      "200:BREAST": 137550,
+      "50:FLY": 24430,
+      "100:FLY": 55480,
+      "200:FLY": 121810,
+      "200:IM": 126120,
+      "400:IM": 264380,
+    },
+  },
+  SCM: {
+    M: {
+      "50:FREE": 20160,
+      "100:FREE": 44840,
+      "200:FREE": 98610,
+      "400:FREE": 212250,
+      "800:FREE": 440460,
+      "1500:FREE": 846880,
+      "50:BACK": 22110,
+      "100:BACK": 48330,
+      "200:BACK": 105630,
+      "50:BREAST": 24950,
+      "100:BREAST": 55280,
+      "200:BREAST": 120160,
+      "50:FLY": 21320,
+      "100:FLY": 47710,
+      "200:FLY": 105850,
+      "100:IM": 49280,
+      "200:IM": 108880,
+      "400:IM": 234810,
+    },
+    F: {
+      "50:FREE": 22830,
+      "100:FREE": 50250,
+      "200:FREE": 110310,
+      "400:FREE": 230250,
+      "800:FREE": 477420,
+      "1500:FREE": 903050,
+      "50:BACK": 25230,
+      "100:BACK": 53980,
+      "200:BACK": 118940,
+      "50:BREAST": 28370,
+      "100:BREAST": 62360,
+      "200:BREAST": 132500,
+      "50:FLY": 24380,
+      "100:FLY": 52710,
+      "200:FLY": 119320,
+      "100:IM": 56510,
+      "200:IM": 121630,
+      "400:IM": 255480,
+    },
+  },
+};
+
+/**
+ * World-record time (ms) for an event on a course, for one gender or — when
+ * `gender` is omitted — the fastest (outright) record across both. Returns null
+ * for anything without a listed record. Reference only; see the note above.
+ */
+export function worldRecordMs(
+  distance: Distance | number,
+  stroke: Stroke | string,
+  course: Course | string,
+  gender?: "M" | "F",
+): number | null {
+  const byGender = WORLD_RECORDS_MS[course as Course];
+  if (!byGender) return null;
+  const key = wrKey(distance, stroke);
+  if (gender) {
+    return byGender[gender][key] ?? null;
+  }
+  const m = byGender.M[key];
+  const f = byGender.F[key];
+  const vals = [m, f].filter((v): v is number => typeof v === "number");
+  return vals.length > 0 ? Math.min(...vals) : null;
+}
+
+// ---------------------------------------------------------------------------
 // 7. Personal bests — DERIVED, never stored (BRD §4.6, Step 6)
 // ---------------------------------------------------------------------------
 //
