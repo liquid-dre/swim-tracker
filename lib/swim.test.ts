@@ -30,6 +30,7 @@ import {
   linearFit,
   projectCrossing,
   computeQualifyProjection,
+  worldRecordMs,
   type EventDef,
   type ResultForPB,
   type StandardCut,
@@ -255,6 +256,28 @@ describe("isValidEvent", () => {
 // ---------------------------------------------------------------------------
 // event labels + ordering
 // ---------------------------------------------------------------------------
+
+describe("worldRecordMs", () => {
+  it("returns the gender-specific record for a listed event", () => {
+    expect(worldRecordMs(100, "FREE", "LCM", "M")).toBe(46400);
+    expect(worldRecordMs(100, "FREE", "LCM", "F")).toBe(51710);
+  });
+
+  it("returns the fastest (outright) record when no gender is given", () => {
+    // Men's 100 free is faster than women's, so the outright is the men's mark.
+    expect(worldRecordMs(100, "FREE", "LCM")).toBe(46400);
+  });
+
+  it("knows 100 IM is SCM-only and has no LCM record", () => {
+    expect(worldRecordMs(100, "IM", "SCM", "M")).toBe(49280);
+    expect(worldRecordMs(100, "IM", "LCM", "M")).toBeNull();
+  });
+
+  it("returns null for events off the record table", () => {
+    expect(worldRecordMs(50, "IM", "LCM", "M")).toBeNull();
+    expect(worldRecordMs(100, "FREE", "SCY" as never)).toBeNull();
+  });
+});
 
 describe("eventLabel / eventSortKey", () => {
   it("labels events the BRD way", () => {

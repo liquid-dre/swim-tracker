@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { DateField } from "@/components/ui/DateField";
 import { Kbd } from "@/components/ui/Kbd";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { QualifyCelebration } from "@/components/me/QualifyCelebration";
@@ -66,6 +67,7 @@ const ROWS: Row[] = [
 export default function PreviewPage() {
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
   const [course, setCourse] = useState<"SCM" | "LCM">("LCM");
+  const [demoDate, setDemoDate] = useState("2026-06-15");
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-12">
@@ -307,7 +309,13 @@ export default function PreviewPage() {
               defaultValue="2:11:80"
               className="time"
             />
-            <Input label="Date" defaultValue="2026-13-02" error="Not a real date. Use YYYY-MM-DD." />
+            <DateField
+              label="Date"
+              value={demoDate}
+              max="2026-07-04"
+              onChange={setDemoDate}
+              hint="The flip calendar — the one date picker across the app."
+            />
           </div>
           <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
             <Button variant="ghost">Cancel</Button>

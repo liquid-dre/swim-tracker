@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { DateField } from "@/components/ui/DateField";
 import { Segmented } from "@/components/ui/Segmented";
 import {
   Sheet,
@@ -148,12 +149,11 @@ export function ResultEditSheet({
 
             <TimeField digits={digits} onDigits={setDigits} />
 
-            <Input
+            <DateField
               label="Date"
-              type="date"
               value={swimDate}
               max={today}
-              onChange={(e) => setSwimDate(e.target.value)}
+              onChange={setSwimDate}
               hint={ageAtSwim !== null ? `Age ${ageAtSwim} on this date` : undefined}
               error={
                 swimDate !== "" && !dateValid

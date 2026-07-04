@@ -140,6 +140,8 @@ function ProgressionSection({ ownSwimmerId }: { ownSwimmerId: Id<"swimmers"> }) 
             <ProgressionChart
               series={withData}
               single
+              distance={data.event.distance}
+              stroke={data.event.stroke}
               course={data.event.course}
               standards={data.standards}
               projectionTier={null}

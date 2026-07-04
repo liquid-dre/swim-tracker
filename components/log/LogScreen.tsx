@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { DateField } from "@/components/ui/DateField";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
@@ -252,13 +253,12 @@ export function LogScreen({ today }: { today: string }) {
               )}
             </Field>
 
-            <Input
+            <DateField
               label="Date"
               id="swim-date"
-              type="date"
               value={swimDate}
               max={today}
-              onChange={(e) => setSwimDate(e.target.value)}
+              onChange={setSwimDate}
               error={
                 swimDate !== "" && !dateValid ? "Pick a date up to today." : undefined
               }

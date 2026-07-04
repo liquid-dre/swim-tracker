@@ -13,6 +13,7 @@ import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
+import { DateField } from "@/components/ui/DateField";
 import { FilterBar } from "@/components/ui/FilterBar";
 import { EventFilter } from "@/components/analysis/EventFilter";
 import { type EventValue } from "@/components/analysis/EventPicker";
@@ -266,29 +267,15 @@ function SeasonStartEditor({
 
       {canEdit && (
         <>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium text-ink-muted">Start date</span>
-        <input
-          type="date"
-          value={value}
-          max={today}
-          onChange={(e) => setOverride(e.target.value)}
-          disabled={!settings || saving}
-          aria-label="Season start date"
-          aria-invalid={invalid || undefined}
-          className={
-            "time h-9 w-full rounded-lg border bg-white px-3 text-base text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50 " +
-            (invalid
-              ? "border-error-500 bg-error-50"
-              : "border-gray-300 hover:border-gray-400")
-          }
-        />
-      </label>
-      {invalid && (
-        <p className="text-xs text-danger-ink">
-          Season start cannot be in the future.
-        </p>
-      )}
+      <DateField
+        label="Start date"
+        aria-label="Season start date"
+        value={value}
+        max={today}
+        onChange={(iso) => setOverride(iso)}
+        disabled={!settings || saving}
+        error={invalid ? "Season start cannot be in the future." : undefined}
+      />
 
       <div className="flex items-center gap-2">
         <Button
