@@ -16,19 +16,21 @@ import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 
 /*
-  The one date picker for the whole app — a flip calendar. Adapted from the
-  requested dayzed/motion component into a controlled form field on our tokens:
-  the trigger matches the sibling text inputs (so forms stay one visual language
-  and we never nest a card in a card), while the signature flip card + month grid
-  live in a portaled popover where the animation has room to breathe. Value is an
-  ISO "YYYY-MM-DD" string (or "" for none); selection commits live, so the trigger
-  and flip card update as you click and the popover dismisses on outside/Escape.
+  The one date picker for the whole app — a flip calendar you can also TYPE into.
+  Adapted from the requested dayzed/motion component into a controlled form field
+  on our tokens: the field is a real text input (so a coach can key a whole date
+  straight in — "2026-07-01", "1/7/2026" or "1 Jul 2026" all parse), with a
+  calendar button that opens the signature flip card + month grid in a portaled
+  popover where the animation has room to breathe. Value is an ISO "YYYY-MM-DD"
+  string (or "" for none); typing and clicking both commit live, so the field and
+  flip card stay in lock-step and the popover dismisses on outside/Escape.
 
   The month grid is a small local implementation (dayzed's peer range stops at
   React 18); `« ‹ month year › »` navigates month and — with the double chevrons —
-  whole years, so a date of birth years back is reachable without a long scroll.
-  Days outside [min, max] are DISABLED, never hidden, matching the event-selector
-  convention. Honours `prefers-reduced-motion` by swapping the flip for a fade.
+  whole years, and the year itself is a typeable field so a date of birth years
+  back is reachable without a long scroll. Days outside [min, max] are DISABLED,
+  never hidden, matching the event-selector convention. Honours
+  `prefers-reduced-motion` by swapping the flip for a fade.
 */
 
 const MONTH_NAMES = [
@@ -71,6 +73,67 @@ function sameDay(a: Date, b: Date): boolean {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   );
+}
+
+/** Month name (any case, ≥3 letters) → 1-based month number, or null. */
+function monthFromName(name: string): number | null {
+  const key = name.slice(0, 3).toLowerCase();
+  const i = MONTH_NAMES.findIndex((m) => m.toLowerCase() === key);
+  return i < 0 ? null : i + 1;
+}
+
+/** Expand a 2-digit year to a full one (<50 → 20xx, else 19xx); pass 4-digit through. */
+function normaliseYear(n: number, digits: number): number {
+  if (digits <= 2) return n < 50 ? 2000 + n : 1900 + n;
+  return n;
+}
+
+/**
+ * Parse a hand-typed date into an ISO "YYYY-MM-DD" string, or null when it can't
+ * be read unambiguously. Day-first for the numeric forms (SA convention), and
+ * month names are accepted in either order:
+ *   "2026-07-01", "2026/7/1", "1/7/2026", "1-7-26", "1 Jul 2026", "Jul 1, 2026".
+ * Validates the calendar day (so "31 Feb" is rejected); range against min/max is
+ * the field's job, not this pure parser's.
+ */
+function parseTypedDate(input: string): string | null {
+  const t = input.trim();
+  if (t === "") return null;
+
+  let y: number | null = null;
+  let mo: number | null = null;
+  let d: number | null = null;
+  let m: RegExpExecArray | null;
+
+  if ((m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(t))) {
+    y = Number(m[1]);
+    mo = Number(m[2]);
+    d = Number(m[3]);
+  } else if ((m = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/.exec(t))) {
+    d = Number(m[1]);
+    mo = Number(m[2]);
+    y = normaliseYear(Number(m[3]), m[3].length);
+  } else if ((m = /^(\d{1,2})\s+([A-Za-z]{3,})\.?,?\s+(\d{2,4})$/.exec(t))) {
+    d = Number(m[1]);
+    mo = monthFromName(m[2]);
+    y = normaliseYear(Number(m[3]), m[3].length);
+  } else if ((m = /^([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{2,4})$/.exec(t))) {
+    mo = monthFromName(m[1]);
+    d = Number(m[2]);
+    y = normaliseYear(Number(m[3]), m[3].length);
+  } else {
+    return null;
+  }
+
+  if (mo === null || mo < 1 || mo > 12) return null;
+  if (d === null || d < 1) return null;
+  if (y === null || y < 1900 || y > 2100) return null;
+  // Last day of the 1-based month `mo` (Date's month arg is 0-based, so day 0
+  // of month `mo` is the last day of month `mo`).
+  const daysInMonth = new Date(y, mo, 0).getDate();
+  if (d > daysInMonth) return null;
+
+  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 /** Weeks of the given month as a 7-wide grid; leading/trailing cells are null. */
@@ -123,16 +186,81 @@ export function DateField({
 }: DateFieldProps) {
   const autoId = useId();
   const inputId = id ?? autoId;
-  const describedBy = error
+
+  const selected = useMemo(() => parseIso(value), [value]);
+  const displayText = selected ? format(selected, "d MMM yyyy") : "";
+
+  const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [text, setText] = useState(() => displayText);
+  // A quiet, typing-specific hint (bad format / out of range). Distinct from the
+  // caller's `error` (form validation); either one styles + describes the field.
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  // Mirror the committed value into the input when it changes externally — but
+  // never mid-edit (that would fight the user's keystrokes) and never while a
+  // typing hint is showing (that would erase the text they still need to fix).
+  // Adjusting state during render (React's documented pattern) instead of in an
+  // effect keeps the input in one paint with the value it reflects.
+  const [syncedDisplay, setSyncedDisplay] = useState(displayText);
+  if (displayText !== syncedDisplay && !focused && !localError) {
+    setSyncedDisplay(displayText);
+    setText(displayText);
+  }
+
+  const effectiveError = error ?? localError ?? undefined;
+  const describedBy = effectiveError
     ? `${inputId}-error`
     : hint
       ? `${inputId}-hint`
       : undefined;
 
-  const [open, setOpen] = useState(false);
+  const inRange = (iso: string) => (!min || iso >= min) && (!max || iso <= max);
+  const boundLabel = (iso?: string): string => {
+    const d = iso ? parseIso(iso) : null;
+    return d ? format(d, "d MMM yyyy") : "";
+  };
 
-  const selected = useMemo(() => parseIso(value), [value]);
-  const triggerText = selected ? format(selected, "d MMM yyyy") : placeholder;
+  // Finalise typed text (blur / Enter): empty clears, a valid in-range date
+  // commits and normalises the display, anything else keeps the text and shows a
+  // quiet hint so it can be corrected.
+  function commit(raw: string) {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      setLocalError(null);
+      if (value !== "") onChange("");
+      return;
+    }
+    const iso = parseTypedDate(trimmed);
+    if (iso === null) {
+      setLocalError("Try a date like 2026-07-01 or 1 Jul 2026.");
+      return;
+    }
+    if (min && iso < min) {
+      setLocalError(`Choose a date on or after ${boundLabel(min)}.`);
+      return;
+    }
+    if (max && iso > max) {
+      setLocalError(`Choose a date on or before ${boundLabel(max)}.`);
+      return;
+    }
+    setLocalError(null);
+    // Normalise the display to the canonical "d MMM yyyy" right away, so Enter
+    // tidies "7/2/2025" → "7 Feb 2025" without waiting for a blur.
+    const norm = parseIso(iso);
+    if (norm) setText(format(norm, "d MMM yyyy"));
+    if (iso !== value) onChange(iso);
+  }
+
+  // Live-parse while typing: a valid in-range date updates the calendar + flip
+  // card at once; otherwise hold the last committed value and defer the hint to
+  // blur so we never nag mid-keystroke.
+  function handleChange(raw: string) {
+    setText(raw);
+    setLocalError(null);
+    const iso = parseTypedDate(raw.trim());
+    if (iso !== null && inRange(iso) && iso !== value) onChange(iso);
+  }
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -141,44 +269,73 @@ export function DateField({
         {required && <span className="ml-0.5 text-danger-ink">*</span>}
       </label>
 
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            id={inputId}
-            disabled={disabled}
-            aria-label={ariaLabel}
-            data-invalid={error ? true : undefined}
-            aria-describedby={describedBy}
-            className={cn(
-              "flex h-9 items-center justify-between gap-2 rounded-lg border bg-white px-3 text-base outline-none",
-              "transition-[border-color,box-shadow] [transition-duration:var(--dur-1)]",
-              "focus:border-brand-300 focus:shadow-focus-ring disabled:cursor-not-allowed disabled:opacity-50",
-              error
-                ? "border-error-500 bg-error-50"
-                : "border-gray-300 hover:border-gray-400",
-            )}
-          >
-            <span className={cn("truncate", selected ? "text-gray-800" : "text-gray-500")}>
-              {triggerText}
-            </span>
-            <CalendarIcon aria-hidden className="size-4 shrink-0 text-ink-faint" strokeWidth={1.75} />
-          </button>
-        </PopoverTrigger>
+      <div
+        data-invalid={effectiveError ? true : undefined}
+        className={cn(
+          "flex h-9 items-center gap-1 rounded-lg border bg-white pl-3 pr-1 text-base",
+          "transition-[border-color,box-shadow] [transition-duration:var(--dur-1)]",
+          "focus-within:border-brand-300 focus-within:shadow-focus-ring",
+          disabled && "cursor-not-allowed opacity-50",
+          effectiveError
+            ? "border-error-500 bg-error-50"
+            : "border-gray-300 hover:border-gray-400",
+        )}
+      >
+        <input
+          id={inputId}
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          disabled={disabled}
+          value={text}
+          placeholder={placeholder}
+          aria-label={ariaLabel}
+          aria-invalid={effectiveError ? true : undefined}
+          aria-describedby={describedBy}
+          onFocus={() => setFocused(true)}
+          onChange={(e) => handleChange(e.target.value)}
+          onBlur={(e) => {
+            setFocused(false);
+            commit(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit(text);
+            }
+          }}
+          className="min-w-0 flex-1 bg-transparent text-gray-800 outline-none placeholder:text-gray-500 disabled:cursor-not-allowed"
+        />
 
-        <PopoverContent align="start" className="w-auto p-0">
-          <FlipCalendar
-            selected={selected}
-            min={min ? parseIso(min) : null}
-            max={max ? parseIso(max) : null}
-            onSelect={(d) => onChange(toIso(d))}
-          />
-        </PopoverContent>
-      </Popover>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={label ? `Open calendar for ${label}` : "Open calendar"}
+              className="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-primary focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed"
+            >
+              <CalendarIcon aria-hidden className="size-4" strokeWidth={1.75} />
+            </button>
+          </PopoverTrigger>
 
-      {error ? (
+          <PopoverContent align="end" className="w-auto p-0">
+            <FlipCalendar
+              selected={selected}
+              min={min ? parseIso(min) : null}
+              max={max ? parseIso(max) : null}
+              onSelect={(d) => {
+                setLocalError(null);
+                onChange(toIso(d));
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+
+      {effectiveError ? (
         <p id={`${inputId}-error`} className="text-xs text-danger-ink">
-          {error}
+          {effectiveError}
         </p>
       ) : hint ? (
         <p id={`${inputId}-hint`} className="text-xs text-ink-muted">
@@ -251,9 +408,13 @@ function FlipCalendar({
             <ChevronLeft className="size-4" />
           </NavButton>
         </div>
-        <span className="text-sm font-medium text-ink">
-          {MONTH_NAMES[view.month]} {view.year}
-        </span>
+        <div className="flex items-center gap-1.5 text-sm font-medium text-ink">
+          <span>{MONTH_NAMES[view.month]}</span>
+          <YearField
+            year={view.year}
+            onYear={(y) => setView((v) => ({ ...v, year: y }))}
+          />
+        </div>
         <div className="flex items-center gap-0.5">
           <NavButton label="Next month" onClick={() => shift(1)}>
             <ChevronRight className="size-4" />
@@ -304,6 +465,54 @@ function FlipCalendar({
         })}
       </div>
     </div>
+  );
+}
+
+/** Typeable year in the calendar header — pick via chevrons or key it straight in. */
+function YearField({
+  year,
+  onYear,
+}: {
+  year: number;
+  onYear: (year: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(year));
+  // Resync when the year prop changes (chevrons, or a committed key-in) using
+  // React's render-time adjustment pattern rather than an effect.
+  const [prevYear, setPrevYear] = useState(year);
+  if (year !== prevYear) {
+    setPrevYear(year);
+    setDraft(String(year));
+  }
+
+  function commit(v: string) {
+    const n = parseInt(v, 10);
+    if (Number.isInteger(n) && n >= 1900 && n <= 2100) onYear(n);
+    else setDraft(String(year)); // out of range → snap back to the shown year
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      aria-label="Year"
+      value={draft}
+      onChange={(e) => {
+        const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+        setDraft(digits);
+        if (digits.length === 4) commit(digits);
+      }}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={() => commit(draft)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit(draft);
+          e.currentTarget.blur();
+        }
+      }}
+      className="w-[3.25rem] rounded-md border border-transparent bg-transparent px-1 py-0.5 text-center tabular-nums outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-200 focus:border-brand-300 focus:shadow-focus-ring"
+    />
   );
 }
 

@@ -474,6 +474,10 @@ export type ResultForPB = {
   swimType: SwimType | string;
   swimDate: string; // ISO "YYYY-MM-DD"
   meetName?: string;
+  // The swimmer's exact age on the day of this swim (age at the gala), stored on
+  // every result. Threaded through so qualifying cuts can be matched to the age
+  // the swimmer actually held at the meet, not their age today (§4.9).
+  ageAtSwim?: number;
 };
 
 /** Headline PB = the fastest MEET swim (with the date + meet it was set at). */
@@ -481,6 +485,9 @@ export type HeadlinePB = {
   timeMs: number;
   swimDate: string;
   meetName: string | null;
+  // Age at the gala where this PB was swum — the age its qualifying cut is
+  // resolved against (§4.9). null only when the source row omits it (tests).
+  ageAtSwim: number | null;
 };
 
 /** Fastest swim across all types — secondary context, never the headline. */
@@ -584,6 +591,7 @@ export function computePersonalBests(
           timeMs: headlineRow.timeMs,
           swimDate: headlineRow.swimDate,
           meetName: headlineRow.meetName ?? null,
+          ageAtSwim: headlineRow.ageAtSwim ?? null,
         }
       : null;
 
@@ -1629,13 +1637,29 @@ export function computeQualifyProjection(
   const fit = linearFit(points);
   if (fit === null) return { status: "no_trend", meetCount };
 
-  const eta = projectCrossing(fit, cutMs);
-  if (eta === null) return { status: "no_trend", meetCount };
+  // Anchor the dashed estimate to the swimmer's actual recent BEST — the fastest
+  // meet in the window (ties → the most recent) — rather than the fitted line's
+  // value at the last date. A single slow outlier (a bad swim, a mis-entry) pulls
+  // the least-squares line UP, so the fitted value can sit well above the real
+  // recent times; drawing from there makes the projection look detached, starting
+  // above where the swimmer plainly is. Starting from a real personal-best point
+  // keeps the estimate honest and the line visibly continuous with the data. The
+  // recent best is always slower than the cut here (already-qualified short-
+  // circuited above), so the segment always descends toward the cut.
+  let anchor = points[0];
+  for (const p of points) {
+    if (p.y < anchor.y || (p.y === anchor.y && p.x > anchor.x)) anchor = p;
+  }
+  const anchorDay = anchor.x;
+  const anchorMs = anchor.y;
+
+  // Where the recent slope, carried on from that anchor, meets the cut. slope < 0
+  // and anchorMs > cutMs, so the crossing is strictly after the anchor.
+  const crossDay = anchorDay + (cutMs - anchorMs) / fit.slope;
 
   const todayDay = isoToEpochDay(todayIso);
   const horizonEndDay = addMonthsToEpochDay(todayIso, horizonMonths);
-  const trueEtaDay = eta.getTime() / MS_PER_DAY;
-  if (trueEtaDay > horizonEndDay) {
+  if (crossDay > horizonEndDay) {
     return {
       status: "beyond_horizon",
       cutMs,
@@ -1644,11 +1668,9 @@ export function computeQualifyProjection(
     };
   }
 
-  // A crossing in the past means the recent line already sits at the cut; clamp
-  // to today so the estimate reads "about now", never a backwards arrow.
-  const etaDay = Math.max(trueEtaDay, todayDay);
-  const lastDay = points[points.length - 1].x;
-  const fromMs = fit.slope * lastDay + fit.intercept;
+  // A crossing already in the past means the recent rate has the swimmer at the
+  // cut now; clamp to today so the estimate reads "about now", never backwards.
+  const etaDay = Math.max(crossDay, todayDay);
   const toT = Math.round(etaDay * MS_PER_DAY);
 
   return {
@@ -1656,8 +1678,8 @@ export function computeQualifyProjection(
     cutMs,
     slopeMsPerDay: fit.slope,
     etaIso: new Date(toT).toISOString().slice(0, 10),
-    fromT: Math.round(lastDay * MS_PER_DAY),
-    fromMs,
+    fromT: Math.round(anchorDay * MS_PER_DAY),
+    fromMs: anchorMs,
     toT,
     toMs: cutMs,
     meetCount,

@@ -143,7 +143,7 @@ export const getEventComparison = query({
     // reads as "first achieved on…" — same rule as computePersonalBests.
     const bestBySwimmer = new Map<
       Id<"swimmers">,
-      { timeMs: number; swimDate: string; meetName: string | null }
+      { timeMs: number; swimDate: string; meetName: string | null; ageAtSwim: number }
     >();
     for (const r of results) {
       if (r.swimType !== "MEET") continue;
@@ -157,6 +157,7 @@ export const getEventComparison = query({
           timeMs: r.timeMs,
           swimDate: r.swimDate,
           meetName: r.meetName ?? null,
+          ageAtSwim: r.ageAtSwim,
         });
       }
     }
@@ -207,10 +208,16 @@ export const getEventComparison = query({
       const band = computeAgeGroup(swimmer.dob, today);
       if (args.ageGroup && band !== args.ageGroup) continue;
 
-      const age = computeAge(swimmer.dob, today);
+      const age = computeAge(swimmer.dob, today); // display age (as of today)
       let highestTier: Tier | null = null;
       if (args.course === "LCM") {
-        const cuts = pickApplicableStandards(await loadCuts(swimmer.gender), age);
+        // Match the cut to the swimmer's age AT THE GALA where the PB was swum
+        // (§4.9) — a time set at 13 is judged against the 13-year-old cut, and
+        // that qualification stands even once the swimmer has turned 14.
+        const cuts = pickApplicableStandards(
+          await loadCuts(swimmer.gender),
+          best.ageAtSwim,
+        );
         highestTier = highestTierMet(best.timeMs, cuts);
       }
 
@@ -579,22 +586,33 @@ export const getQualificationMatrix = query({
         .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmer._id))
         .take(SWIMMER_RESULTS_LIMIT);
       const pbs = computePersonalBests(results as ResultForPB[]);
-      const lcmPbByEvent = new Map<string, number>();
+      const lcmPbByEvent = new Map<
+        string,
+        { timeMs: number; ageAtSwim: number | null }
+      >();
       for (const pb of pbs) {
         if (pb.course === "LCM" && pb.headline) {
-          lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, pb.headline.timeMs);
+          lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, {
+            timeMs: pb.headline.timeMs,
+            ageAtSwim: pb.headline.ageAtSwim,
+          });
         }
       }
 
-      const age = computeAge(swimmer.dob, today);
+      const age = computeAge(swimmer.dob, today); // display age (as of today)
       const ageBand = computeAgeGroup(swimmer.dob, today);
 
       const cells = lcmEvents.map((e) => {
+        const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
+        const pbMs = pb ? pb.timeMs : null;
+        // Judge the PB against the cut for the swimmer's age AT THAT GALA (§4.9);
+        // with no PB yet, fall back to today's age so an aspirational target still
+        // resolves for the (blank) cell.
+        const cutAge = pb?.ageAtSwim ?? age;
         const applicable = pickApplicableStandards(
           cutsByEvent.get(`${swimmer.gender}|${e.distance}|${e.stroke}`) ?? [],
-          age,
+          cutAge,
         );
-        const pbMs = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
         const cell = computeMatrixCell(pbMs, applicable);
         return {
           distance: e.distance,
@@ -735,25 +753,35 @@ export const getRoadToQualify = query({
       .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
       .take(SWIMMER_RESULTS_LIMIT);
     const pbs = computePersonalBests(results as ResultForPB[]);
-    const lcmPbByEvent = new Map<string, number>();
+    const lcmPbByEvent = new Map<
+      string,
+      { timeMs: number; ageAtSwim: number | null }
+    >();
     for (const pb of pbs) {
       if (pb.course === "LCM" && pb.headline) {
-        lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, pb.headline.timeMs);
+        lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, {
+          timeMs: pb.headline.timeMs,
+          ageAtSwim: pb.headline.ageAtSwim,
+        });
       }
     }
 
     const events = [];
     for (const e of lcmEvents) {
       // Coverage is a HARD rule (§4.9): only render where the tier covers this
-      // event AND a cut actually resolves for the swimmer's exact age.
+      // event AND a cut actually resolves for the applicable age.
       if (!tierCoversEvent(targetTier, e.distance, e.stroke)) continue;
+      const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
+      // Judge the PB against the cut for the swimmer's age AT THE GALA where it
+      // was swum (§4.9); with no PB yet, use today's age so the target still shows.
+      const cutAge = pb?.ageAtSwim ?? age;
       const cutMs = resolveStandardTime(
         cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [],
-        age,
+        cutAge,
       );
       if (cutMs === null) continue;
 
-      const pbMs = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
+      const pbMs = pb ? pb.timeMs : null;
       const gapMs = pbMs === null ? null : pbMs - cutMs;
       const gapPct = pbMs === null ? null : (gapMs! / cutMs) * 100;
       const pctOfCut = pbMs === null ? null : (pbMs / cutMs) * 100;
@@ -905,28 +933,39 @@ export const getStrokeProfile = query({
       .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
       .take(SWIMMER_RESULTS_LIMIT);
     const pbs = computePersonalBests(results as ResultForPB[]);
-    const lcmPbByEvent = new Map<string, number>();
+    const lcmPbByEvent = new Map<
+      string,
+      { timeMs: number; ageAtSwim: number | null }
+    >();
     for (const pb of pbs) {
       if (pb.course === "LCM" && pb.headline) {
-        lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, pb.headline.timeMs);
+        lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, {
+          timeMs: pb.headline.timeMs,
+          ageAtSwim: pb.headline.ageAtSwim,
+        });
       }
     }
 
     const events = [];
     for (const e of lcmEvents) {
+      const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
+      // Rings are calibrated to the cut for the swimmer's age AT THE GALA where
+      // the PB was swum (§4.9); with no PB, use today's age so an event with a cut
+      // still shows its (empty) rings.
+      const cutAge = pb?.ageAtSwim ?? age;
       const applicable = pickApplicableStandards(
         cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [],
-        age,
+        cutAge,
       );
       const l2Ms = applicable.LEVEL_2 ?? null;
       const l3Ms = applicable.LEVEL_3 ?? null;
       const sanjMs = applicable.SANJ ?? null;
 
-      // Applicable = at least one tier has a cut here at this exact age. Events
-      // with no cut at all can't be placed on any ring — omit them (§4.9).
+      // Applicable = at least one tier has a cut here at this age. Events with no
+      // cut at all can't be placed on any ring — omit them (§4.9).
       if (l2Ms === null && l3Ms === null && sanjMs === null) continue;
 
-      const pbMs = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
+      const pbMs = pb ? pb.timeMs : null;
       const calibratedRadius = computeCalibratedRadius(pbMs, { l2Ms, l3Ms, sanjMs });
       const highestTier =
         pbMs === null
