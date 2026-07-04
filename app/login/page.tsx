@@ -1,39 +1,29 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Droplets } from "lucide-react";
 
-import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { notify } from "@/lib/notify";
+import { stashCoachInvite } from "@/lib/coachInvite";
 
 // Sign in (Step 1.2), themed to the design system (DESIGN.md): a single card on
 // the soft gray-50 canvas, the brand mark, Outfit type, and the shared Input /
 // Button components so the auth screens match the app shell. If a `?invite=`
 // coach token rode in (e.g. an existing account followed an invite link), it's
-// redeemed after sign-in (access-control P0).
+// stashed and redeemed once the session is live in the app shell (P0).
 export default function LoginPage() {
   const { signIn } = useAuthActions();
   const router = useRouter();
-  const redeemCoachInvite = useMutation(api.clubs.redeemCoachInvite);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function redeemIfInvited() {
-    const t = new URLSearchParams(window.location.search).get("invite");
-    if (!t) return;
-    try {
-      const res = await redeemCoachInvite({ token: t });
-      notify.success(`You're now a coach of ${res.clubName}.`);
-    } catch (err) {
-      notify.error(err);
-    }
-  }
+  useEffect(() => {
+    stashCoachInvite();
+  }, []);
 
   return (
     <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">
@@ -61,7 +51,6 @@ export default function LoginPage() {
           formData.set("flow", "signIn");
           try {
             await signIn("password", formData);
-            await redeemIfInvited();
             router.push("/");
           } catch {
             setError("Invalid email or password.");

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -10,7 +10,7 @@ import { Droplets, Mail } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { notify } from "@/lib/notify";
+import { stashCoachInvite } from "@/lib/coachInvite";
 
 // Sign up (Step 1.2), themed to the design system (DESIGN.md). A successful
 // sign-up creates the auth user and, via the afterUserCreatedOrUpdated callback,
@@ -22,34 +22,26 @@ import { notify } from "@/lib/notify";
 export default function SignUpPage() {
   const { signIn } = useAuthActions();
   const router = useRouter();
-  const redeemCoachInvite = useMutation(api.clubs.redeemCoachInvite);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Read the invite token client-side (after mount) so the preview query runs.
-  // A deliberate one-time read from an external store (the URL): the server and
-  // first client render use null, then we patch — which avoids a hydration
-  // mismatch that a lazy useState initialiser reading `window` would cause.
+  // Read the invite token client-side (after mount) so the preview query runs,
+  // and stash it for post-login redemption (survives the sign-in redirect and,
+  // via sessionStorage, a hop to /login). A deliberate one-time read from an
+  // external store (the URL): the server and first client render use null, then
+  // we patch — avoiding the hydration mismatch a lazy initialiser reading
+  // `window` would cause. Redemption itself happens in InviteRedeemer, once the
+  // Convex session is live — never here where it could race that.
   const [token, setToken] = useState<string | null>(null);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setToken(new URLSearchParams(window.location.search).get("invite"));
+    stashCoachInvite();
   }, []);
   const invite = useQuery(
     api.clubs.previewCoachInvite,
     token ? { token } : "skip",
   );
-
-  async function redeemIfInvited() {
-    const t = new URLSearchParams(window.location.search).get("invite");
-    if (!t) return;
-    try {
-      const res = await redeemCoachInvite({ token: t });
-      notify.success(`You're now a coach of ${res.clubName}.`);
-    } catch (err) {
-      notify.error(err);
-    }
-  }
 
   return (
     <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">
@@ -94,7 +86,6 @@ export default function SignUpPage() {
           formData.set("flow", "signUp");
           try {
             await signIn("password", formData);
-            await redeemIfInvited();
             router.push("/");
           } catch {
             setError(
