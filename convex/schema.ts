@@ -26,28 +26,57 @@ const swimType = v.union(
   v.literal("PRACTICE"),
 );
 
-// STEP 2 SCOPE: the COMPLETE data model from BRD §7 (profiles, swimmers,
-// squads, squadMemberships, swimmerAccess, events, standards, results).
+// The data model from BRD §7 (profiles, swimmers, squads, squadMemberships,
+// swimmerAccess, events, standards, results), extended with the multi-club,
+// role-based access model in docs/access-control.md: a SUPER_USER over global
+// reference data, club-scoped coach editing, and field-level swimmer privacy.
+// All access-model columns are OPTIONAL so the extension is backward-compatible
+// with rows created before it (Convex validates existing docs on push).
 export default defineSchema({
   // Identity tables provided by Convex Auth (users, sessions, accounts, …).
   ...authTables,
+
+  // A club owns swimmers and is the edit boundary for coaches. Created by the
+  // SUPER_USER, who also assigns each coach to one via profiles.clubId.
+  clubs: defineTable({
+    name: v.string(),
+    createdAt: v.number(),
+  }),
 
   // App users beyond the auth table; the auth provider supplies identity.
   profiles: defineTable({
     authId: v.string(), // subject from auth provider (the users-table id)
     name: v.string(),
     email: v.string(),
-    role: v.union(v.literal("COACH"), v.literal("VIEWER")),
-  }).index("by_authId", ["authId"]),
+    // SUPER_USER: global reference data (standards, season dates, clubs) + sees
+    // everything. COACH: edits their own club's swimmers, reads all as public.
+    // VIEWER: read-only; sensitive view only for their linked swimmer(s).
+    role: v.union(
+      v.literal("SUPER_USER"),
+      v.literal("COACH"),
+      v.literal("VIEWER"),
+    ),
+    // The club a COACH manages (their edit scope). Unset for SUPER_USER/VIEWER.
+    clubId: v.optional(v.id("clubs")),
+  })
+    .index("by_authId", ["authId"])
+    .index("by_club", ["clubId"]),
 
   swimmers: defineTable({
     name: v.string(),
-    dob: v.string(), // ISO date
+    dob: v.string(), // ISO date — SENSITIVE (own-club coach + linked viewer only)
     gender: v.union(v.literal("M"), v.literal("F")),
     active: v.boolean(),
-    notes: v.optional(v.string()),
+    notes: v.optional(v.string()), // coach notes — SENSITIVE
+    // The owning club: the edit boundary. A coach may edit this swimmer only when
+    // their profiles.clubId matches. Unset => legacy/unassigned (super-user only).
+    clubId: v.optional(v.id("clubs")),
+    heightCm: v.optional(v.number()), // SENSITIVE personal info
+    weightKg: v.optional(v.number()), // SENSITIVE personal info
     createdAt: v.number(),
-  }).index("by_active", ["active"]),
+  })
+    .index("by_active", ["active"])
+    .index("by_club", ["clubId"]),
 
   squads: defineTable({
     name: v.string(),
@@ -67,6 +96,17 @@ export default defineSchema({
     swimmerId: v.id("swimmers"),
   })
     .index("by_profile", ["profileId"])
+    .index("by_swimmer", ["swimmerId"]),
+
+  // Viewer access PRE-AUTHORISED by email before the account exists (Phase 6). A
+  // coach can invite a parent/swimmer by email at any time; when that email
+  // signs up, auth.ts materialises these into real swimmerAccess rows and clears
+  // them. Normalised lower-case email, matching how auth stores it.
+  pendingSwimmerAccess: defineTable({
+    email: v.string(),
+    swimmerId: v.id("swimmers"),
+  })
+    .index("by_email", ["email"])
     .index("by_swimmer", ["swimmerId"]),
 
   // Editable event whitelist (seeded from §4.3).
@@ -128,5 +168,6 @@ export default defineSchema({
   settings: defineTable({
     key: v.string(), // always "app" — the singleton discriminator
     seasonStart: v.optional(v.string()), // ISO "YYYY-MM-DD"; unset => rolling 12mo
+    seasonEnd: v.optional(v.string()), // ISO "YYYY-MM-DD"; unset => open-ended
   }).index("by_key", ["key"]),
 });

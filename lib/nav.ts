@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Award,
   BarChart3,
+  Building2,
   Gauge,
   Grid3x3,
   History,
@@ -9,6 +10,7 @@ import {
   LineChart,
   Radar,
   Ruler,
+  Shield,
   Target,
   Timer,
   TrendingUp,
@@ -26,7 +28,7 @@ import {
   in every query/mutation regardless (see convex/authz.ts).
 */
 
-export type Role = "COACH" | "VIEWER";
+export type Role = "SUPER_USER" | "COACH" | "VIEWER";
 
 export type NavLeaf = {
   label: string;
@@ -67,6 +69,7 @@ export const NAV: NavNode[] = [
     exact: true,
   },
   { kind: "item", label: "Progress", href: "/me/progress", icon: LineChart, roles: ["VIEWER"] },
+  { kind: "item", label: "Rankings", href: "/me/rankings", icon: BarChart3, roles: ["VIEWER"] },
   { kind: "item", label: "Road to qualify", href: "/me/road", icon: Target, roles: ["VIEWER"] },
   { kind: "item", label: "History", href: "/me/history", icon: History, roles: ["VIEWER"] },
   {
@@ -110,6 +113,15 @@ export const NAV: NavNode[] = [
       { label: "Standards", href: "/standards", icon: Ruler },
     ],
   },
+  // Super-user only (access-control Phase 4). Reserved under /admin, which
+  // isRouteAllowed keeps coaches out of.
+  {
+    kind: "group",
+    label: "Admin",
+    icon: Shield,
+    roles: ["SUPER_USER"],
+    items: [{ label: "Clubs & coaches", href: "/admin/clubs", icon: Building2 }],
+  },
 ];
 
 /** The landing route for a role after login / on redirect from a barred route. */
@@ -118,19 +130,31 @@ export function homeForRole(role: Role): string {
 }
 
 /**
- * The route-access boundary, mirrored server-side in every Convex function. A
- * VIEWER may only be under their own home (`/me`); a COACH owns everything else.
- * `/me` is exclusively the viewer's, so a coach landing there is bounced home —
- * this keeps the two experiences from bleeding into each other. Deny-by-default:
- * a brand-new route is coach-only until it opts a viewer in here.
+ * The route-access boundary, mirrored server-side in every Convex function.
+ *   - VIEWER: only their own home (`/me/*`).
+ *   - COACH: everything except `/me/*` and the super-user `/admin/*` area.
+ *   - SUPER_USER: everything except `/me/*` (they own `/admin/*` too).
+ * `/me` is exclusively the viewer's, so staff landing there is bounced home.
+ * Deny-by-default: a brand-new coach route is coach-visible, a new `/admin`
+ * route is super-user-only, and a new viewer route opts in via `roles` below.
  */
 export function isRouteAllowed(role: Role, pathname: string): boolean {
   const underViewerHome = pathname === "/me" || pathname.startsWith("/me/");
-  return role === "VIEWER" ? underViewerHome : !underViewerHome;
+  const underAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
+  if (role === "VIEWER") return underViewerHome;
+  if (role === "SUPER_USER") return !underViewerHome;
+  return !underViewerHome && !underAdmin; // COACH
 }
 
+/**
+ * Whether `role` may see a nav node with the given `roles` allow-list. A
+ * SUPER_USER is a superset of a coach, so they see every coach item too (but
+ * never viewer-only items, which live under the viewer's `/me` home).
+ */
 function allowed(roles: Role[] | undefined, role: Role): boolean {
-  return !roles || roles.includes(role);
+  if (!roles) return true;
+  if (roles.includes(role)) return true;
+  return role === "SUPER_USER" && roles.includes("COACH");
 }
 
 /**

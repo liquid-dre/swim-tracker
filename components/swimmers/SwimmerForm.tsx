@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Segmented } from "@/components/ui/Segmented";
+import { Select } from "@/components/ui/Select";
+import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import {
   Sheet,
   SheetContent,
@@ -48,16 +50,29 @@ export function SwimmerForm({
   const updateSwimmer = useMutation(api.swimmers.updateSwimmer);
   const isEdit = swimmer !== null;
 
+  // A coach creates into their own club automatically; a super-user has no club,
+  // so when they ADD a swimmer they must choose which club owns it (Phase 5).
+  const profile = useCurrentProfile();
+  const needsClub = !isEdit && profile?.role === "SUPER_USER";
+  const clubs = useQuery(api.clubs.listClubs, needsClub ? {} : "skip");
+
   const [name, setName] = useState(swimmer?.name ?? "");
   const [dob, setDob] = useState(swimmer?.dob ?? "");
   const [gender, setGender] = useState<"M" | "F">(swimmer?.gender ?? "F");
   const [notes, setNotes] = useState(swimmer?.notes ?? "");
+  const [clubId, setClubId] = useState<string>("");
+  const [viewerEmails, setViewerEmails] = useState("");
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
   const dobValid = /^\d{4}-\d{2}-\d{2}$/.test(dob);
   const age = dobValid ? computeAge(dob, today) : null;
-  const canSave = name.trim() !== "" && dobValid && age !== null && age >= 0;
+  const canSave =
+    name.trim() !== "" &&
+    dobValid &&
+    age !== null &&
+    age >= 0 &&
+    (!needsClub || clubId !== "");
 
   // Map a server validation message to the field it's about, so the error
   // shows next to the input rather than only as a toast.
@@ -82,7 +97,15 @@ export function SwimmerForm({
         await updateSwimmer({ swimmerId: swimmer._id, ...payload });
         notify.success("Swimmer updated");
       } else {
-        await addSwimmer(payload);
+        const emails = viewerEmails
+          .split(/[,\s]+/)
+          .map((s) => s.trim())
+          .filter((s) => s !== "");
+        await addSwimmer({
+          ...payload,
+          ...(needsClub ? { clubId: clubId as Id<"clubs"> } : {}),
+          ...(emails.length > 0 ? { viewerEmails: emails } : {}),
+        });
         notify.success("Swimmer added");
       }
       onOpenChange(false);
@@ -143,12 +166,43 @@ export function SwimmerForm({
                 ]}
               />
             </div>
+            {needsClub && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-ink">Club</span>
+                <Select
+                  aria-label="Club"
+                  placeholder={
+                    clubs === undefined
+                      ? "Loading clubs…"
+                      : clubs.length === 0
+                        ? "Create a club first (Admin)"
+                        : "Choose a club"
+                  }
+                  value={clubId}
+                  onValueChange={setClubId}
+                  disabled={clubs === undefined || clubs.length === 0}
+                  options={(clubs ?? []).map((c) => ({ value: c._id, label: c.name }))}
+                />
+                <span className="text-xs text-ink-muted">
+                  Which club owns this swimmer. Its coach can then edit their record.
+                </span>
+              </div>
+            )}
             <Textarea
               label="Notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Optional. Anything worth remembering."
             />
+            {!isEdit && (
+              <Input
+                label="Viewer access (optional)"
+                value={viewerEmails}
+                onChange={(e) => setViewerEmails(e.target.value)}
+                placeholder="parent@example.com, swimmer@example.com"
+                hint="Read-only access for a swimmer/parent, comma-separated. We email each a link; access binds when they sign up."
+              />
+            )}
           </div>
 
           <SheetFooter className="gap-2 border-t border-border">

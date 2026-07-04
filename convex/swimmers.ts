@@ -1,7 +1,13 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import { accessibleSwimmerIds, requireCoach } from "./authz";
+import {
+  accessibleSwimmerIds,
+  assertCoachManagesSwimmer,
+  requireCoach,
+  requireSignedIn,
+} from "./authz";
+import { grantSwimmerAccess } from "./swimmerAccess";
 import { computeAge } from "../lib/swim";
 
 // Swimmer management (BRD §5, Step 4). Coaches only. Swimmers are never
@@ -54,18 +60,53 @@ export const addSwimmer = mutation({
     dob: v.string(),
     gender,
     notes: v.optional(v.string()),
+    // A super-user must say which club owns the swimmer; a coach's own club is
+    // used and this is ignored (Phase 5).
+    clubId: v.optional(v.id("clubs")),
+    // Optional viewer (swimmer/parent) emails to grant access at creation
+    // (Phase 6): linked now if the account exists, else pre-authorised for signup.
+    viewerEmails: v.optional(v.array(v.string())),
   },
   returns: v.id("swimmers"),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
-    return await ctx.db.insert("swimmers", {
-      name: cleanName(args.name),
+    const profile = await requireCoach(ctx);
+
+    // The owning club decides who may later edit the swimmer. A coach creates
+    // into their own club; a super-user picks one explicitly.
+    let clubId: Id<"clubs">;
+    if (profile.role === "COACH") {
+      if (!profile.clubId) {
+        throw new Error(
+          "You aren't assigned to a club yet. Ask an admin to add you to one.",
+        );
+      }
+      clubId = profile.clubId;
+    } else {
+      if (!args.clubId) throw new Error("Pick a club for this swimmer.");
+      const club = await ctx.db.get(args.clubId);
+      if (!club) throw new Error("That club no longer exists.");
+      clubId = args.clubId;
+    }
+
+    const name = cleanName(args.name);
+    const swimmerId = await ctx.db.insert("swimmers", {
+      name,
       dob: cleanDob(args.dob),
       gender: args.gender,
       notes: cleanNotes(args.notes),
+      clubId,
       active: true,
       createdAt: Date.now(),
     });
+
+    // Best-effort viewer grants — an empty / coach / invalid email is skipped so
+    // one bad address never blocks creating the swimmer. Each new grant schedules
+    // an invite email (Phase 7). The coach can review access on the profile after.
+    for (const email of args.viewerEmails ?? []) {
+      await grantSwimmerAccess(ctx, swimmerId, email, name);
+    }
+
+    return swimmerId;
   },
 });
 
@@ -79,9 +120,10 @@ export const updateSwimmer = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(args.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
 
     const patch: Partial<{
       name: string;
@@ -103,9 +145,10 @@ export const setSwimmerActive = mutation({
   args: { swimmerId: v.id("swimmers"), active: v.boolean() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(args.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
     await ctx.db.patch(args.swimmerId, { active: args.active });
     return null;
   },
@@ -123,9 +166,13 @@ const swimmerRow = v.object({
   gender,
   active: v.boolean(),
   notes: v.optional(v.string()),
+  clubId: v.optional(v.id("clubs")),
   createdAt: v.number(),
   age: v.number(),
   squads: v.array(v.object({ _id: v.id("squads"), name: v.string() })),
+  // Whether the CALLER may edit this swimmer (their own club, or super-user).
+  // Reads stay open, so the roster can show all but disable cross-club edits.
+  editable: v.boolean(),
 });
 
 export const listSwimmers = query({
@@ -136,7 +183,11 @@ export const listSwimmers = query({
   },
   returns: v.array(swimmerRow),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
+    // A super-user edits every swimmer; a coach edits only their own club's.
+    const canEdit = (s: { clubId?: Id<"clubs"> }): boolean =>
+      profile.role === "SUPER_USER" ||
+      (profile.clubId != null && s.clubId === profile.clubId);
 
     // Bounded read: a club roster is small, but cap defensively (guidelines).
     const LIMIT = 500;
@@ -196,9 +247,11 @@ export const listSwimmers = query({
           gender: s.gender,
           active: s.active,
           notes: s.notes,
+          clubId: s.clubId,
           createdAt: s.createdAt,
           age: computeAge(s.dob, today),
           squads,
+          editable: canEdit(s),
         };
       }),
     );
@@ -217,7 +270,11 @@ export const listSwimmers = query({
 export const listForProfile = query({
   args: {},
   returns: v.object({
-    role: v.union(v.literal("COACH"), v.literal("VIEWER")),
+    role: v.union(
+      v.literal("SUPER_USER"),
+      v.literal("COACH"),
+      v.literal("VIEWER"),
+    ),
     swimmers: v.array(
       v.object({
         _id: v.id("swimmers"),
@@ -253,5 +310,45 @@ export const listForProfile = query({
         active: s.active,
       })),
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// listSwimmersForPicker — the whole roster as PUBLIC picker rows
+// ---------------------------------------------------------------------------
+//
+// Any signed-in user may list every swimmer here (docs/access-control.md): this
+// powers the "chart any swimmer" progression picker a viewer uses to see how
+// another swimmer has progressed. Public fields only — name, gender, age band,
+// active flag; no DOB/notes. The heavy per-swimmer detail (and any sensitive
+// field) still flows through the scoped reads, redacted per viewer.
+export const listSwimmersForPicker = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("swimmers"),
+      name: v.string(),
+      gender,
+      age: v.number(),
+      active: v.boolean(),
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireSignedIn(ctx);
+    const swimmers = await ctx.db.query("swimmers").take(500);
+    const today = new Date().toISOString().slice(0, 10);
+    return swimmers
+      .map((s) => ({
+        _id: s._id,
+        name: s.name,
+        gender: s.gender,
+        age: computeAge(s.dob, today),
+        active: s.active,
+      }))
+      // Active first, then by name — the current squad reads at the top.
+      .sort(
+        (a, b) =>
+          Number(b.active) - Number(a.active) || a.name.localeCompare(b.name),
+      );
   },
 });

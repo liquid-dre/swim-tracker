@@ -25,6 +25,9 @@ export type RosterRow = {
   notes?: string;
   age: number;
   squads: { _id: string; name: string }[];
+  // Whether the current user may edit this swimmer (their own club / super-user).
+  // Undefined (e.g. the design preview) is treated as editable.
+  editable?: boolean;
 };
 
 export function RosterTable({
@@ -92,11 +95,20 @@ export function RosterTable({
                   <StatusBadge active={s.active} />
                 </td>
                 <td className="px-4 py-3 text-right sm:px-6">
-                  <RowActions
-                    active={s.active}
-                    onEdit={() => onEdit(s)}
-                    onToggleActive={() => onToggleActive(s)}
-                  />
+                  {s.editable === false ? (
+                    <span
+                      className="text-xs text-ink-faint"
+                      title="This swimmer belongs to another club"
+                    >
+                      Other club
+                    </span>
+                  ) : (
+                    <RowActions
+                      active={s.active}
+                      onEdit={() => onEdit(s)}
+                      onToggleActive={() => onToggleActive(s)}
+                    />
+                  )}
                 </td>
               </tr>
             ))}

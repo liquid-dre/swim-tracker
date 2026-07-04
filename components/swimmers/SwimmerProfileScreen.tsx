@@ -39,7 +39,7 @@ export function SwimmerProfileScreen({
 
   if (data === undefined) return <ProfileSkeleton />;
 
-  const { swimmer, personalBests, history } = data;
+  const { swimmer, personalBests, history, editable } = data;
 
   const breadcrumb = [
     { label: "Dashboard", href: "/dashboard" },
@@ -54,12 +54,14 @@ export function SwimmerProfileScreen({
           title={swimmer.name}
           breadcrumb={breadcrumb}
           actions={
-            <Link
-              href="/log"
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 text-base font-medium text-white shadow-theme-xs outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Timer className="size-4" /> Log a time
-            </Link>
+            editable ? (
+              <Link
+                href="/log"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 text-base font-medium text-white shadow-theme-xs outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Timer className="size-4" /> Log a time
+              </Link>
+            ) : undefined
           }
         />
         <IdentityStrip
@@ -98,7 +100,11 @@ export function SwimmerProfileScreen({
         />
       </Section>
 
-      <ViewerAccessSection swimmerId={swimmerId} swimmerName={swimmer.name} />
+      <ViewerAccessSection
+        swimmerId={swimmerId}
+        swimmerName={swimmer.name}
+        editable={editable}
+      />
 
 
       {/* Edit — keyed per target so the form seeds from the row on open. */}

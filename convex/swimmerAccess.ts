@@ -1,87 +1,128 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
+import { assertCoachManagesSwimmer, requireCoach } from "./authz";
 
-// Viewer ↔ swimmer linkage (BRD §2, §5.9, Step 15). A coach grants a viewer
-// account read access to one or more swimmers; every viewer-facing read then
-// scopes to exactly this link set (see authz.ts). Coach-only, enforced
-// server-side — a viewer can never link, unlink, or list links.
+// Viewer ↔ swimmer linkage (BRD §2, §5.9, Step 15; access-control Phase 6). A
+// coach grants a viewer read access to one or more swimmers; every viewer-facing
+// read then scopes to exactly this link set (see authz.ts). Managing viewers is
+// club-scoped — a coach only touches their own club's swimmers (Phase 5).
 //
-// A link references a `profiles` row by id, so the viewer must already have an
-// account (they've signed up at least once). We look them up by the email they
-// signed up with, normalised the same way auth stores it (lower-cased, trimmed).
+// A grant is by EMAIL, normalised the same way auth stores it (lower-cased,
+// trimmed). If an account already exists we link it now; if not, we pre-authorise
+// it in `pendingSwimmerAccess`, and auth.ts materialises the link when that email
+// signs up. So a coach can invite a parent before they've made an account.
 
-// ---------------------------------------------------------------------------
-// linkViewer — grant a viewer account access to one swimmer (idempotent)
-// ---------------------------------------------------------------------------
+/**
+ * Grant `email` viewer access to `swimmerId`: link an existing account now, or
+ * pre-authorise the email for when it signs up. No auth here — the caller has
+ * already checked staff + club scope. Idempotent (never double-links / -pends).
+ *
+ * On a NEWLY created link or pending invite it schedules a Resend invite email
+ * (`swimmerName` is used in the copy); an idempotent re-grant emails nothing.
+ */
+export async function grantSwimmerAccess(
+  ctx: MutationCtx,
+  swimmerId: Id<"swimmers">,
+  rawEmail: string,
+  swimmerName: string,
+): Promise<
+  "linked" | "already_linked" | "pending" | "already_pending" | "coach" | "skipped"
+> {
+  const email = rawEmail.trim().toLowerCase();
+  if (email === "") return "skipped";
 
-export const linkViewer = mutation({
-  args: { viewerEmail: v.string(), swimmerId: v.id("swimmers") },
-  returns: v.object({
-    profileId: v.id("profiles"),
-    name: v.string(),
-    email: v.string(),
-    alreadyLinked: v.boolean(),
-  }),
-  handler: async (ctx, { viewerEmail, swimmerId }) => {
-    await requireCoach(ctx);
+  const profile = await ctx.db
+    .query("profiles")
+    .filter((q) => q.eq(q.field("email"), email))
+    .unique();
 
-    const swimmer = await ctx.db.get(swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
-
-    const email = viewerEmail.trim().toLowerCase();
-    if (email === "") throw new Error("Enter the viewer's email.");
-
-    // The account must exist first — a link points at a real profile row.
-    const profile = await ctx.db
-      .query("profiles")
-      .filter((q) => q.eq(q.field("email"), email))
-      .unique();
-    if (!profile) {
-      throw new Error(
-        "No account uses that email yet. Ask them to sign up first, then link.",
-      );
-    }
-    // A coach already sees every swimmer; linking one would be meaningless and
-    // would wrongly imply a scoped, read-only relationship.
-    if (profile.role === "COACH") {
-      throw new Error("That account is a coach and already sees every swimmer.");
-    }
-
-    // Idempotent: one link per (viewer, swimmer). Re-linking is a no-op.
+  if (profile) {
+    // A coach / super-user already sees every swimmer — linking is meaningless
+    // and would wrongly imply a scoped, read-only relationship.
+    if (profile.role !== "VIEWER") return "coach";
     const existing = await ctx.db
       .query("swimmerAccess")
       .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
       .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
       .first();
-    if (existing) {
-      return {
-        profileId: profile._id,
-        name: profile.name,
-        email: profile.email,
-        alreadyLinked: true,
-      };
-    }
-
+    if (existing) return "already_linked";
     await ctx.db.insert("swimmerAccess", { profileId: profile._id, swimmerId });
-    return {
-      profileId: profile._id,
-      name: profile.name,
-      email: profile.email,
-      alreadyLinked: false,
-    };
+    await ctx.scheduler.runAfter(0, internal.emails.sendViewerInvite, {
+      toEmail: email,
+      swimmerName,
+      kind: "linked",
+    });
+    return "linked";
+  }
+
+  // No account yet — pre-authorise by email (dedupe on email + swimmer).
+  const pending = await ctx.db
+    .query("pendingSwimmerAccess")
+    .withIndex("by_email", (q) => q.eq("email", email))
+    .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
+    .first();
+  if (pending) return "already_pending";
+  await ctx.db.insert("pendingSwimmerAccess", { email, swimmerId });
+  await ctx.scheduler.runAfter(0, internal.emails.sendViewerInvite, {
+    toEmail: email,
+    swimmerName,
+    kind: "pending",
+  });
+  return "pending";
+}
+
+// Materialising pending grants on sign-in lives in auth.ts, because that
+// callback's ctx uses the generic data model (no typed indexes) and must query
+// with `.filter(...)`.
+
+// ---------------------------------------------------------------------------
+// grantViewerAccess — invite/link a viewer by email (coach, own club)
+// ---------------------------------------------------------------------------
+
+export const grantViewerAccess = mutation({
+  args: { viewerEmail: v.string(), swimmerId: v.id("swimmers") },
+  returns: v.object({
+    status: v.union(v.literal("linked"), v.literal("pending")),
+    email: v.string(),
+  }),
+  handler: async (ctx, { viewerEmail, swimmerId }) => {
+    const profile = await requireCoach(ctx);
+    const swimmer = await ctx.db.get(swimmerId);
+    if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
+
+    const email = viewerEmail.trim().toLowerCase();
+    if (email === "") throw new Error("Enter the viewer's email.");
+
+    const status = await grantSwimmerAccess(ctx, swimmerId, email, swimmer.name);
+    if (status === "coach") {
+      throw new Error(
+        "That account is a coach or admin and already sees every swimmer.",
+      );
+    }
+    if (status === "skipped") throw new Error("Enter the viewer's email.");
+    const simple: "pending" | "linked" =
+      status === "pending" || status === "already_pending" ? "pending" : "linked";
+    return { status: simple, email };
   },
 });
 
 // ---------------------------------------------------------------------------
-// unlinkViewer — revoke a viewer's access to one swimmer (idempotent)
+// unlinkViewer — revoke a linked viewer's access (coach, own club)
 // ---------------------------------------------------------------------------
 
 export const unlinkViewer = mutation({
   args: { profileId: v.id("profiles"), swimmerId: v.id("swimmers") },
   returns: v.null(),
   handler: async (ctx, { profileId, swimmerId }) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
+    const swimmer = await ctx.db.get(swimmerId);
+    if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
+
     const link = await ctx.db
       .query("swimmerAccess")
       .withIndex("by_profile", (q) => q.eq("profileId", profileId))
@@ -93,39 +134,78 @@ export const unlinkViewer = mutation({
 });
 
 // ---------------------------------------------------------------------------
-// listSwimmerViewers — the viewer accounts linked to one swimmer (coach editor)
+// cancelPendingViewer — withdraw an invite that hasn't been claimed yet
+// ---------------------------------------------------------------------------
+
+export const cancelPendingViewer = mutation({
+  args: { email: v.string(), swimmerId: v.id("swimmers") },
+  returns: v.null(),
+  handler: async (ctx, { email, swimmerId }) => {
+    const profile = await requireCoach(ctx);
+    const swimmer = await ctx.db.get(swimmerId);
+    if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
+
+    const normalized = email.trim().toLowerCase();
+    const rows = await ctx.db
+      .query("pendingSwimmerAccess")
+      .withIndex("by_email", (q) => q.eq("email", normalized))
+      .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
+      .collect();
+    for (const r of rows) await ctx.db.delete(r._id);
+    return null;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// listSwimmerViewers — linked viewers AND pending invites for one swimmer
 // ---------------------------------------------------------------------------
 
 export const listSwimmerViewers = query({
   args: { swimmerId: v.id("swimmers") },
   returns: v.array(
     v.object({
-      profileId: v.id("profiles"),
-      name: v.string(),
+      pending: v.boolean(),
       email: v.string(),
+      name: v.string(), // "" for a pending invite (no account yet)
+      profileId: v.union(v.id("profiles"), v.null()),
     }),
   ),
   handler: async (ctx, { swimmerId }) => {
     await requireCoach(ctx);
+
     const links = await ctx.db
       .query("swimmerAccess")
       .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
       .take(200);
-
-    const viewers = await Promise.all(
+    const linked = await Promise.all(
       links.map(async (link) => {
         const profile = await ctx.db.get(link.profileId);
         return profile
           ? {
-              profileId: profile._id,
-              name: profile.name,
+              pending: false,
               email: profile.email,
+              name: profile.name,
+              profileId: profile._id as Id<"profiles"> | null,
             }
           : null;
       }),
     );
-    return viewers
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const pendings = await ctx.db
+      .query("pendingSwimmerAccess")
+      .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
+      .take(200);
+    const pending = pendings.map((p) => ({
+      pending: true,
+      email: p.email,
+      name: "",
+      profileId: null as Id<"profiles"> | null,
+    }));
+
+    return [
+      ...linked.filter((x): x is NonNullable<typeof x> => x !== null),
+      ...pending,
+    ].sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
   },
 });

@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { Select } from "@/components/ui/Select";
 import { useContainerWidth } from "@/hooks/use-container-width";
 import { type Course, type Stroke } from "@/lib/swim";
 import { EventFilter } from "@/components/analysis/EventFilter";
@@ -37,7 +38,7 @@ export function ViewerProgressScreen() {
         description="Your times over the season for one event, and your strength across strokes. Trials and practice are shown but never set a PB."
         actions={<ReadOnlyChip tone="onWater" />}
       />
-      <ProgressionSection swimmerId={selectedId} />
+      <ProgressionSection ownSwimmerId={selectedId} />
       <StrokeProfileSection swimmerId={selectedId} />
     </div>
   );
@@ -47,8 +48,16 @@ export function ViewerProgressScreen() {
 // Progression — one event, the swimmer's own qualifying lines (LCM)
 // ---------------------------------------------------------------------------
 
-function ProgressionSection({ swimmerId }: { swimmerId: Id<"swimmers"> }) {
+function ProgressionSection({ ownSwimmerId }: { ownSwimmerId: Id<"swimmers"> }) {
   const events = useQuery(api.events.listActiveEvents, {});
+  const roster = useQuery(api.swimmers.listSwimmersForPicker, {});
+
+  // The chart defaults to the viewer's own swimmer; picking another shows that
+  // swimmer's PUBLIC progression (the server hides its DOB, so the chart draws
+  // no qualifying-cut overlay or projection for anyone but your own).
+  const [override, setOverride] = useState<Id<"swimmers"> | null>(null);
+  const chartId = override ?? ownSwimmerId;
+
   const [event, setEvent] = useState<EventValue>({
     distance: null,
     stroke: null,
@@ -62,7 +71,7 @@ function ProgressionSection({ swimmerId }: { swimmerId: Id<"swimmers"> }) {
     api.analysis.getProgression,
     eventComplete
       ? {
-          swimmerIds: [swimmerId],
+          swimmerIds: [chartId],
           distance: event.distance as 50 | 100 | 200 | 400 | 800 | 1500,
           stroke: event.stroke as Stroke,
           course: event.course as Course,
@@ -72,14 +81,33 @@ function ProgressionSection({ swimmerId }: { swimmerId: Id<"swimmers"> }) {
 
   const series = data?.series ?? [];
   const withData = series.filter((s) => s.points.length > 0);
+  const chartName = roster?.find((s) => s._id === chartId)?.name;
+  // A "public" view means this isn't one of the viewer's own swimmers, so the
+  // cut overlay and projection are absent — say why so it doesn't read as a bug.
+  const viewingOther = withData[0]?.view === "public";
 
   return (
     <Section
       title="Progression"
-      hint="Every logged time for one event over the season, with your qualifying cuts drawn on long course. The axis is inverted, so faster sits higher and improvement reads as a climb."
+      hint="Every logged time for one event over the season. Long-course qualifying cuts and the time-to-qualify projection show for your own swimmer; pick another to see their times alone."
     >
       <div className="flex flex-col gap-5">
-        <EventFilter events={events} value={event} onChange={setEvent} />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-56">
+            <Select
+              aria-label="Swimmer"
+              placeholder={roster === undefined ? "Loading swimmers…" : "Select a swimmer"}
+              value={chartId}
+              onValueChange={(v) => setOverride(v as Id<"swimmers">)}
+              disabled={roster === undefined}
+              options={(roster ?? []).map((s) => ({
+                value: s._id,
+                label: `${s.name} · ${s.age}${s.active ? "" : " · inactive"}`,
+              }))}
+            />
+          </div>
+          <EventFilter events={events} value={event} onChange={setEvent} />
+        </div>
 
         {!eventComplete ? (
           <MiniEmpty
@@ -96,15 +124,18 @@ function ProgressionSection({ swimmerId }: { swimmerId: Id<"swimmers"> }) {
           <MiniEmpty
             icon={<LineChartIcon aria-hidden className="size-6 text-ink-faint" strokeWidth={1.75} />}
             title="No swims for this event"
-            body={`Nothing has been logged for the ${data.event.label} (${data.event.course}) yet. Pick another event.`}
+            body={`Nothing has been logged for the ${data.event.label} (${data.event.course}) for ${
+              chartName ?? "this swimmer"
+            } yet. Pick another event or swimmer.`}
           />
         ) : (
           <section className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <h3 className="text-sm font-semibold text-ink">
+                {chartName ? `${chartName} · ` : ""}
                 {data.event.label} · {data.event.course}
               </h3>
-              <p className="text-xs text-ink-faint">Higher = faster</p>
+              <p className="text-xs text-ink-faint">Lower = faster</p>
             </div>
             <ProgressionChart
               series={withData}
@@ -113,6 +144,11 @@ function ProgressionSection({ swimmerId }: { swimmerId: Id<"swimmers"> }) {
               standards={data.standards}
               projectionTier={null}
             />
+            {viewingOther && (
+              <p className="text-xs text-ink-faint">
+                Qualifying cuts and projections are shown only for your own swimmer.
+              </p>
+            )}
           </section>
         )}
       </div>

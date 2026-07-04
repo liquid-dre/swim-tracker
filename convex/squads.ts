@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { assertCoachManagesSwimmer, requireCoach } from "./authz";
 
 // Squad management (BRD §5, Step 4). Coaches only. Membership is many-to-many
 // via the `squadMemberships` join table — a swimmer can be in several squads.
@@ -74,9 +74,10 @@ export const addToSquad = mutation({
   args: { swimmerId: v.id("swimmers"), squadId: v.id("squads") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(args.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
     const squad = await ctx.db.get(args.squadId);
     if (!squad) throw new Error("Squad not found.");
 
@@ -99,7 +100,10 @@ export const removeFromSquad = mutation({
   args: { swimmerId: v.id("swimmers"), squadId: v.id("squads") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
+    const swimmer = await ctx.db.get(args.swimmerId);
+    if (!swimmer) throw new Error("Swimmer not found.");
+    assertCoachManagesSwimmer(profile, swimmer);
     const memberships = await ctx.db
       .query("squadMemberships")
       .withIndex("by_swimmer", (q) => q.eq("swimmerId", args.swimmerId))

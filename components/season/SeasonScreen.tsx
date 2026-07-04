@@ -9,6 +9,7 @@ import type { Course, Stroke } from "@/lib/swim";
 import { formatTime } from "@/lib/swim";
 import { formatSeconds, formatShortDate } from "@/lib/format";
 import { notify } from "@/lib/notify";
+import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
@@ -82,6 +83,10 @@ export type SeasonData = {
 export function SeasonScreen() {
   const events = useQuery(api.events.listActiveEvents, {});
   const settings = useQuery(api.settings.getAppSettings, {});
+  // The season window is global reference data: only the super-user sets it
+  // (docs/access-control.md); coaches see it read-only.
+  const profile = useCurrentProfile();
+  const canEditSeason = profile?.role === "SUPER_USER";
 
   const [mode, setMode] = useState<Mode>("event");
   const [event, setEvent] = useState<EventValue>({
@@ -144,7 +149,7 @@ export function SeasonScreen() {
             )}
           </>
         }
-        filters={<SeasonStartEditor settings={settings} />}
+        filters={<SeasonStartEditor settings={settings} canEdit={canEditSeason} />}
         filterCount={settings?.source === "custom" ? 1 : 0}
         filtersLabel="Season"
       />
@@ -182,7 +187,13 @@ type Settings = {
   source: "custom" | "rolling";
 };
 
-function SeasonStartEditor({ settings }: { settings: Settings | undefined }) {
+function SeasonStartEditor({
+  settings,
+  canEdit,
+}: {
+  settings: Settings | undefined;
+  canEdit: boolean;
+}) {
   const setSeasonStart = useMutation(api.settings.setSeasonStart);
   // The input tracks only the coach's local override (null = show the live
   // effective start). No effect needed: the displayed value is derived, and a
@@ -244,9 +255,17 @@ function SeasonStartEditor({ settings }: { settings: Settings | undefined }) {
         </span>{" "}
         {settings?.source === "rolling"
           ? "— the default rolling 12 months."
-          : "— a fixed start you set."}
+          : "— a fixed start."}
       </p>
 
+      {!canEdit && (
+        <p className="text-xs text-ink-faint">
+          The super-user sets the season window.
+        </p>
+      )}
+
+      {canEdit && (
+        <>
       <label className="flex flex-col gap-1.5">
         <span className="text-xs font-medium text-ink-muted">Start date</span>
         <input
@@ -294,6 +313,8 @@ function SeasonStartEditor({ settings }: { settings: Settings | undefined }) {
           </Button>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }
