@@ -5,20 +5,20 @@ import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Droplets, Mail } from "lucide-react";
+import { Mail } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { AuthShell } from "@/components/marketing/AuthShell";
 import { stashCoachInvite } from "@/lib/coachInvite";
 
-// Sign up (Step 1.2), themed to the design system (DESIGN.md). A successful
-// sign-up creates the auth user and, via the afterUserCreatedOrUpdated callback,
-// a VIEWER profile. Shares the card / Input / Button vocabulary with /login.
-//
-// A `?invite=<token>` in the URL is a coach invite (access-control P0): we preview
-// the club it grants, and after sign-up we redeem the token so the account becomes
-// that club's coach — atomically, without the coach ever choosing a club.
+// Sign up (Step 1.2), rehoused in the water AuthShell for the front-door overhaul.
+// A successful sign-up creates the auth user and, via afterUserCreatedOrUpdated,
+// a VIEWER profile. A `?invite=<token>` in the URL is a coach invite (P0): we
+// preview the club it grants, stash the token, and redeem it after sign-up from
+// the authenticated app shell (InviteRedeemer) — never here, where it could race
+// the session becoming live.
 export default function SignUpPage() {
   const { signIn } = useAuthActions();
   const router = useRouter();
@@ -26,12 +26,7 @@ export default function SignUpPage() {
   const [submitting, setSubmitting] = useState(false);
 
   // Read the invite token client-side (after mount) so the preview query runs,
-  // and stash it for post-login redemption (survives the sign-in redirect and,
-  // via sessionStorage, a hop to /login). A deliberate one-time read from an
-  // external store (the URL): the server and first client render use null, then
-  // we patch — avoiding the hydration mismatch a lazy initialiser reading
-  // `window` would cause. Redemption itself happens in InviteRedeemer, once the
-  // Convex session is live — never here where it could race that.
+  // and stash it for post-login redemption.
   const [token, setToken] = useState<string | null>(null);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -44,23 +39,23 @@ export default function SignUpPage() {
   );
 
   return (
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">
-      <div className="flex flex-col items-center gap-3 text-center">
-        <span className="flex size-11 items-center justify-center rounded-xl bg-brand-50 text-brand-500">
-          <Droplets className="size-6" strokeWidth={2} />
-        </span>
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-tight text-gray-900">
-            Create account
-          </h1>
-          <p className="text-sm text-gray-500">
-            Set up your Swim Tracker account to get started.
-          </p>
-        </div>
-      </div>
-
+    <AuthShell
+      title="Create account"
+      subtitle="Set up your Swim Tracker account to get started."
+      footer={
+        <>
+          Already have an account?{" "}
+          <Link
+            href="/login"
+            className="font-medium text-brand-500 hover:text-brand-600"
+          >
+            Sign in
+          </Link>
+        </>
+      }
+    >
       {token && invite && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-600">
+        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-600">
           <Mail aria-hidden className="mt-0.5 size-4 shrink-0" strokeWidth={2} />
           <p>
             You&rsquo;ve been invited to coach{" "}
@@ -70,14 +65,14 @@ export default function SignUpPage() {
         </div>
       )}
       {token && invite === null && (
-        <div className="rounded-xl border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm text-warning-600">
+        <div className="mb-4 rounded-xl border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm text-warning-600">
           This coach invite link is invalid or has already been used. You can
           still create a regular account below.
         </div>
       )}
 
       <form
-        className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-theme-sm"
+        className="flex flex-col gap-4"
         onSubmit={async (event) => {
           event.preventDefault();
           setSubmitting(true);
@@ -128,16 +123,6 @@ export default function SignUpPage() {
           {submitting ? "Creating…" : "Create account"}
         </Button>
       </form>
-
-      <p className="text-center text-sm text-gray-500">
-        Already have an account?{" "}
-        <Link
-          href="/login"
-          className="font-medium text-brand-500 hover:text-brand-600"
-        >
-          Sign in
-        </Link>
-      </p>
-    </main>
+    </AuthShell>
   );
 }
