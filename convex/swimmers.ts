@@ -225,6 +225,9 @@ export const listSwimmers = query({
     activeOnly: v.optional(v.boolean()),
     squadId: v.optional(v.id("squads")),
     search: v.optional(v.string()),
+    // "My swimmers": restrict to the caller's OWN club (a coach's edit scope).
+    // A super-user has no club, so this yields an empty list for them.
+    myClubOnly: v.optional(v.boolean()),
   },
   returns: v.array(swimmerRow),
   handler: async (ctx, args) => {
@@ -260,6 +263,13 @@ export const listSwimmers = query({
     const needle = args.search?.trim().toLowerCase();
     if (needle) {
       swimmers = swimmers.filter((s) => s.name.toLowerCase().includes(needle));
+    }
+
+    // "My swimmers": only the caller's own club (empty when they have no club).
+    if (args.myClubOnly) {
+      swimmers = swimmers.filter(
+        (s) => profile.clubId != null && s.clubId === profile.clubId,
+      );
     }
 
     // Stable, human order: by name.

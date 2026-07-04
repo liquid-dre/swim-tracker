@@ -15,6 +15,7 @@ import {
   Target,
   Timer,
   TrendingUp,
+  UserCheck,
   Users,
   UsersRound,
   Waves,
@@ -88,6 +89,7 @@ export const NAV: NavNode[] = [
     roles: ["COACH"],
     items: [
       { label: "Roster", href: "/swimmers", icon: Users },
+      { label: "My swimmers", href: "/my-swimmers", icon: UserCheck },
       { label: "Squads", href: "/squads", icon: UsersRound },
       { label: "Log a time", href: "/log", icon: Timer },
     ],

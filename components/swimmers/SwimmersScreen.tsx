@@ -17,7 +17,18 @@ import { SwimmerForm } from "./SwimmerForm";
 type Scope = "active" | "all";
 type EditTarget = RosterRow | "new" | null;
 
-export function SwimmersScreen({ today }: { today: string }) {
+export function SwimmersScreen({
+  today,
+  myClubOnly = false,
+  title = "Roster",
+  href = "/swimmers",
+}: {
+  today: string;
+  // "My swimmers" mode: scope the list to the coach's own club (server-enforced).
+  myClubOnly?: boolean;
+  title?: string;
+  href?: string;
+}) {
   const [scope, setScope] = useState<Scope>("active");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<EditTarget>(null);
@@ -25,6 +36,7 @@ export function SwimmersScreen({ today }: { today: string }) {
   const swimmers = useQuery(api.swimmers.listSwimmers, {
     activeOnly: scope === "active",
     search: search.trim() === "" ? undefined : search.trim(),
+    ...(myClubOnly ? { myClubOnly: true } : {}),
   });
   const setActive = useMutation(api.swimmers.setSwimmerActive);
 
@@ -38,8 +50,8 @@ export function SwimmersScreen({ today }: { today: string }) {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Roster"
-        breadcrumb={trailForHref("/swimmers")}
+        title={title}
+        breadcrumb={trailForHref(href)}
         actions={
           <Button variant="primary" onClick={() => setEditing("new")}>
             <UserPlus className="size-4" /> Add swimmer
