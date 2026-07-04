@@ -131,6 +131,18 @@ export function homeForRole(role: Role): string {
   return role === "VIEWER" ? "/me" : "/dashboard";
 }
 
+/** Human label for a role, shown in the shell's user menu. */
+export function roleLabel(role: Role): string {
+  switch (role) {
+    case "SUPER_USER":
+      return "Admin";
+    case "COACH":
+      return "Coach";
+    case "VIEWER":
+      return "Viewer";
+  }
+}
+
 /**
  * The route-access boundary, mirrored server-side in every Convex function.
  *   - VIEWER: only their own home (`/me/*`).

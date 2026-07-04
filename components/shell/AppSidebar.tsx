@@ -34,6 +34,7 @@ import {
   isLeafActive,
   isRouteActive,
   navForRole,
+  roleLabel,
   type NavGroup,
   type Role,
 } from "@/lib/nav";
@@ -61,14 +62,11 @@ export function AppSidebar() {
   const pathname = usePathname();
   const profile = useCurrentProfile();
   // Role drives which nav a user sees. While the profile is still resolving the
-  // role is unknown, so we render NO items rather than guess COACH — a viewer
-  // must never see the coach tree flash by (the content is held by RoleGuard).
-  const role: Role | undefined =
-    profile === undefined
-      ? undefined
-      : profile?.role === "VIEWER"
-        ? "VIEWER"
-        : "COACH";
+  // role is unknown, so we render NO items rather than guess — a viewer must
+  // never see the coach tree flash by (the content is held by RoleGuard). The
+  // real role passes through so a SUPER_USER gets the Admin group (navForRole),
+  // not a coach-collapsed view.
+  const role: Role | undefined = profile == null ? undefined : profile.role;
   const nav = role ? navForRole(role) : [];
 
   return (
@@ -433,7 +431,7 @@ function SidebarUser({
               {profile?.name ?? "Loading…"}
             </span>
             <span className="truncate text-xs text-ink-muted">
-              {role ? (role === "COACH" ? "Coach" : "Viewer") : ""}
+              {role ? roleLabel(role) : ""}
               {profile?.email ? ` · ${profile.email}` : ""}
             </span>
           </div>

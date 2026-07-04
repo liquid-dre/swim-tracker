@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { type Role } from "@/lib/nav";
+import { roleLabel, type Role } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 
 /*
@@ -25,12 +25,8 @@ import { useCurrentProfile } from "@/lib/useCurrentProfile";
 export function AppTopbar() {
   const profile = useCurrentProfile();
   // Unknown until the profile resolves — don't label a loading viewer "Coach".
-  const role: Role | undefined =
-    profile === undefined
-      ? undefined
-      : profile?.role === "VIEWER"
-        ? "VIEWER"
-        : "COACH";
+  // The real role passes through so a SUPER_USER reads as "Admin", not "Coach".
+  const role: Role | undefined = profile == null ? undefined : profile.role;
   const { signOut } = useAuthActions();
   const router = useRouter();
 
@@ -73,7 +69,7 @@ export function AppTopbar() {
                 {profile?.name ?? "Signed in"}
               </span>
               <span className="block truncate text-xs text-ink-muted">
-                {role ? (role === "COACH" ? "Coach" : "Viewer") : ""}
+                {role ? roleLabel(role) : ""}
                 {profile?.email ? ` · ${profile.email}` : ""}
               </span>
             </DropdownMenuLabel>
