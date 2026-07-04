@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
     • SINGLE TIER (L2 / L3 / SANJ) — one horizontal bar per event filling toward
       that tier's cut. Qualified events read as a full green bar + a check; the
       rest fill part-way in the brand accent with the exact gap ("2.1s to go").
-      Sorted most-complete first.
+      Ordered 50→ by distance, then IM, Free, Back, Breast, Fly.
 
     • ALL — one bar per event with the L2/L3/SANJ cuts as fixed calibrated zones
       (easiest → hardest, headroom beyond SANJ). The fill runs to the swimmer's
@@ -40,6 +40,26 @@ const NEXT_LABEL: Record<Tier, string> = {
   LEVEL_3: "L3",
   LEVEL_2: "L2",
 };
+
+// Fixed reading order for the qualifying-progress lists: by distance ascending
+// (50, 100, 200, …), then stroke IM → Free → Back → Breast → Fly. Every bar's
+// `key` is `${distance}|${stroke}`, so both sort fields come straight off it.
+const STROKE_RANK: Record<string, number> = {
+  IM: 0,
+  FREE: 1,
+  BACK: 2,
+  BREAST: 3,
+  FLY: 4,
+};
+
+function byEventOrder(a: { key: string }, b: { key: string }): number {
+  const [da, sa] = a.key.split("|");
+  const [db, sb] = b.key.split("|");
+  return (
+    Number(da) - Number(db) ||
+    (STROKE_RANK[sa] ?? 99) - (STROKE_RANK[sb] ?? 99)
+  );
+}
 
 // The swimmer's PB, drawn ONTO the coloured fill. The inside/outside choice is
 // made in PIXELS, not a percentage guess: if the fill is physically wide enough
@@ -110,13 +130,9 @@ function fillFraction(bar: SingleBar): number {
 }
 
 export function SingleTierProgress({ bars }: { bars: SingleBar[] }) {
-  // Most complete first; among equals, the smaller gap (closer to the cut).
-  const ordered = [...bars].sort((a, b) => {
-    const fa = fillFraction(a);
-    const fb = fillFraction(b);
-    if (fa !== fb) return fb - fa;
-    return a.gapMs - b.gapMs;
-  });
+  // Fixed event order: 50→ by distance, then IM, Free, Back, Breast, Fly. (Every
+  // bar here has a time; no-time events are listed separately by the screen.)
+  const ordered = [...bars].sort(byEventOrder);
 
   return (
     <ul className="flex flex-col divide-y divide-gray-100">
@@ -215,10 +231,6 @@ const NONE_FILL = "var(--color-tier-none)";
 // Easiest → hardest, matching left → right on the track.
 const ASC_TIERS: ReadonlyArray<Tier> = ["LEVEL_2", "LEVEL_3", "SANJ"];
 
-function tierRank(t: Tier | null): number {
-  return t === "SANJ" ? 3 : t === "LEVEL_3" ? 2 : t === "LEVEL_2" ? 1 : 0;
-}
-
 type AllRow = AllBar & {
   cutsByTier: { LEVEL_2: number | null; LEVEL_3: number | null; SANJ: number | null };
   present: Tier[]; // tiers this event actually has a cut for (§4.9 coverage)
@@ -242,20 +254,13 @@ export function AllTierProgress({ bars }: { bars: AllBar[] }) {
     };
   });
 
-  // Highest tier met first (SANJ → none); within a tier, those who've met the
-  // hardest available cut lead, then the rest by closeness to the next tier.
-  // Events with no meet time trail.
+  // Events WITH a time on top, no-time events below — each group in the fixed
+  // event order (50→ by distance, then IM, Free, Back, Breast, Fly).
   rows.sort((a, b) => {
     const pa = a.pbMs !== null ? 0 : 1;
     const pb = b.pbMs !== null ? 0 : 1;
     if (pa !== pb) return pa - pb;
-    const ra = tierRank(a.tier);
-    const rb = tierRank(b.tier);
-    if (ra !== rb) return rb - ra;
-    const ta = a.nextTier === null ? 0 : 1;
-    const tb = b.nextTier === null ? 0 : 1;
-    if (ta !== tb) return ta - tb;
-    return (a.gapMs ?? 0) - (b.gapMs ?? 0);
+    return byEventOrder(a, b);
   });
 
   return (
