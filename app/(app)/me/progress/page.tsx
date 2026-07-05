@@ -1,7 +1,7 @@
-import { ViewerProgressScreen } from "@/components/me/ViewerProgressScreen";
+import { redirect } from "next/navigation";
 
-// Viewer Progress (Step R6). Progression chart + stroke-profile wheel for the
-// selected linked swimmer. Read-only; server-scoped to the viewer's swimmer(s).
+// Old viewer Progress route. Progression is now its own coach-style screen at
+// /me/progression; redirect so existing links/bookmarks still land.
 export default function ViewerProgressPage() {
-  return <ViewerProgressScreen />;
+  redirect("/me/progression");
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { CalendarDays, RotateCcw, TrendingUp } from "lucide-react";
 
@@ -82,6 +83,7 @@ export type SeasonData = {
 // ---------------------------------------------------------------------------
 
 export function SeasonScreen() {
+  const pathname = usePathname();
   const events = useQuery(api.events.listActiveEvents, {});
   const settings = useQuery(api.settings.getAppSettings, {});
   // The season window is global reference data: only the super-user sets it
@@ -119,7 +121,7 @@ export function SeasonScreen() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Season improvement"
-        breadcrumb={trailForHref("/season")}
+        breadcrumb={trailForHref(pathname)}
         description="Who's dropping the most time this season. Ranked by improvement between each swimmer's first in-season meet time and their fastest since — by a single event, or averaged across every event. Meet times only; trials and practice never count."
       />
 

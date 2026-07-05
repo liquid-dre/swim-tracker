@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { CalendarClock, Timer } from "lucide-react";
 
@@ -9,6 +10,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Tabs } from "@/components/ui/Tabs";
 import { notify } from "@/lib/notify";
 import { formatShortDate } from "@/lib/format";
 import { formatTime } from "@/lib/swim";
@@ -19,10 +21,14 @@ import { ResultEditSheet } from "./ResultEditSheet";
 import { ViewerAccessSection } from "./ViewerAccessSection";
 
 /*
-  Swimmer profile (Step 6, BRD §5.4). One screen, four reads: identity, the PB
-  board (derived headline meet PBs × course), the improvement summary, and the
-  full history with edit/delete. All data comes from `getSwimmerProfile`; PBs are
-  derived server-side (there is no PB table).
+  Swimmer profile (Step 6, BRD §5.4). Identity sits above the swim data. For a
+  coach it splits into two tabs: **Times** (the PB board — derived headline meet
+  PBs × course — plus the improvement summary and full history with edit/delete)
+  and **Access** (coach control of who may view this swimmer), with a count pill
+  surfacing pending requests. For a viewer (the /me/swimmers/[id] route) the
+  Access tab is hidden entirely and the history is read-only — they see the same
+  numbers, nothing that edits. All swim data comes from `getSwimmerProfile`; PBs
+  are derived server-side (no PB table); access is enforced server-side too.
 */
 export function SwimmerProfileScreen({
   swimmerId,
@@ -31,21 +37,75 @@ export function SwimmerProfileScreen({
   swimmerId: Id<"swimmers">;
   today: string;
 }) {
+  const pathname = usePathname();
+  // The viewer area (/me/*) is read-only and never shows the access admin. This
+  // is deterministic from the route (a viewer can't reach /swimmers/[id], a
+  // coach can't reach /me/*), so there's no role-loading flash.
+  const viewerArea = pathname.startsWith("/me");
+
   const data = useQuery(api.personalBests.getSwimmerProfile, { swimmerId });
   const deleteResult = useMutation(api.results.deleteResult);
 
   const [editing, setEditing] = useState<HistoryResult | null>(null);
   const [deleting, setDeleting] = useState<HistoryResult | null>(null);
+  const [tab, setTab] = useState("times");
+
+  // Pending-request count for the Access tab pill, so a coach on the Times tab
+  // still sees when someone is waiting. Shares the query the Access panel uses
+  // (Convex dedupes by args); only coaches who manage this swimmer may read it.
+  const editable = data?.editable ?? false;
+  const accessRequests = useQuery(
+    api.swimmerAccess.listAccessRequestsForSwimmer,
+    editable ? { swimmerId } : "skip",
+  );
 
   if (data === undefined) return <ProfileSkeleton />;
 
-  const { swimmer, personalBests, history, editable } = data;
+  const { swimmer, personalBests, history } = data;
 
-  const breadcrumb = [
-    { label: "Dashboard", href: "/dashboard" },
-    { label: "Roster", href: "/swimmers" },
-    { label: swimmer.name },
-  ];
+  const breadcrumb = viewerArea
+    ? [{ label: "My swimmers", href: "/me/swimmers" }, { label: swimmer.name }]
+    : [
+        { label: "Dashboard", href: "/dashboard" },
+        { label: "Roster", href: "/swimmers" },
+        { label: swimmer.name },
+      ];
+
+  // The Times sections — the read the profile always leads with. History is
+  // editable only for a coach who manages this swimmer; a viewer (and any
+  // other-club coach) gets it read-only (no actions column).
+  const timesContent = (
+    <div className="flex flex-col gap-8">
+      <Section
+        title="Personal bests"
+        hint="Fastest meet time per event and course. Trials and practice never set a PB."
+      >
+        <PbBoard pbs={personalBests} />
+      </Section>
+
+      <Section
+        title="Improvement"
+        hint="First logged swim to the current PB, per event."
+      >
+        <ImprovementSummary pbs={personalBests} />
+      </Section>
+
+      <Section
+        title="History"
+        hint={
+          editable
+            ? "Every logged swim. Filter, sort, edit or delete."
+            : "Every logged swim. Filter and sort."
+        }
+      >
+        <HistoryTable
+          rows={history}
+          onEdit={editable ? (row) => setEditing(row) : undefined}
+          onDelete={editable ? (row) => setDeleting(row) : undefined}
+        />
+      </Section>
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-8">
@@ -79,34 +139,31 @@ export function SwimmerProfileScreen({
         )}
       </div>
 
-      <Section
-        title="Personal bests"
-        hint="Fastest meet time per event and course. Trials and practice never set a PB."
-      >
-        <PbBoard pbs={personalBests} />
-      </Section>
-
-      <Section
-        title="Improvement"
-        hint="First logged swim to the current PB, per event."
-      >
-        <ImprovementSummary pbs={personalBests} />
-      </Section>
-
-      <Section title="History" hint="Every logged swim. Filter, sort, edit or delete.">
-        <HistoryTable
-          rows={history}
-          onEdit={(row) => setEditing(row)}
-          onDelete={(row) => setDeleting(row)}
+      {viewerArea ? (
+        // Viewer: just the times, no tab bar and no access admin.
+        timesContent
+      ) : (
+        <Tabs
+          ariaLabel={`${swimmer.name} sections`}
+          value={tab}
+          onValueChange={setTab}
+          items={[
+            { value: "times", label: "Times", content: timesContent },
+            {
+              value: "access",
+              label: "Access",
+              badge: accessRequests?.length ?? 0,
+              content: (
+                <ViewerAccessSection
+                  swimmerId={swimmerId}
+                  swimmerName={swimmer.name}
+                  editable={editable}
+                />
+              ),
+            },
+          ]}
         />
-      </Section>
-
-      <ViewerAccessSection
-        swimmerId={swimmerId}
-        swimmerName={swimmer.name}
-        editable={editable}
-      />
-
+      )}
 
       {/* Edit — keyed per target so the form seeds from the row on open. */}
       <ResultEditSheet

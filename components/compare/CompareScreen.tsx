@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { ArrowDown, ArrowUp, BarChart3 } from "lucide-react";
 
@@ -11,6 +12,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { trailForHref } from "@/lib/nav";
+import { swimmerProfileBase } from "@/lib/swimmerHref";
 import { formatTime, type Course, type Stroke, type Tier } from "@/lib/swim";
 import { formatShortDate, formatSeconds } from "@/lib/format";
 import { EventFilter } from "@/components/analysis/EventFilter";
@@ -41,6 +43,8 @@ type SortField = "time" | "name" | "age";
 type SortDir = "asc" | "desc";
 
 export function CompareScreen() {
+  const pathname = usePathname();
+  const swimmerBase = swimmerProfileBase(pathname);
   const events = useQuery(api.events.listActiveEvents, {});
 
   const [event, setEvent] = useState<EventValue>({
@@ -151,7 +155,7 @@ export function CompareScreen() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Comparison"
-        breadcrumb={trailForHref("/compare")}
+        breadcrumb={trailForHref(pathname)}
         description="Rank swimmers on one event and course by their fastest meet time. Trials and practice never count."
       />
 
@@ -299,7 +303,7 @@ export function CompareScreen() {
                               </td>
                               <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">
                                 <Link
-                                  href={`/swimmers/${r.swimmerId}`}
+                                  href={`${swimmerBase}/${r.swimmerId}`}
                                   className="rounded-sm outline-none hover:text-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
                                 >
                                   {r.name}

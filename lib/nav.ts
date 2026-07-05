@@ -5,12 +5,10 @@ import {
   Building2,
   Gauge,
   Grid3x3,
-  History,
   LayoutDashboard,
   LineChart,
   Radar,
   Ruler,
-  Search,
   Shield,
   Target,
   Timer,
@@ -58,22 +56,42 @@ export type NavNode =
 // children's (Waves / Gauge / Award) so the collapsed icon rail never shows a
 // parent and child with the same glyph.
 export const NAV: NavNode[] = [
-  // Viewer nav (Step R6). A compartmentalised, read-only experience over the
-  // viewer's OWN swimmer(s): a lean overview plus one focused section each for
-  // progress, qualifying and history. `exact` on Overview so it doesn't stay
-  // lit on the sub-routes. Every route is under /me — the viewer boundary.
+  // Viewer nav. A read-only mirror of the coach IA, scoped server-side to the
+  // viewer's OWN linked swimmer(s): the same Swimmer / Performance / Qualifying
+  // shape and the same screens as staff, minus anything that edits. Every route
+  // is under /me — the viewer boundary — and each analysis screen has its own
+  // in-toolbar swimmer picker, so there is no global "Viewing:" switcher. The
+  // request-access flow (/me/find) is reached from the My swimmers screen.
   {
-    kind: "item",
-    label: "Overview",
-    href: "/me",
-    icon: LayoutDashboard,
+    kind: "group",
+    label: "Swimmer",
+    icon: Waves,
     roles: ["VIEWER"],
-    exact: true,
+    items: [{ label: "My swimmers", href: "/me/swimmers", icon: UserCheck }],
   },
-  { kind: "item", label: "Progress", href: "/me/progress", icon: LineChart, roles: ["VIEWER"] },
-  { kind: "item", label: "Road to qualify", href: "/me/road", icon: Target, roles: ["VIEWER"] },
-  { kind: "item", label: "History", href: "/me/history", icon: History, roles: ["VIEWER"] },
-  { kind: "item", label: "Find a swimmer", href: "/me/find", icon: Search, roles: ["VIEWER"] },
+  {
+    kind: "group",
+    label: "Performance",
+    icon: Gauge,
+    roles: ["VIEWER"],
+    items: [
+      { label: "Comparison", href: "/me/compare", icon: BarChart3 },
+      { label: "Progression", href: "/me/progression", icon: LineChart },
+      { label: "Stroke profile", href: "/me/stroke-profile", icon: Radar },
+      { label: "Season improvement", href: "/me/season", icon: TrendingUp },
+    ],
+  },
+  {
+    kind: "group",
+    label: "Qualifying",
+    icon: Award,
+    roles: ["VIEWER"],
+    items: [
+      { label: "Status matrix", href: "/me/status", icon: Grid3x3 },
+      { label: "Road to qualify", href: "/me/road", icon: Target },
+      { label: "Standards", href: "/me/standards", icon: Ruler },
+    ],
+  },
   {
     kind: "item",
     label: "Dashboard",
@@ -129,7 +147,7 @@ export const NAV: NavNode[] = [
 
 /** The landing route for a role after login / on redirect from a barred route. */
 export function homeForRole(role: Role): string {
-  return role === "VIEWER" ? "/me" : "/dashboard";
+  return role === "VIEWER" ? "/me/swimmers" : "/dashboard";
 }
 
 /** Human label for a role, shown in the shell's user menu. */
@@ -213,6 +231,24 @@ export type Crumb = { label: string; href?: string };
  * "Dashboard / <Group> / <Page>" with the group as a non-link middle crumb.
  */
 export function trailForHref(href: string): Crumb[] {
+  // Viewer area: rooted at "My swimmers" (the viewer's home), mirroring the
+  // coach Dashboard root. Grouped pages read "My swimmers / <Group> / <Page>".
+  if (href === "/me" || href.startsWith("/me/")) {
+    const root: Crumb = { label: "My swimmers", href: "/me/swimmers" };
+    if (href === "/me/swimmers") return [{ label: "My swimmers" }];
+    for (const node of NAV) {
+      if (node.roles && !node.roles.includes("VIEWER")) continue;
+      if (node.kind === "item" && node.href === href) {
+        return [root, { label: node.label }];
+      }
+      if (node.kind === "group") {
+        const item = node.items.find((it) => it.href === href);
+        if (item) return [root, { label: node.label }, { label: item.label }];
+      }
+    }
+    return [root, { label: leafForHref(href)?.label ?? href }];
+  }
+
   const root: Crumb = { label: "Dashboard", href: "/dashboard" };
   if (href === "/dashboard") return [{ label: "Dashboard" }];
 
