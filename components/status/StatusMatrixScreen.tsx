@@ -151,25 +151,25 @@ export function StatusMatrixScreen() {
         />
       ) : (
         <>
-          {/* The card hugs the table (w-fit) instead of stretching to the full
-              content width — so a matrix with only a few events sits compact and
-              left-aligned rather than flinging its columns to the right edge with
-              a dead band beside them. max-w-full + the inner overflow-auto keep a
-              wide matrix scrollable; self-start stops the flex column stretching
-              it back to full width. */}
+          {/* Full-width card; the inner div is the scroll container, so a wide
+              matrix scrolls horizontally INSIDE the card and never pushes the
+              shell past the viewport (the app inset is min-w-0). w-full on the
+              table makes it fill the card, and the swimmer column is pinned to
+              its content width (w-px + nowrap) so the leftover width is shared by
+              the event columns instead of ballooning one column — no dead band. */}
           <div
-            className="w-fit max-w-full self-start overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm transition-opacity [transition-duration:var(--dur-1)]"
+            className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm transition-opacity [transition-duration:var(--dur-1)]"
             style={{ opacity: refetching ? 0.55 : 1 }}
             aria-busy={refetching}
           >
             <div className="max-h-[70vh] overflow-auto custom-scrollbar">
-              <table className="border-separate border-spacing-0 text-sm">
+              <table className="w-full border-separate border-spacing-0 text-sm">
                 <thead>
                   <tr>
                     {/* Corner: sticky on both axes so it never scrolls away. */}
                     <th
                       scope="col"
-                      className="sticky left-0 top-0 z-30 border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500"
+                      className="sticky left-0 top-0 z-30 w-px whitespace-nowrap border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500"
                     >
                       Swimmer
                     </th>
@@ -191,7 +191,7 @@ export function StatusMatrixScreen() {
                     <tr key={r.swimmerId} className="group">
                       <th
                         scope="row"
-                        className="sticky left-0 z-10 whitespace-nowrap border-b border-gray-100 bg-white px-4 py-2.5 text-left align-middle font-medium text-ink transition-colors group-hover:bg-aqua-50"
+                        className="sticky left-0 z-10 w-px whitespace-nowrap border-b border-gray-100 bg-white px-4 py-2.5 text-left align-middle font-medium text-ink transition-colors group-hover:bg-aqua-50"
                       >
                         <Link
                           href={`${swimmerBase}/${r.swimmerId}`}
@@ -264,8 +264,9 @@ function MatrixCell({
   nextTier: Tier | null;
   gapMs: number | null;
 }) {
-  // Each event column sizes to its content (the table is content-width and the
-  // card hugs it), so the cells stay compact and aligned under their header.
+  // Event columns carry no explicit width, so on a narrow matrix they share the
+  // leftover width evenly (the swimmer column is pinned to its content), and on a
+  // wide one they sit at content width and the whole grid scrolls in its card.
   const base =
     "whitespace-nowrap border-b border-l border-gray-100 px-2.5 py-2 text-center align-middle transition-colors group-hover:bg-aqua-50";
 

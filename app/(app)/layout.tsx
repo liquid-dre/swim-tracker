@@ -27,7 +27,7 @@ export default async function AppLayout({
       <AppSidebar />
       <SidebarInset>
         <AppTopbar />
-        <div className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">
+        <div className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">
           <RoleGuard>{children}</RoleGuard>
         </div>
       </SidebarInset>
