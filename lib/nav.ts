@@ -71,7 +71,6 @@ export const NAV: NavNode[] = [
     exact: true,
   },
   { kind: "item", label: "Progress", href: "/me/progress", icon: LineChart, roles: ["VIEWER"] },
-  { kind: "item", label: "Rankings", href: "/me/rankings", icon: BarChart3, roles: ["VIEWER"] },
   { kind: "item", label: "Road to qualify", href: "/me/road", icon: Target, roles: ["VIEWER"] },
   { kind: "item", label: "History", href: "/me/history", icon: History, roles: ["VIEWER"] },
   { kind: "item", label: "Find a swimmer", href: "/me/find", icon: Search, roles: ["VIEWER"] },

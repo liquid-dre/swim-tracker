@@ -3,9 +3,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import {
   requireCoach,
-  requireSignedIn,
   requireSwimmerAccess,
-  swimmerViewer,
+  requireSwimmersAccess,
 } from "./authz";
 import {
   computeAge,
@@ -107,7 +106,8 @@ const comparisonRow = v.object({
   swimDate: v.string(),
   meetName: v.union(v.string(), v.null()),
   // Hardest qualifying tier this headline PB meets, at the swimmer's EXACT age
-  // (§4.9). LCM only — always null on SCM (standards are long-course, §4.2).
+  // (§4.9). The long-course cut is the reference on both courses; null only when
+  // no cut covers this event/age (e.g. an SCM-only event with no standard).
   highestTier: v.union(tier, v.null()),
 });
 
@@ -124,10 +124,10 @@ export const getEventComparison = query({
     rows: v.array(comparisonRow),
   }),
   handler: async (ctx, args) => {
-    // Open to any signed-in user (docs/access-control.md): the leaderboard is
-    // the "where do I stand vs everyone" view, and every field here is public
-    // (name, age band, PB, tier) — no DOB/notes. Coaches and viewers alike.
-    await requireSignedIn(ctx);
+    // Coach / super-user ONLY (docs/access-control.md). A cross-roster leaderboard
+    // exposes every swimmer's name and time, so it is never shown to a viewer — a
+    // parent/swimmer sees names and times for their own linked swimmer(s) alone.
+    await requireCoach(ctx);
 
     const results = await ctx.db
       .query("results")
@@ -164,25 +164,24 @@ export const getEventComparison = query({
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // Standards are LCM-only (§4.2, §4.9). On LCM, colour each bar by the
-    // hardest tier its PB meets AT THE SWIMMER'S EXACT AGE — so we resolve cuts
+    // Standards are defined long-course, but the same cut is the reference on SCM
+    // too when no SCM-specific cut exists — so we colour each bar by the hardest
+    // tier its PB meets AT THE SWIMMER'S EXACT AGE on both courses, resolving cuts
     // per (gender, exact age) from this event's cut rows, loaded once per gender.
+    // (An event with no cut rows — e.g. a 100 IM SCM — simply resolves to none.)
     const cutsByGender = new Map<"M" | "F", Doc<"standards">[]>();
     async function loadCuts(g: "M" | "F"): Promise<Doc<"standards">[]> {
       const cached = cutsByGender.get(g);
       if (cached) return cached;
-      const loaded =
-        args.course === "LCM"
-          ? await ctx.db
-              .query("standards")
-              .withIndex("by_event", (q) =>
-                q
-                  .eq("gender", g)
-                  .eq("distance", args.distance)
-                  .eq("stroke", args.stroke),
-              )
-              .take(500)
-          : [];
+      const loaded = await ctx.db
+        .query("standards")
+        .withIndex("by_event", (q) =>
+          q
+            .eq("gender", g)
+            .eq("distance", args.distance)
+            .eq("stroke", args.stroke),
+        )
+        .take(500);
       cutsByGender.set(g, loaded);
       return loaded;
     }
@@ -209,17 +208,15 @@ export const getEventComparison = query({
       if (args.ageGroup && band !== args.ageGroup) continue;
 
       const age = computeAge(swimmer.dob, today); // display age (as of today)
-      let highestTier: Tier | null = null;
-      if (args.course === "LCM") {
-        // Match the cut to the swimmer's age AT THE GALA where the PB was swum
-        // (§4.9) — a time set at 13 is judged against the 13-year-old cut, and
-        // that qualification stands even once the swimmer has turned 14.
-        const cuts = pickApplicableStandards(
-          await loadCuts(swimmer.gender),
-          best.ageAtSwim,
-        );
-        highestTier = highestTierMet(best.timeMs, cuts);
-      }
+      // Match the cut to the swimmer's age AT THE GALA where the PB was swum
+      // (§4.9) — a time set at 13 is judged against the 13-year-old cut, and that
+      // qualification stands even once the swimmer has turned 14. Applied on both
+      // courses (SCM reuses the long-course cut when no SCM-specific cut exists).
+      const cuts = pickApplicableStandards(
+        await loadCuts(swimmer.gender),
+        best.ageAtSwim,
+      );
+      const highestTier: Tier | null = highestTierMet(best.timeMs, cuts);
 
       rows.push({
         swimmerId,
@@ -325,12 +322,13 @@ export const getProgression = query({
     // De-dupe and cap so a squad with repeats or a huge selection stays bounded.
     const ids = [...new Set(args.swimmerIds)].slice(0, MAX_SERIES);
 
-    // Any signed-in user may chart any swimmer; the payload is what's scoped
-    // (docs/access-control.md). `viewOf` decides per swimmer whether the DOB —
-    // and thus the qualifying-cut overlay — is included; projections are coach-
-    // only. This replaces the old own-swimmer-only gate: viewers now browse the
-    // whole roster's progression, just without other swimmers' sensitive fields.
-    const { profile, viewOf } = await swimmerViewer(ctx);
+    // Role-scoped SERVER-SIDE (docs/access-control.md): a coach / super-user
+    // charts any swimmers; a VIEWER may chart ONLY their own linked swimmer(s).
+    // A selection that includes one swimmer the viewer isn't linked to is
+    // rejected outright — never silently trimmed — so a viewer never sees another
+    // swimmer's name, times, or history here. Projections stay coach-only below.
+    const profile = await requireSwimmersAccess(ctx, ids);
+    const staff = profile.role !== "VIEWER";
 
     const series: Array<{
       swimmerId: Id<"swimmers">;
@@ -395,14 +393,17 @@ export const getProgression = query({
           isPB: pb !== null && r._id === pb.resultId,
         }));
 
-      const view = viewOf(swimmer);
+      // A viewer only ever reaches their OWN linked swimmers here (gated above),
+      // so every charted swimmer is one they may see in full detail: staff get
+      // "full", a viewer "sensitive". The exact DOB is always included so the
+      // qualifying-cut overlay resolves per the swimmer's age; "public" never
+      // occurs on this screen any more.
+      const view = staff ? "full" : "sensitive";
       series.push({
         swimmerId: id,
         name: swimmer.name,
         gender: swimmer.gender,
-        // Redact the exact DOB unless the caller may see this swimmer's
-        // sensitive fields; "public" gets null and no cut overlay.
-        dob: view === "public" ? null : swimmer.dob,
+        dob: swimmer.dob,
         view,
         pbTimeMs: pb ? pb.timeMs : null,
         points,
@@ -411,8 +412,11 @@ export const getProgression = query({
 
     series.sort((a, b) => a.name.localeCompare(b.name));
 
-    // Overlay cuts (§4.9) are LCM-only. Load this event's cut rows for just the
-    // genders present in the selection — the chart resolves them per swimmer.
+    // Overlay cuts (§4.9). Standards are defined long-course, but the SAME cut is
+    // the reference on SCM too when no SCM-specific cut exists — so the chart
+    // overlays them regardless of course (never interpolated; a 100 IM SCM event
+    // simply has no LCM row and so draws no line). Load this event's cut rows for
+    // just the genders present in the selection — the chart resolves them per age.
     const standards: Array<{
       gender: "M" | "F";
       tier: Tier;
@@ -421,7 +425,7 @@ export const getProgression = query({
       isCatchAllOld: boolean;
       timeMs: number;
     }> = [];
-    if (args.course === "LCM") {
+    {
       const genders = [...new Set(series.map((s) => s.gender))];
       for (const g of genders) {
         const cuts = await ctx.db
@@ -457,7 +461,7 @@ export const getProgression = query({
       standards,
       // Projections are staff-only (docs/access-control.md): coaches and the
       // super-user, never a viewer — not even for their own swimmer.
-      canSeeProjections: profile.role !== "VIEWER",
+      canSeeProjections: staff,
     };
   },
 });

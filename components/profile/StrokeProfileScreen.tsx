@@ -42,14 +42,14 @@ export function StrokeProfileScreen() {
   const canCompare = isCoach;
 
   // Effective selection is derived, not stored: raw picks filtered to swimmers
-  // that still exist, defaulting to the first swimmer when nothing valid is
-  // chosen yet. This keeps the default without a state-syncing effect, and the
-  // list self-heals if a swimmer disappears underneath the selection.
-  const selected = useMemo(() => {
-    const valid = picked.filter((id) => swimmers.some((s) => s._id === id));
-    if (valid.length > 0) return valid;
-    return swimmers.length > 0 ? [swimmers[0]._id] : [];
-  }, [picked, swimmers]);
+  // that still exist. Nothing is chosen on first load — the wheel stays blank
+  // (the "Choose a swimmer" empty state) until the coach picks one, rather than
+  // defaulting to an arbitrary first swimmer. Deriving (not storing) keeps this
+  // effect-free and self-heals if a picked swimmer disappears underneath us.
+  const selected = useMemo(
+    () => picked.filter((id) => swimmers.some((s) => s._id === id)),
+    [picked, swimmers],
+  );
 
   const nameById = useMemo(
     () => new Map(swimmers.map((s) => [s._id, s.name] as const)),

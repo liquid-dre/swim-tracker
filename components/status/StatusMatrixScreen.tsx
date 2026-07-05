@@ -160,7 +160,11 @@ export function StatusMatrixScreen() {
                       <th
                         key={`${e.distance}|${e.stroke}`}
                         scope="col"
-                        className="sticky top-0 z-20 border-b border-l border-gray-200 bg-gray-50 px-2.5 py-2.5 text-center text-xs font-medium uppercase tracking-wide text-gray-500"
+                        // w-px shrinks each event column to its content, so any
+                        // slack goes to the flexible swimmer column instead of
+                        // stretching the last event column (which left dead space
+                        // to the right when the grid was scrolled/overflowing).
+                        className="sticky top-0 z-20 w-px border-b border-l border-gray-200 bg-gray-50 px-2.5 py-2.5 text-center text-xs font-medium uppercase tracking-wide text-gray-500"
                       >
                         <span className="whitespace-nowrap tabular-nums">
                           {e.label}
@@ -247,8 +251,11 @@ function MatrixCell({
   nextTier: Tier | null;
   gapMs: number | null;
 }) {
+  // w-px keeps each event column sized to its content (parallels the header);
+  // the swimmer column stays flexible and soaks up any extra width so the grid
+  // never leaves dead space to the right of the last event.
   const base =
-    "border-b border-l border-gray-100 px-2.5 py-2 text-center align-middle transition-colors group-hover:bg-aqua-50";
+    "w-px whitespace-nowrap border-b border-l border-gray-100 px-2.5 py-2 text-center align-middle transition-colors group-hover:bg-aqua-50";
 
   // No cut for this event at the swimmer's exact age → blank/neutral (§5.7).
   if (!hasCut) {

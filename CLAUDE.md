@@ -64,9 +64,11 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
 - **Headline PB = fastest MEET time only.** Time trials and practice never count toward the PB.
 - **Times:** integer ms internally; canonical text `m:ss:hh`. Bulletproof parser — 2 groups means
   `ss:hh` (so `59:09` = 59.09 s, never 59 minutes); the last group is always hundredths.
-- **Qualifying standards:** **LCM only**; tier order **SANJ > LEVEL_3 > LEVEL_2** (hardest → easiest);
-  match a swimmer's **exact single-year age**, not the two-year display band; respect coverage
-  (no 50m at L3/SANJ, no L2 above 200m) — render no line where no cut exists, never interpolate.
+- **Qualifying standards:** defined **long-course**; tier order **SANJ > LEVEL_3 > LEVEL_2**
+  (hardest → easiest); match a swimmer's **exact single-year age**, not the two-year display band;
+  respect coverage (no 50m at L3/SANJ, no L2 above 200m) — render no line where no cut exists, never
+  interpolate. **On SCM charts the same long-course cut is reused as the reference** (there are no
+  SCM-specific cuts today) — apply it to SCM times/overlays; still draw nothing where no cut exists.
 - **Roles:** coaches edit; viewers are read-only and see only their linked swimmer(s), enforced
   server-side in every query and mutation.
 
