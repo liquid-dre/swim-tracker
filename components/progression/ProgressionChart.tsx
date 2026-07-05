@@ -141,11 +141,12 @@ export function ProgressionChart({
   const tSpan = domainTMax - tMin;
   const tPad = tSpan === 0 ? 86_400_000 : Math.round(tSpan * 0.04);
 
-  // Qualifying-cut overlay — LCM only (§4.9). Drawn across the real swim range
-  // (not the padding), so the birthday steps line up with the plotted swims and
-  // the padding stays clean breathing room at the edges.
-  const overlay =
-    course === "LCM" ? buildTierOverlay(series, standards, single, tMin, tMax) : null;
+  // Qualifying-cut overlay (§4.9). The long-course cut is the reference on SCM
+  // too, so it's drawn on both courses (the server sends no rows for an event
+  // with no cut, so nothing is faked). Drawn across the real swim range (not the
+  // padding), so birthday steps line up with the plotted swims and the padding
+  // stays clean breathing room at the edges.
+  const overlay = buildTierOverlay(series, standards, single, tMin, tMax);
 
   // Fold the drawn cut values (and the projection's endpoints) into the y-domain
   // so a cut faster or slower than every swim still shows — the gap to the next

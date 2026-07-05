@@ -106,7 +106,8 @@ const comparisonRow = v.object({
   swimDate: v.string(),
   meetName: v.union(v.string(), v.null()),
   // Hardest qualifying tier this headline PB meets, at the swimmer's EXACT age
-  // (§4.9). LCM only — always null on SCM (standards are long-course, §4.2).
+  // (§4.9). The long-course cut is the reference on both courses; null only when
+  // no cut covers this event/age (e.g. an SCM-only event with no standard).
   highestTier: v.union(tier, v.null()),
 });
 
@@ -163,25 +164,24 @@ export const getEventComparison = query({
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // Standards are LCM-only (§4.2, §4.9). On LCM, colour each bar by the
-    // hardest tier its PB meets AT THE SWIMMER'S EXACT AGE — so we resolve cuts
+    // Standards are defined long-course, but the same cut is the reference on SCM
+    // too when no SCM-specific cut exists — so we colour each bar by the hardest
+    // tier its PB meets AT THE SWIMMER'S EXACT AGE on both courses, resolving cuts
     // per (gender, exact age) from this event's cut rows, loaded once per gender.
+    // (An event with no cut rows — e.g. a 100 IM SCM — simply resolves to none.)
     const cutsByGender = new Map<"M" | "F", Doc<"standards">[]>();
     async function loadCuts(g: "M" | "F"): Promise<Doc<"standards">[]> {
       const cached = cutsByGender.get(g);
       if (cached) return cached;
-      const loaded =
-        args.course === "LCM"
-          ? await ctx.db
-              .query("standards")
-              .withIndex("by_event", (q) =>
-                q
-                  .eq("gender", g)
-                  .eq("distance", args.distance)
-                  .eq("stroke", args.stroke),
-              )
-              .take(500)
-          : [];
+      const loaded = await ctx.db
+        .query("standards")
+        .withIndex("by_event", (q) =>
+          q
+            .eq("gender", g)
+            .eq("distance", args.distance)
+            .eq("stroke", args.stroke),
+        )
+        .take(500);
       cutsByGender.set(g, loaded);
       return loaded;
     }
@@ -208,17 +208,15 @@ export const getEventComparison = query({
       if (args.ageGroup && band !== args.ageGroup) continue;
 
       const age = computeAge(swimmer.dob, today); // display age (as of today)
-      let highestTier: Tier | null = null;
-      if (args.course === "LCM") {
-        // Match the cut to the swimmer's age AT THE GALA where the PB was swum
-        // (§4.9) — a time set at 13 is judged against the 13-year-old cut, and
-        // that qualification stands even once the swimmer has turned 14.
-        const cuts = pickApplicableStandards(
-          await loadCuts(swimmer.gender),
-          best.ageAtSwim,
-        );
-        highestTier = highestTierMet(best.timeMs, cuts);
-      }
+      // Match the cut to the swimmer's age AT THE GALA where the PB was swum
+      // (§4.9) — a time set at 13 is judged against the 13-year-old cut, and that
+      // qualification stands even once the swimmer has turned 14. Applied on both
+      // courses (SCM reuses the long-course cut when no SCM-specific cut exists).
+      const cuts = pickApplicableStandards(
+        await loadCuts(swimmer.gender),
+        best.ageAtSwim,
+      );
+      const highestTier: Tier | null = highestTierMet(best.timeMs, cuts);
 
       rows.push({
         swimmerId,
@@ -414,8 +412,11 @@ export const getProgression = query({
 
     series.sort((a, b) => a.name.localeCompare(b.name));
 
-    // Overlay cuts (§4.9) are LCM-only. Load this event's cut rows for just the
-    // genders present in the selection — the chart resolves them per swimmer.
+    // Overlay cuts (§4.9). Standards are defined long-course, but the SAME cut is
+    // the reference on SCM too when no SCM-specific cut exists — so the chart
+    // overlays them regardless of course (never interpolated; a 100 IM SCM event
+    // simply has no LCM row and so draws no line). Load this event's cut rows for
+    // just the genders present in the selection — the chart resolves them per age.
     const standards: Array<{
       gender: "M" | "F";
       tier: Tier;
@@ -424,7 +425,7 @@ export const getProgression = query({
       isCatchAllOld: boolean;
       timeMs: number;
     }> = [];
-    if (args.course === "LCM") {
+    {
       const genders = [...new Set(series.map((s) => s.gender))];
       for (const g of genders) {
         const cuts = await ctx.db

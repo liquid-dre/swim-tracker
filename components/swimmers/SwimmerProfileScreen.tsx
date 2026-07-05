@@ -56,7 +56,7 @@ export function SwimmerProfileScreen({
           actions={
             editable ? (
               <Link
-                href="/log"
+                href={`/log?swimmer=${swimmerId}`}
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 text-base font-medium text-white shadow-theme-xs outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Timer className="size-4" /> Log a time

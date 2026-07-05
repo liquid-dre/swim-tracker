@@ -27,10 +27,12 @@ import {
   swimmer's headline MEET PB as a sortable leaderboard and a horizontal bar chart.
   Fastest first.
 
-  Step 10 overlay (LCM only, §4.9): pin one exact age + gender to draw the
-  L2/L3/SANJ cuts as vertical threshold lines; on "all ages" the lines are
-  suppressed and every bar is coloured by the hardest tier its PB meets. Standards
-  are exact-single-year (never the two-year band) and long-course only.
+  Step 10 overlay (§4.9): pin one exact age + gender to draw the L2/L3/SANJ cuts
+  as vertical threshold lines; on "all ages" the lines are suppressed and every
+  bar is coloured by the hardest tier its PB meets. Standards are exact-single-year
+  (never the two-year band). They are defined long-course, but the same cut is the
+  reference on SCM too when no SCM-specific cut exists — so the overlay shows on
+  both courses.
 */
 
 type GenderFilter = "ALL" | "M" | "F";
@@ -87,10 +89,11 @@ export function CompareScreen() {
     [allRows, effectiveAge],
   );
 
-  // Vertical cut lines: LCM, one pinned exact age AND one gender (a single cut
-  // is only unambiguous then — cuts differ by both). Uses the exact-age resolver.
-  const isLcm = event.course === "LCM";
-  const showLines = isLcm && effectiveAge !== "ALL" && gender !== "ALL";
+  // Vertical cut lines: one pinned exact age AND one gender (a single cut is only
+  // unambiguous then — cuts differ by both). Uses the exact-age resolver. The
+  // long-course cut is the reference on both courses, so lines/colours show on
+  // SCM too (the resolver returns the same cut regardless of course).
+  const showLines = effectiveAge !== "ALL" && gender !== "ALL";
   const applicable = useQuery(
     api.standards.getApplicableStandards,
     showLines && complete
@@ -224,9 +227,9 @@ export function CompareScreen() {
                 <ComparisonBarChart
                   rows={sorted}
                   cuts={showLines ? cuts : []}
-                  overlay={isLcm}
+                  overlay
                 />
-                {isLcm && (barTiers.length > 0 || (effectiveAge !== "ALL" && !showLines)) && (
+                {(barTiers.length > 0 || (effectiveAge !== "ALL" && !showLines)) && (
                   <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border pt-3">
                     <ComparisonTierLegend tiers={barTiers} />
                     {effectiveAge !== "ALL" && !showLines && (

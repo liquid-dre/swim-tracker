@@ -327,6 +327,9 @@ export function DateField({
               onSelect={(d) => {
                 setLocalError(null);
                 onChange(toIso(d));
+                // Picking a day is a complete choice — dismiss the popover so the
+                // coach is back on the form, not left to close it themselves.
+                setOpen(false);
               }}
             />
           </PopoverContent>

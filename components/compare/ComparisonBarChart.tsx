@@ -28,11 +28,12 @@ import {
   the top (mirrors the leaderboard order). Shorter bar = faster; each bar is
   labelled with its exact time so the chart never asks the eye to estimate.
 
-  Step 10 overlay (LCM only, §4.9): when one exact age + gender is pinned, the
-  applicable L2/L3/SANJ cuts are drawn as vertical threshold lines (a bar ending
-  left of a line has met that tier). For "all ages" the lines are suppressed —
-  each swimmer's cut differs by age — and every bar is instead coloured by the
-  hardest tier its own PB meets. SCM has no standards, so bars stay on-accent.
+  Step 10 overlay (§4.9): when one exact age + gender is pinned, the applicable
+  L2/L3/SANJ cuts are drawn as vertical threshold lines (a bar ending left of a
+  line has met that tier). For "all ages" the lines are suppressed — each
+  swimmer's cut differs by age — and every bar is instead coloured by the hardest
+  tier its own PB meets. The long-course cut is the reference on both courses, so
+  colouring applies on SCM too (an event with no cut leaves bars on-accent).
 */
 
 export type CompareBar = {

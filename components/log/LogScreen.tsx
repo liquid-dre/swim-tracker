@@ -34,14 +34,24 @@ type SavedEntry = {
   time: string;
 };
 
-export function LogScreen({ today }: { today: string }) {
+export function LogScreen({
+  today,
+  initialSwimmerId = null,
+}: {
+  today: string;
+  initialSwimmerId?: Id<"swimmers"> | null;
+}) {
   const swimmers = useQuery(api.swimmers.listSwimmers, { activeOnly: true });
   const events = useQuery(api.events.listActiveEvents, {});
   const logResult = useMutation(api.results.logResult);
   const deleteResult = useMutation(api.results.deleteResult);
 
   // --- form state -----------------------------------------------------------
-  const [swimmerId, setSwimmerId] = useState<Id<"swimmers"> | "">("");
+  // Pre-select the swimmer when arriving from their profile ("Log a time"), so
+  // the coach lands on the form already scoped to who they were viewing.
+  const [swimmerId, setSwimmerId] = useState<Id<"swimmers"> | "">(
+    initialSwimmerId ?? "",
+  );
   const [distance, setDistance] = useState<number | null>(null);
   const [stroke, setStroke] = useState<Stroke | null>(null);
   const [course, setCourse] = useState<Course | null>(null);
