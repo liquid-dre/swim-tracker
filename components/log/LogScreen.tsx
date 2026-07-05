@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Timer, Trash2 } from "lucide-react";
 
@@ -19,11 +19,6 @@ import { parseDigits, TimeField } from "./TimeField";
 import { EventSelectors, isValidEventTriple } from "./EventSelectors";
 
 type SwimType = "MEET" | "TIME_TRIAL" | "PRACTICE";
-
-// Last-used meet/date/type persist across visits (BRD Step 5) — poolside you log
-// many swims from the same meet on the same day.
-const DEFAULTS_KEY = "swimtracker.log.defaults";
-type Defaults = { meetName: string; swimDate: string; swimType: SwimType };
 
 type SavedEntry = {
   id: Id<"results">;
@@ -67,25 +62,11 @@ export function LogScreen({
 
   const timeRef = useRef<HTMLInputElement>(null);
 
-  // Restore remembered defaults once on mount. This is a deliberate one-time
-  // sync from an external store (localStorage): the server and first client
-  // render both use the plain defaults, then we patch — which is exactly what
-  // keeps the controlled inputs free of an SSR hydration mismatch.
-  useEffect(() => {
-    let d: Partial<Defaults> | null = null;
-    try {
-      const raw = localStorage.getItem(DEFAULTS_KEY);
-      d = raw ? (JSON.parse(raw) as Partial<Defaults>) : null;
-    } catch {
-      d = null; // ignore malformed storage
-    }
-    if (!d) return;
-    /* eslint-disable react-hooks/set-state-in-effect */
-    if (d.meetName) setMeetName(d.meetName);
-    if (d.swimType) setSwimType(d.swimType);
-    if (d.swimDate && /^\d{4}-\d{2}-\d{2}$/.test(d.swimDate)) setSwimDate(d.swimDate);
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, []);
+  // Meet / date / type (and swimmer + event) stay put across saves within a
+  // visit — after logging one swim the coach only changes the swimmer and time
+  // for the next entry at the same meet. Nothing is persisted across visits, so
+  // renavigating to the tab or refreshing starts from blank defaults again
+  // (today's date, Meet, no swimmer/event) rather than a stale last-used meet.
 
   // --- validity -------------------------------------------------------------
   const selectedSwimmer = swimmers?.find((s) => s._id === swimmerId) ?? null;
@@ -123,16 +104,6 @@ export function LogScreen({
         notes: notes.trim() === "" ? undefined : notes.trim(),
       });
 
-      // Remember meet/date/type for the next entry.
-      try {
-        localStorage.setItem(
-          DEFAULTS_KEY,
-          JSON.stringify({ meetName, swimDate, swimType } satisfies Defaults),
-        );
-      } catch {
-        /* ignore */
-      }
-
       setRecent((prev) =>
         [
           {
@@ -148,8 +119,9 @@ export function LogScreen({
       );
 
       notify.success("Time saved");
-      // Stay on the form for the next swim: keep swimmer/event/meet, clear the
-      // time (and notes) and re-focus the anchor.
+      // Stay on the form for the next swim: keep swimmer, event, type, meet and
+      // date; clear only the per-swim time and notes and re-focus the anchor, so
+      // logging the next swimmer at the same meet is just swimmer + time.
       setDigits("");
       setNotes("");
       timeRef.current?.focus();
