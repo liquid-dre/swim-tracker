@@ -963,6 +963,25 @@ describe("computeCalibratedRadius", () => {
     expect(computeCalibratedRadius(576000, cuts)!).toBeGreaterThan(STROKE_RING_POS.SANJ);
     expect(computeCalibratedRadius(624000, cuts)!).toBeLessThan(STROKE_RING_POS.SANJ);
   });
+
+  it("caps a below-SANJ top tier at its own ring (50s have only L2)", () => {
+    // A 50 has only an L2 cut (no L3/SANJ, §4.9). At the cut the bar sits on the
+    // L2 ring, and a FASTER PB must not overshoot past it toward the (absent)
+    // SANJ ring — it caps exactly on L2 rather than extrapolating outward.
+    const cuts = { l2Ms: 26000, l3Ms: null, sanjMs: null };
+    expect(computeCalibratedRadius(26000, cuts)).toBeCloseTo(STROKE_RING_POS.LEVEL_2);
+    expect(computeCalibratedRadius(24000, cuts)).toBe(STROKE_RING_POS.LEVEL_2);
+    // Slower than L2 still pulls inward toward the centre (a real gap to show).
+    expect(computeCalibratedRadius(27000, cuts)!).toBeLessThan(STROKE_RING_POS.LEVEL_2);
+  });
+
+  it("caps an L2+L3 (no SANJ) event at the L3 ring", () => {
+    // If an event's coverage stops at L3, a PB beating L3 caps on the L3 ring
+    // rather than shooting past into the empty SANJ zone.
+    const cuts = { l2Ms: 66000, l3Ms: 63000, sanjMs: null };
+    expect(computeCalibratedRadius(63000, cuts)).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
+    expect(computeCalibratedRadius(50000, cuts)).toBe(STROKE_RING_POS.LEVEL_3);
+  });
 });
 
 // ---------------------------------------------------------------------------

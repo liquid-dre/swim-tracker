@@ -15,6 +15,7 @@ import { Select } from "@/components/ui/Select";
 import { errorMessage, notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
 import { computeAge, STROKE_LABEL, type Course, type Stroke } from "@/lib/swim";
+import { galaForDate } from "@/lib/galaCalendar";
 import { parseDigits, TimeField } from "./TimeField";
 import { EventSelectors, isValidEventTriple } from "./EventSelectors";
 
@@ -52,9 +53,25 @@ export function LogScreen({
   const [course, setCourse] = useState<Course | null>(null);
   const [swimType, setSwimType] = useState<SwimType>("MEET");
   const [swimDate, setSwimDate] = useState(today);
-  const [meetName, setMeetName] = useState("");
+  // The meet name defaults from the date via the fixed gala calendar; once the
+  // coach types their own name we stop auto-filling so a date change never
+  // clobbers it (clearing the field re-enables the default).
+  const [meetName, setMeetName] = useState(() => galaForDate(today) ?? "");
+  const [meetEdited, setMeetEdited] = useState(false);
   const [notes, setNotes] = useState("");
   const [digits, setDigits] = useState("");
+
+  // Change the date and, unless the coach has typed a custom meet name, pull the
+  // scheduled gala for that date into the meet field (blank when none is set).
+  function handleDateChange(iso: string) {
+    setSwimDate(iso);
+    if (!meetEdited) setMeetName(galaForDate(iso) ?? "");
+  }
+  function handleMeetChange(value: string) {
+    setMeetName(value);
+    // An empty field means "no custom name" — let the date default apply again.
+    setMeetEdited(value.trim() !== "");
+  }
 
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -240,7 +257,7 @@ export function LogScreen({
               id="swim-date"
               value={swimDate}
               max={today}
-              onChange={setSwimDate}
+              onChange={handleDateChange}
               error={
                 swimDate !== "" && !dateValid ? "Pick a date up to today." : undefined
               }
@@ -249,9 +266,9 @@ export function LogScreen({
             <Input
               label="Meet / venue name"
               value={meetName}
-              onChange={(e) => setMeetName(e.target.value)}
+              onChange={(e) => handleMeetChange(e.target.value)}
               placeholder="e.g. Summer Championships"
-              hint="Remembered for the next entry."
+              hint="Auto-filled from the date for scheduled galas; edit to override."
             />
 
             <Input

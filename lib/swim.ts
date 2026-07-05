@@ -928,8 +928,17 @@ export function computeCalibratedRadius(
   if (cuts.sanjMs !== null) anchors.push({ r: STROKE_RING_POS.SANJ, t: cuts.sanjMs });
   if (anchors.length === 0) return null;
 
+  // A PB may only extend PAST its outermost ring when that ring is SANJ — the
+  // hardest tier, where beating the cut is a real achievement worth showing past
+  // the ring. For an event whose coverage tops out below SANJ (a 50 has ONLY an
+  // L2 cut, §4.9), a faster PB must NOT shoot past that ring into the empty zone
+  // where higher rings sit on other events — it caps exactly on its own top ring.
+  // (`anchors` is ordered inner→outer, so the last one is the outermost present.)
+  const outermostRing = anchors[anchors.length - 1].r;
+  const maxRadius =
+    outermostRing === STROKE_RING_POS.SANJ ? STROKE_RADIUS_MAX : outermostRing;
   const clamp = (r: number) =>
-    Math.max(STROKE_RADIUS_MIN, Math.min(STROKE_RADIUS_MAX, r));
+    Math.max(STROKE_RADIUS_MIN, Math.min(maxRadius, r));
 
   // Single anchor: synthetic slope so the bar still reads direction + rough
   // magnitude. Crossing at the ring stays exact.
