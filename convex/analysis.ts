@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import {
-  requireCoach,
+  accessibleSwimmerIds,
   requireSwimmerAccess,
   requireSwimmersAccess,
 } from "./authz";
@@ -124,10 +124,12 @@ export const getEventComparison = query({
     rows: v.array(comparisonRow),
   }),
   handler: async (ctx, args) => {
-    // Coach / super-user ONLY (docs/access-control.md). A cross-roster leaderboard
-    // exposes every swimmer's name and time, so it is never shown to a viewer — a
-    // parent/swimmer sees names and times for their own linked swimmer(s) alone.
-    await requireCoach(ctx);
+    // Role-scoped. A coach / super-user sees the full cross-roster leaderboard;
+    // a viewer sees only the swimmer(s) they are linked to (a parent comparing
+    // their own children against each other and the cut). accessibleSwimmerIds
+    // returns "ALL" for staff, so their leaderboard is unchanged.
+    const { swimmerIds } = await accessibleSwimmerIds(ctx);
+    const accessible = swimmerIds === "ALL" ? null : new Set(swimmerIds);
 
     const results = await ctx.db
       .query("results")
@@ -200,6 +202,7 @@ export const getEventComparison = query({
     }> = [];
 
     for (const [swimmerId, best] of bestBySwimmer) {
+      if (accessible && !accessible.has(swimmerId)) continue; // viewer scope
       const swimmer = await ctx.db.get(swimmerId);
       if (!swimmer) continue; // deleted swimmer with orphaned results — skip
 
@@ -520,7 +523,9 @@ export const getQualificationMatrix = query({
     rows: v.array(matrixRow),
   }),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    // Role-scoped. Staff get the full roster (optionally squad-filtered); a
+    // viewer gets a matrix of only their linked swimmer(s).
+    const { swimmerIds } = await accessibleSwimmerIds(ctx);
 
     // Columns: the active LCM events (standards are LCM-only), canonical order.
     const allEvents = await ctx.db.query("events").take(200);
@@ -551,9 +556,14 @@ export const getQualificationMatrix = query({
       else cutsByEvent.set(key, [cut]);
     }
 
-    // Rows: the roster, scoped by squad (via the join table) then gender/band.
+    // Rows: for a viewer, only their linked swimmers (the squad filter is a coach
+    // concept and is ignored). For staff, the roster scoped by squad (via the
+    // join table) then gender/band.
     let swimmers;
-    if (args.squadId !== undefined) {
+    if (swimmerIds !== "ALL") {
+      const loaded = await Promise.all(swimmerIds.map((id) => ctx.db.get(id)));
+      swimmers = loaded.filter((s): s is NonNullable<typeof s> => s !== null);
+    } else if (args.squadId !== undefined) {
       const memberships = await ctx.db
         .query("squadMemberships")
         .withIndex("by_squad", (q) => q.eq("squadId", args.squadId!))
@@ -1100,7 +1110,10 @@ export const getSeasonImprovement = query({
     rows: v.array(seasonRow),
   }),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    // Role-scoped. Staff rank the whole roster; a viewer ranks only their linked
+    // swimmer(s). accessibleSwimmerIds returns "ALL" for staff.
+    const { swimmerIds } = await accessibleSwimmerIds(ctx);
+    const accessible = swimmerIds === "ALL" ? null : new Set(swimmerIds);
 
     // Resolve the season window: an explicit arg wins, then the stored setting,
     // then the rolling 12-month default. The effective start drives everything.
@@ -1185,6 +1198,7 @@ export const getSeasonImprovement = query({
 
       const rows = [];
       for (const [swimmerId, swims] of bySwimmer) {
+        if (accessible && !accessible.has(swimmerId)) continue; // viewer scope
         const improvements = computeSeasonImprovements(swims, seasonStart);
         // Exactly one group (one event×course) — or none, if no in-season meet.
         const imp = improvements[0];
@@ -1256,6 +1270,7 @@ export const getSeasonImprovement = query({
     const rows = [];
     let processed = 0;
     for (const [swimmerId, swims] of bySwimmer) {
+      if (accessible && !accessible.has(swimmerId)) continue; // viewer scope
       if (processed >= SEASON_SWIMMERS_LIMIT) break;
       processed += 1;
 

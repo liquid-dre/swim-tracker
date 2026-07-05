@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { Grid3x3 } from "lucide-react";
 
@@ -13,6 +14,8 @@ import { Select } from "@/components/ui/Select";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { TierBadge } from "@/components/ui/TierBadge";
 import { trailForHref } from "@/lib/nav";
+import { swimmerProfileBase } from "@/lib/swimmerHref";
+import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { DEFAULT_AGE_BANDS, formatTime, type Tier } from "@/lib/swim";
 
 /*
@@ -40,11 +43,17 @@ const NEXT_LABEL: Record<Tier, string> = {
 };
 
 export function StatusMatrixScreen() {
+  const pathname = usePathname();
+  const swimmerBase = swimmerProfileBase(pathname);
   const [gender, setGender] = useState<GenderFilter>("ALL");
   const [band, setBand] = useState<BandFilter>("ALL");
   const [squad, setSquad] = useState<SquadFilter>("ALL");
 
-  const squads = useQuery(api.squads.listSquads, {});
+  // Squad is a coach concept — a viewer sees only their own linked swimmers, so
+  // the squad filter (and the coach-only listSquads query) is hidden for them.
+  const profile = useCurrentProfile();
+  const showSquad = profile !== undefined && profile !== null && profile.role !== "VIEWER";
+  const squads = useQuery(api.squads.listSquads, showSquad ? {} : "skip");
 
   // A squad that vanished (deleted elsewhere) falls back to "all squads".
   const effectiveSquad: SquadFilter =
@@ -74,7 +83,7 @@ export function StatusMatrixScreen() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Qualification status"
-        breadcrumb={trailForHref("/status")}
+        breadcrumb={trailForHref(pathname)}
         description="Who's ready for what. Each swimmer's hardest long-course tier met per event, with the gap to the next tier up. Meet times only — trials and practice never count."
       />
 
@@ -106,23 +115,25 @@ export function StatusMatrixScreen() {
                 ]}
               />
             </FilterField>
-            <FilterField label="Squad">
-              <Select
-                aria-label="Filter by squad"
-                value={effectiveSquad}
-                onValueChange={setSquad}
-                options={[
-                  { value: "ALL", label: "All squads" },
-                  ...(squads ?? []).map((s) => ({ value: s._id, label: s.name })),
-                ]}
-              />
-            </FilterField>
+            {showSquad && (
+              <FilterField label="Squad">
+                <Select
+                  aria-label="Filter by squad"
+                  value={effectiveSquad}
+                  onValueChange={setSquad}
+                  options={[
+                    { value: "ALL", label: "All squads" },
+                    ...(squads ?? []).map((s) => ({ value: s._id, label: s.name })),
+                  ]}
+                />
+              </FilterField>
+            )}
           </>
         }
         filterCount={
           (gender !== "ALL" ? 1 : 0) +
           (band !== "ALL" ? 1 : 0) +
-          (effectiveSquad !== "ALL" ? 1 : 0)
+          (showSquad && effectiveSquad !== "ALL" ? 1 : 0)
         }
         onClear={() => {
           setGender("ALL");
@@ -181,7 +192,7 @@ export function StatusMatrixScreen() {
                         className="sticky left-0 z-10 border-b border-gray-100 bg-white px-4 py-2.5 text-left align-middle font-medium text-ink transition-colors group-hover:bg-aqua-50"
                       >
                         <Link
-                          href={`/swimmers/${r.swimmerId}`}
+                          href={`${swimmerBase}/${r.swimmerId}`}
                           className="rounded-sm outline-none hover:text-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           {r.name}

@@ -18,14 +18,17 @@ function hrefsFor(role: Role): string[] {
   return out;
 }
 
-describe("navForRole — role decides which nav renders (R6)", () => {
-  it("gives a viewer exactly the compartmentalised sections", () => {
+describe("navForRole — role decides which nav renders", () => {
+  it("gives a viewer the coach-mirroring IA, scoped under /me", () => {
     expect(hrefsFor("VIEWER")).toEqual([
-      "/me",
-      "/me/progress",
+      "/me/swimmers",
+      "/me/compare",
+      "/me/progression",
+      "/me/stroke-profile",
+      "/me/season",
+      "/me/status",
       "/me/road",
-      "/me/history",
-      "/me/find",
+      "/me/standards",
     ]);
   });
 
@@ -47,14 +50,22 @@ describe("navForRole — role decides which nav renders (R6)", () => {
     const superUser = hrefsFor("SUPER_USER");
     // Sees the coach tree…
     for (const href of hrefsFor("COACH")) expect(superUser).toContain(href);
-    // …and never the viewer-only home.
+    // …and never the viewer-only area.
     for (const href of superUser) expect(href.startsWith("/me")).toBe(false);
   });
 });
 
 describe("isRouteAllowed — read-only scoping holds via direct URL", () => {
-  it("lets a viewer reach every /me section", () => {
-    for (const href of ["/me", "/me/progress", "/me/road", "/me/history"]) {
+  it("lets a viewer reach every /me section (nav + the request-access flow)", () => {
+    for (const href of [
+      "/me/swimmers",
+      "/me/swimmers/abc",
+      "/me/compare",
+      "/me/status",
+      "/me/road",
+      "/me/standards",
+      "/me/find",
+    ]) {
       expect(isRouteAllowed("VIEWER", href)).toBe(true);
     }
   });
@@ -66,7 +77,7 @@ describe("isRouteAllowed — read-only scoping holds via direct URL", () => {
   });
 
   it("bars a coach from the viewer area (direct URL)", () => {
-    for (const href of ["/me", "/me/progress", "/me/road", "/me/history"]) {
+    for (const href of ["/me", "/me/swimmers", "/me/compare", "/me/status"]) {
       expect(isRouteAllowed("COACH", href)).toBe(false);
     }
     expect(isRouteAllowed("COACH", "/dashboard")).toBe(true);
@@ -85,18 +96,26 @@ describe("isRouteAllowed — read-only scoping holds via direct URL", () => {
   });
 });
 
-describe("isLeafActive — Overview doesn't stay lit on its sub-routes", () => {
-  const overview: NavLeaf = { label: "Overview", href: "/me", icon: (() => null) as never, exact: true };
-  const progress: NavLeaf = { label: "Progress", href: "/me/progress", icon: (() => null) as never };
+describe("isLeafActive — a leaf lights on its own path and nested children", () => {
+  const mySwimmers: NavLeaf = {
+    label: "My swimmers",
+    href: "/me/swimmers",
+    icon: (() => null) as never,
+  };
+  const compare: NavLeaf = {
+    label: "Comparison",
+    href: "/me/compare",
+    icon: (() => null) as never,
+  };
 
-  it("highlights Overview only on an exact /me match", () => {
-    expect(isLeafActive("/me", overview)).toBe(true);
-    expect(isLeafActive("/me/progress", overview)).toBe(false);
-    expect(isLeafActive("/me/road", overview)).toBe(false);
+  it("highlights My swimmers on its path and on a swimmer profile beneath it", () => {
+    expect(isLeafActive("/me/swimmers", mySwimmers)).toBe(true);
+    expect(isLeafActive("/me/swimmers/abc", mySwimmers)).toBe(true);
+    expect(isLeafActive("/me/compare", mySwimmers)).toBe(false);
   });
 
-  it("highlights a sub-route on its own path (and nested children)", () => {
-    expect(isLeafActive("/me/progress", progress)).toBe(true);
-    expect(isLeafActive("/me", progress)).toBe(false);
+  it("highlights a sibling section only on its own path", () => {
+    expect(isLeafActive("/me/compare", compare)).toBe(true);
+    expect(isLeafActive("/me/swimmers", compare)).toBe(false);
   });
 });

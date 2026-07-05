@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { AlertTriangle, Plus, Ruler, Upload } from "lucide-react";
 
@@ -42,9 +43,11 @@ type TierFilter = "ALL" | Tier;
 export function StandardsScreen() {
   const profile = useCurrentProfile();
   const role = profile?.role;
-  // Any staff member may VIEW the cuts; only the super-user may EDIT them
-  // (docs/access-control.md). Coaches see the table read-only.
-  const canView = role === "COACH" || role === "SUPER_USER";
+  // Everyone signed in may VIEW the cuts (a viewer needs them to read their own
+  // charts and road to qualify); only the super-user may EDIT them
+  // (docs/access-control.md). Coaches and viewers see the table read-only.
+  const canView =
+    role === "COACH" || role === "SUPER_USER" || role === "VIEWER";
   const canEdit = role === "SUPER_USER";
 
   const all = useQuery(api.standards.listStandards, canView ? {} : "skip");
@@ -509,11 +512,12 @@ function ScreenFrame({
   actions?: React.ReactNode;
   readOnly?: boolean;
 }) {
+  const pathname = usePathname();
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Standards"
-        breadcrumb={trailForHref("/standards")}
+        breadcrumb={trailForHref(pathname)}
         description={
           readOnly
             ? "The LCM qualifying cuts that drive every chart and the status matrix. View-only — the super-user maintains these."

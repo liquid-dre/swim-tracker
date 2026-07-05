@@ -10,7 +10,10 @@ export default function FindSwimmerPage() {
     <div className="flex flex-col gap-8">
       <PageHeader
         title="Find a swimmer"
-        breadcrumb={[{ label: "Overview", href: "/me" }, { label: "Find a swimmer" }]}
+        breadcrumb={[
+          { label: "My swimmers", href: "/me/swimmers" },
+          { label: "Find a swimmer" },
+        ]}
         description="Search for your swimmer and request access. Their coach approves it, then their bests appear in your sections."
         actions={<ReadOnlyChip />}
       />

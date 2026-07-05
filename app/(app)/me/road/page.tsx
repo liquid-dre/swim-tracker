@@ -1,7 +1,7 @@
-import { ViewerRoadScreen } from "@/components/me/ViewerRoadScreen";
+import { RoadScreen } from "@/components/road/RoadScreen";
 
-// Viewer Road to qualify (Step R6). Qualifying-progress + gap-to-cut for the
-// selected linked swimmer. Read-only; server-scoped to the viewer's swimmer(s).
+// Viewer Road to qualify. The same screen coaches use, with an in-toolbar
+// swimmer picker scoped server-side to the viewer's linked swimmer(s).
 export default function ViewerRoadPage() {
-  return <ViewerRoadScreen />;
+  return <RoadScreen />;
 }

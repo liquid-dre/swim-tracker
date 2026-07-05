@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { LineChart as LineChartIcon, Search, Users, X } from "lucide-react";
 
@@ -17,6 +18,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TargetTierToggle } from "@/components/qualifying/TargetTierToggle";
 import { trailForHref } from "@/lib/nav";
+import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { formatTime, type Course, type Stroke, type Tier } from "@/lib/swim";
 import { EventFilter } from "@/components/analysis/EventFilter";
 import { type EventValue } from "@/components/analysis/EventPicker";
@@ -40,10 +42,47 @@ type Mode = "one" | "group";
 // a swimmer's raw track record in an event without the forecast in the way.
 type ChartView = "projection" | "history";
 
+type PickerRow = {
+  _id: Id<"swimmers">;
+  name: string;
+  age: number;
+  squads: { _id: string; name: string }[];
+};
+
 export function ProgressionScreen() {
-  const swimmers = useQuery(api.swimmers.listSwimmers, {});
-  const squads = useQuery(api.squads.listSquads, {});
+  const pathname = usePathname();
+  // Role-scoped list: a coach charts any swimmer (with squad tools); a viewer
+  // charts only their linked swimmer(s) — still one-vs-group, but with no squad
+  // concepts. Never fire the coach-only listSwimmers/listSquads for a viewer.
+  const profile = useCurrentProfile();
+  const role = profile?.role;
+  const isViewer = role === "VIEWER";
+  const coachSwimmers = useQuery(
+    api.swimmers.listSwimmers,
+    role !== undefined && !isViewer ? {} : "skip",
+  );
+  const viewerData = useQuery(
+    api.swimmers.listForProfile,
+    isViewer ? {} : "skip",
+  );
+  const squads = useQuery(
+    api.squads.listSquads,
+    role !== undefined && !isViewer ? {} : "skip",
+  );
   const events = useQuery(api.events.listActiveEvents, {});
+
+  const swimmers = useMemo<PickerRow[] | undefined>(() => {
+    if (role === undefined) return undefined;
+    if (isViewer) {
+      return viewerData?.swimmers.map((s) => ({
+        _id: s._id,
+        name: s.name,
+        age: s.age,
+        squads: [],
+      }));
+    }
+    return coachSwimmers;
+  }, [role, isViewer, viewerData, coachSwimmers]);
 
   const [mode, setMode] = useState<Mode>("one");
   // The projection needs one cut to aim at, so it owns its target tier locally
@@ -126,7 +165,7 @@ export function ProgressionScreen() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Progression"
-        breadcrumb={trailForHref("/progression")}
+        breadcrumb={trailForHref(pathname)}
         description="Chart every logged time for one swimmer or a group. Faster times sit lower and the axis zooms to just under the world record, so improvement reads as a descent toward the cut."
       />
 
@@ -383,22 +422,22 @@ function GroupPicker({
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Filter list by squad */}
-        <div className="flex-1">
-          <Select
-            aria-label="Filter by squad"
-            value={squadFilter}
-            onValueChange={(v) => onSquadFilter(v)}
-            options={[
-              { value: "ALL", label: "All squads" },
-              ...squads.map((s) => ({ value: s._id, label: s.name })),
-            ]}
-          />
-        </div>
+      {/* Squad filter + bulk-add — a coach concept; hidden when there are no
+          squads (e.g. a viewer, who only ever sees their own linked swimmers). */}
+      {squads.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex-1">
+            <Select
+              aria-label="Filter by squad"
+              value={squadFilter}
+              onValueChange={(v) => onSquadFilter(v)}
+              options={[
+                { value: "ALL", label: "All squads" },
+                ...squads.map((s) => ({ value: s._id, label: s.name })),
+              ]}
+            />
+          </div>
 
-        {/* Add a whole squad at once */}
-        {squads.length > 0 && (
           <div className="flex-1">
             <Select
               aria-label="Add a whole squad"
@@ -408,8 +447,8 @@ function GroupPicker({
               options={squads.map((s) => ({ value: s._id, label: s.name }))}
             />
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Checkbox list */}
       <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 custom-scrollbar">

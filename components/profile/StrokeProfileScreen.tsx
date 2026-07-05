@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { Radar, X } from "lucide-react";
 
@@ -32,6 +33,7 @@ const MAX_COMPARE = 4;
 type Coverage = "full" | "all";
 
 export function StrokeProfileScreen() {
+  const pathname = usePathname();
   const data = useQuery(api.swimmers.listForProfile, {});
   const [picked, setPicked] = useState<Id<"swimmers">[]>([]);
   const [coverage, setCoverage] = useState<Coverage>("full");
@@ -86,7 +88,7 @@ export function StrokeProfileScreen() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Stroke profile"
-        breadcrumb={trailForHref("/stroke-profile")}
+        breadcrumb={trailForHref(pathname)}
         description="Each bar is one event’s fastest long-course meet time, placed on that event’s own L2/L3/SANJ scale — further out is faster. Bars are grouped into coloured stroke arcs. Trials and practice never count."
       />
 

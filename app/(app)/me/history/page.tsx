@@ -1,7 +1,7 @@
-import { ViewerHistoryScreen } from "@/components/me/ViewerHistoryScreen";
+import { redirect } from "next/navigation";
 
-// Viewer History (Step R6). The full read-only results table for the selected
-// linked swimmer. Server-scoped to the viewer's swimmer(s).
+// Old viewer History route. A swimmer's full history now lives on their profile
+// (/me/swimmers/[id]); send this to the My swimmers list to pick a swimmer.
 export default function ViewerHistoryPage() {
-  return <ViewerHistoryScreen />;
+  redirect("/me/swimmers");
 }

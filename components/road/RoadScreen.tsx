@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { Check, Target } from "lucide-react";
 
@@ -11,6 +12,7 @@ import { Select } from "@/components/ui/Select";
 import { Segmented } from "@/components/ui/Segmented";
 import { FilterBar } from "@/components/ui/FilterBar";
 import { trailForHref } from "@/lib/nav";
+import { usePickerSwimmers } from "@/lib/usePickerSwimmers";
 import { formatTime, type Tier } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
 import {
@@ -69,7 +71,10 @@ export type RoadData = {
 };
 
 export function RoadScreen() {
-  const swimmers = useQuery(api.swimmers.listSwimmers, {});
+  const pathname = usePathname();
+  // Role-scoped picker: coaches pick any swimmer, a viewer only their linked
+  // swimmer(s). The gap/progress reads are already scoped server-side.
+  const swimmers = usePickerSwimmers();
   // Opens on the all-tiers zoned view by default; the specific-tier choice is a
   // per-session, page-local override (no global default any more).
   const [showAll, setShowAll] = useState(true);
@@ -104,7 +109,7 @@ export function RoadScreen() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Road to qualify"
-        breadcrumb={trailForHref("/road")}
+        breadcrumb={trailForHref(pathname)}
         description="For one swimmer, the gap from their fastest long-course meet time to each qualifying cut, closest first. Trials and practice never count; standards resolve to the swimmer's exact age."
       />
 
