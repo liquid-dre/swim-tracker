@@ -18,10 +18,12 @@ import { STROKE_META, WHEEL_STROKE_ORDER, type ProfileEvent } from "./strokeProf
 
 /*
   Stroke profile (Step 12.5, BRD §5). A radial wheel of a swimmer's events grouped
-  by stroke, calibrated per-event against the L2/L3/SANJ cuts (LCM only). A coach
-  can place up to four swimmers on the same calibrated scale to read strength
-  distributions (e.g. picking medley-relay legs); a viewer sees only their own
-  swimmer(s) — no other-swimmer picker, no side-by-side — enforced server-side.
+  by stroke, calibrated per-event against the L2/L3/SANJ cuts (LCM only). Up to
+  four swimmers can sit on the same calibrated scale to read strength
+  distributions (e.g. a coach picking medley-relay legs, or a parent comparing
+  their children). The picker list is scoped server-side (listForProfile), so a
+  coach compares across the roster and a viewer only across the swimmer(s) they
+  hold viewing rights for — each wheel is its own authorised read besides.
 
   Layout by count so no wheel is squashed (Step R9): 1 = a single centred wheel;
   2 = a 1×2 row (side by side on desktop, never stacked); 3–4 = a 2×2 grid (3
@@ -38,14 +40,17 @@ export function StrokeProfileScreen() {
   const [picked, setPicked] = useState<Id<"swimmers">[]>([]);
   const [coverage, setCoverage] = useState<Coverage>("full");
 
-  const role = data?.role;
   const swimmers = useMemo(() => data?.swimmers ?? [], [data]);
-  const isCoach = role === "COACH";
-  const canCompare = isCoach;
+  // Offer multi-select whenever there's more than one swimmer to place on the
+  // shared scale — the list is already access-scoped, so this reads the same for
+  // a coach (across the roster) and a viewer (across their linked swimmers),
+  // both capped at MAX_COMPARE for a legible grid. A single swimmer needs no
+  // picker at all, just their name.
+  const canCompare = swimmers.length > 1;
 
   // Effective selection is derived, not stored: raw picks filtered to swimmers
   // that still exist. Nothing is chosen on first load — the wheel stays blank
-  // (the "Choose a swimmer" empty state) until the coach picks one, rather than
+  // (the "Choose a swimmer" empty state) until a swimmer is picked, rather than
   // defaulting to an arbitrary first swimmer. Deriving (not storing) keeps this
   // effect-free and self-heals if a picked swimmer disappears underneath us.
   const selected = useMemo(
@@ -100,7 +105,7 @@ export function StrokeProfileScreen() {
           ) : swimmers.length === 0 ? (
             <p className="text-sm text-ink-muted">No swimmers available.</p>
           ) : canCompare ? (
-            <CoachPicker
+            <MultiSwimmerPicker
               swimmers={swimmers}
               selected={selected}
               onAdd={addSwimmer}
@@ -108,7 +113,7 @@ export function StrokeProfileScreen() {
               nameById={nameById}
             />
           ) : (
-            <ViewerPicker
+            <SingleSwimmerPicker
               swimmers={swimmers}
               value={selected[0]}
               onChange={pickSingle}
@@ -273,7 +278,7 @@ function WheelPanel({
 
 type SwimmerLite = { _id: Id<"swimmers">; name: string; age: number };
 
-function CoachPicker({
+function MultiSwimmerPicker({
   swimmers,
   selected,
   onAdd,
@@ -334,7 +339,7 @@ function CoachPicker({
   );
 }
 
-function ViewerPicker({
+function SingleSwimmerPicker({
   swimmers,
   value,
   onChange,
