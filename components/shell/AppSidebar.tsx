@@ -61,6 +61,15 @@ const ACTIVE_BRAND =
 export function AppSidebar() {
   const pathname = usePathname();
   const profile = useCurrentProfile();
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  // On mobile the sidebar is a slide-over sheet; picking a destination should
+  // dismiss it so the chosen page isn't left hidden behind the overlay. Closing
+  // on the route change covers every entry point (top-level items, group
+  // sub-items, the rail flyout) in one place. No-op on desktop / on first mount.
+  useEffect(() => {
+    if (isMobile) setOpenMobile(false);
+  }, [pathname, isMobile, setOpenMobile]);
   // Role drives which nav a user sees. While the profile is still resolving the
   // role is unknown, so we render NO items rather than guess — a viewer must
   // never see the coach tree flash by (the content is held by RoleGuard). The
