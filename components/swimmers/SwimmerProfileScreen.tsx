@@ -9,6 +9,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Tabs } from "@/components/ui/Tabs";
 import { notify } from "@/lib/notify";
 import { formatShortDate } from "@/lib/format";
 import { formatTime } from "@/lib/swim";
@@ -19,10 +20,13 @@ import { ResultEditSheet } from "./ResultEditSheet";
 import { ViewerAccessSection } from "./ViewerAccessSection";
 
 /*
-  Swimmer profile (Step 6, BRD §5.4). One screen, four reads: identity, the PB
-  board (derived headline meet PBs × course), the improvement summary, and the
-  full history with edit/delete. All data comes from `getSwimmerProfile`; PBs are
-  derived server-side (there is no PB table).
+  Swimmer profile (Step 6, BRD §5.4). Identity sits above two tabs: **Times**
+  (the PB board — derived headline meet PBs × course — plus the improvement
+  summary and full history with edit/delete) and **Access** (coach control of
+  who may view this swimmer). Splitting them keeps the poolside read — a
+  swimmer's numbers — uncluttered by the roster-admin task of granting access,
+  while a count pill on the Access tab still surfaces pending requests. All swim
+  data comes from `getSwimmerProfile`; PBs are derived server-side (no PB table).
 */
 export function SwimmerProfileScreen({
   swimmerId,
@@ -36,10 +40,20 @@ export function SwimmerProfileScreen({
 
   const [editing, setEditing] = useState<HistoryResult | null>(null);
   const [deleting, setDeleting] = useState<HistoryResult | null>(null);
+  const [tab, setTab] = useState("times");
+
+  // Pending-request count for the Access tab pill, so a coach on the Times tab
+  // still sees when someone is waiting. Shares the query the Access panel uses
+  // (Convex dedupes by args); only coaches who manage this swimmer may read it.
+  const editable = data?.editable ?? false;
+  const accessRequests = useQuery(
+    api.swimmerAccess.listAccessRequestsForSwimmer,
+    editable ? { swimmerId } : "skip",
+  );
 
   if (data === undefined) return <ProfileSkeleton />;
 
-  const { swimmer, personalBests, history, editable } = data;
+  const { swimmer, personalBests, history } = data;
 
   const breadcrumb = [
     { label: "Dashboard", href: "/dashboard" },
@@ -79,34 +93,57 @@ export function SwimmerProfileScreen({
         )}
       </div>
 
-      <Section
-        title="Personal bests"
-        hint="Fastest meet time per event and course. Trials and practice never set a PB."
-      >
-        <PbBoard pbs={personalBests} />
-      </Section>
+      <Tabs
+        ariaLabel={`${swimmer.name} sections`}
+        value={tab}
+        onValueChange={setTab}
+        items={[
+          {
+            value: "times",
+            label: "Times",
+            content: (
+              <div className="flex flex-col gap-8">
+                <Section
+                  title="Personal bests"
+                  hint="Fastest meet time per event and course. Trials and practice never set a PB."
+                >
+                  <PbBoard pbs={personalBests} />
+                </Section>
 
-      <Section
-        title="Improvement"
-        hint="First logged swim to the current PB, per event."
-      >
-        <ImprovementSummary pbs={personalBests} />
-      </Section>
+                <Section
+                  title="Improvement"
+                  hint="First logged swim to the current PB, per event."
+                >
+                  <ImprovementSummary pbs={personalBests} />
+                </Section>
 
-      <Section title="History" hint="Every logged swim. Filter, sort, edit or delete.">
-        <HistoryTable
-          rows={history}
-          onEdit={(row) => setEditing(row)}
-          onDelete={(row) => setDeleting(row)}
-        />
-      </Section>
-
-      <ViewerAccessSection
-        swimmerId={swimmerId}
-        swimmerName={swimmer.name}
-        editable={editable}
+                <Section
+                  title="History"
+                  hint="Every logged swim. Filter, sort, edit or delete."
+                >
+                  <HistoryTable
+                    rows={history}
+                    onEdit={(row) => setEditing(row)}
+                    onDelete={(row) => setDeleting(row)}
+                  />
+                </Section>
+              </div>
+            ),
+          },
+          {
+            value: "access",
+            label: "Access",
+            badge: accessRequests?.length ?? 0,
+            content: (
+              <ViewerAccessSection
+                swimmerId={swimmerId}
+                swimmerName={swimmer.name}
+                editable={editable}
+              />
+            ),
+          },
+        ]}
       />
-
 
       {/* Edit — keyed per target so the form seeds from the row on open. */}
       <ResultEditSheet
