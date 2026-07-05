@@ -10,21 +10,37 @@ UI). Extends BRD §2, §5.9.
 | Role | Who | Powers |
 |---|---|---|
 | **SUPER_USER** | The system owner (one, or few) | Manages **global reference data** — qualifying standards, season start/end dates, tour dates. Sees everything. |
-| **COACH** | A club's coach — belongs to exactly one club (`profiles.clubId`) | **Edits** the swimmers in **their own club** (times, coach notes, sensitive fields). Reads every swimmer as **public** for comparison. |
-| **VIEWER** | A swimmer or parent | Read-only. Sees the **sensitive** view only for their **linked** swimmer(s); everyone else is public-only. |
+| **COACH** | A club's coach — belongs to exactly one club (`profiles.clubId`) | **Edits** the swimmers in **their own club** (times, coach notes, sensitive fields). Reads **every** swimmer (all clubs) for cross-roster comparison. |
+| **VIEWER** | A swimmer or parent | Read-only, and **scoped to their linked swimmer(s) only** — they never see the name, times, or history of any swimmer they aren't coach-approved for. |
 
 One coach ↔ one club (assumption — revisit if a coach must span clubs).
 
-## Public vs sensitive fields (per swimmer)
+## Who sees a swimmer at all
 
-**Public** — visible to *any signed-in user* for *any* swimmer (this is what
-makes the leaderboard / cross-swimmer progression work):
+A swimmer's data — **name, times, and history included** — is visible only to:
 
-- Name, gender, **age / age band** (derived — not the exact DOB)
-- Event times & full **progression history**, PBs, comparison/leaderboard standing
+- the swimmer's **own-club coach**,
+- the **SUPER_USER**, and
+- the swimmer's **coach-approved linked viewer(s)** (parent/self).
 
-**Sensitive** — visible only to the swimmer's **own-club coach**, the
-**SUPER_USER**, and the swimmer's **linked viewer(s)** (parent/self):
+A **coach / super-user** additionally reads *every* swimmer (all clubs) so the
+cross-roster views work — comparison, the status matrix, season improvement, and
+group progression. A **viewer** gets none of that breadth: every viewer-facing
+read is restricted server-side to their own linked swimmer(s), so a parent can
+never see another family's name or time.
+
+The **one deliberate exception** is *Find a swimmer* (`/me/find`): a viewer may
+search the roster by name to **request** coach-approved access to their own
+child. That surfaces names (identity only — no times/history) purely to drive an
+access request; it grants nothing until a coach approves.
+
+## Sensitive vs public fields (per swimmer)
+
+Among the users who may see a swimmer at all, a further **field-level** split
+applies:
+
+**Sensitive** — the swimmer's **own-club coach**, the **SUPER_USER**, and the
+swimmer's **linked viewer(s)** see these; a coach from another club does not:
 
 - Exact **date of birth**
 - **Height / weight** and other personal info
@@ -39,9 +55,10 @@ even to the swimmer/parent:
 
 - Only **coaches** (and the SUPER_USER) write swimmer records. Viewers never write.
 - A coach may edit a swimmer **only when `swimmer.clubId === coach.clubId`**. Other
-  clubs' records are read-only to them (public view). This lets many clubs share
-  one system: each coach logs times/notes for their own swimmers and still sees how
-  they compare against everyone, without being able to touch other clubs' data.
+  clubs' records are read-only to them (non-sensitive fields only — no DOB/notes).
+  This lets many clubs share one system: each coach logs times/notes for their own
+  swimmers and still sees how they compare against everyone, without being able to
+  touch other clubs' data.
 - **Standards, season start/end dates, tour dates** are written by the
   **SUPER_USER only**; every other role reads them (read-only).
 
@@ -57,9 +74,12 @@ the swimmer's own-club coach (or the super-user) can add or revoke viewers.
 
 ## Permission matrix
 
-| Capability | Super-user | Coach (own club) | Coach (other club) | Swimmer/parent (own child) | Anyone (other swimmers) |
+| Capability | Super-user | Coach (own club) | Coach (other club) | Swimmer/parent (own child) | Swimmer/parent (other swimmers) |
 |---|---|---|---|---|---|
-| Public: name, age band, times, history, comparison | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Name, age band, times, history | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Cross-roster comparison / status matrix / season improvement | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Group progression | ✅ (any) | ✅ (any) | ✅ (any) | ✅ (own linked) | ❌ |
+| Search roster by name to *request* access (`/me/find`) | ✅ | ✅ | ✅ | ✅ | ✅ (name only, to request) |
 | Sensitive: DOB, height/weight | ✅ | ✅ | 🔒 | ✅ | 🔒 |
 | Coach notes | ✅ | ✅ | 🔒 | ✅ | 🔒 |
 | Projections | ✅ | ✅ | 🔒 | ❌ | ❌ |
@@ -71,18 +91,15 @@ the swimmer's own-club coach (or the super-user) can add or revoke viewers.
 1. **Foundations** *(done)* — schema: `clubs`, `profiles.clubId`, `swimmers.clubId`,
    `heightCm`/`weightKg`, `settings.seasonEnd`; this spec. (All additive/optional,
    so the running app is unaffected until later phases consume them.)
-2. **Field-level privacy** *(done)* — `authz.swimmerViewer` (`full`/`sensitive`/
-   `public` per swimmer); `getProgression` redacts DOB for a public view and gates
-   projections (`canSeeProjections`); the chart omits the cut overlay when DOB is
-   hidden.
-3. **Open viewer reads** — *done:* `getEventComparison` + `getProgression` accept
-   any signed-in user with public-scoped payloads (non-regressive); public read on
-   `getApplicableStandards`; a `/me/rankings` viewer leaderboard (reuses the coach
-   `ComparisonBarChart`, highlights the viewer's own swimmer, personal standing
-   callout) with a viewer nav entry. Passed impeccable critique 36/40. A
-   browse-any-swimmer picker on `/me/progress` (public `listSwimmersForPicker`)
-   lets a viewer chart any swimmer's progression; cuts/projection stay to their
-   own swimmer.
+2. **Field-level privacy** *(done; `public` view later removed in Phase 8)* — a
+   per-swimmer `full`/`sensitive`/`public` split; `getProgression` gates
+   projections (`canSeeProjections`). Phase 8 drops the `public` tier: a viewer no
+   longer reaches any swimmer outside their linked set, so the split is now just
+   `full` (staff) vs `sensitive` (linked viewer).
+3. **Open viewer reads** — *SUPERSEDED by Phase 8.* This phase briefly let any
+   signed-in user read every swimmer's public data (comparison, cross-swimmer
+   progression, a `/me/rankings` leaderboard). Phase 8 reverses it: a viewer is
+   now scoped to their own linked swimmer(s) everywhere.
 4. **Super-user admin** *(done)* — `SUPER_USER` role wired through auth (env
    allow-list bootstrap `SUPER_USER_EMAILS`), authz (superset of a coach), and
    nav/guards (`/admin/*` reserved). Standards + season start/end are
@@ -108,5 +125,23 @@ the swimmer's own-club coach (or the super-user) can add or revoke viewers.
    Resend invite (`convex/emails.ts`, an internal action) with a sign-up / open
    link, so a parent gets a real email instead of being told out-of-band. No-op
    when `RESEND_API_KEY` / `EMAIL_FROM` are unset. See `docs/environment.md`.
+
+8. **Viewer read lock-down** *(done)* — reverses Phase 3. A viewer/parent now sees
+   the name, times, and history of **only** their coach-approved linked swimmer(s):
+   - `getEventComparison` is coach/super-user only (`requireCoach`) — no viewer
+     leaderboard. The `/me/rankings` route + `ViewerRankingsScreen` are removed.
+   - `getProgression` gates every requested id through `requireSwimmersAccess`, so
+     a viewer can chart only their own swimmer(s); a mixed selection with one
+     unlinked swimmer is rejected outright (never trimmed). `swimmerViewer` and the
+     `"public"` per-swimmer view are removed — the field-level split is now just
+     `full` (staff) vs `sensitive` (linked viewer).
+   - `/me/progress` charts the viewer's own swimmer(s): a single-swimmer viewer has
+     no picker; a parent with >1 gets a **group** overlay across their own children.
+     No roster picker, so no other swimmer is ever named there.
+   - `getStrokeProfile` / `getRoadToQualify` were already access-gated
+     (`requireSwimmerAccess`); the status matrix / season improvement stay
+     coach-only. `listSwimmersForPicker` survives for one purpose only: the
+     `/me/find` name search that lets a viewer *request* coach-approved access
+     (identity only, no times/history — grants nothing until a coach approves).
 
 **Deferred:** tour dates entity (fields TBD).

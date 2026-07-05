@@ -156,43 +156,6 @@ export function assertCoachManagesSwimmer(
   }
 }
 
-/** How much of a given swimmer the caller may see (docs/access-control.md). */
-export type SwimmerView = "full" | "sensitive" | "public";
-
-/**
- * A per-request resolver for the caller's view of EACH swimmer. `viewOf` returns:
- *   - "full"      — sensitive fields (DOB, notes, height/weight) AND projections.
- *                   A COACH today (Phase 5 narrows this to the coach's own club;
- *                   Phase 4 adds the SUPER_USER).
- *   - "sensitive" — sensitive fields but NOT projections. A VIEWER linked to this
- *                   swimmer (their own child).
- *   - "public"    — name, age band, times/history only. Everyone else.
- *
- * Any signed-in user may call the queries that use this — the payload, not the
- * gate, is what protects sensitive data. The viewer's link set is read once so a
- * list query stays a single extra read regardless of how many swimmers it spans.
- */
-export async function swimmerViewer(ctx: QueryCtx | MutationCtx): Promise<{
-  profile: Doc<"profiles">;
-  viewOf: (swimmer: Doc<"swimmers">) => SwimmerView;
-}> {
-  const profile = await requireSignedIn(ctx);
-  if (profile.role !== "VIEWER") {
-    // Coach or super-user: full view of every swimmer. Phase 5 narrows a coach
-    // to their own club; a super-user keeps the unrestricted view.
-    return { profile, viewOf: () => "full" };
-  }
-  const links = await ctx.db
-    .query("swimmerAccess")
-    .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
-    .take(200);
-  const linked = new Set(links.map((l) => l.swimmerId));
-  return {
-    profile,
-    viewOf: (swimmer) => (linked.has(swimmer._id) ? "sensitive" : "public"),
-  };
-}
-
 /**
  * The swimmer ids the caller may read: every swimmer for a coach, or just the
  * linked ones for a viewer. Null role-less callers throw. Bounded read — the

@@ -3,9 +3,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import {
   requireCoach,
-  requireSignedIn,
   requireSwimmerAccess,
-  swimmerViewer,
+  requireSwimmersAccess,
 } from "./authz";
 import {
   computeAge,
@@ -124,10 +123,10 @@ export const getEventComparison = query({
     rows: v.array(comparisonRow),
   }),
   handler: async (ctx, args) => {
-    // Open to any signed-in user (docs/access-control.md): the leaderboard is
-    // the "where do I stand vs everyone" view, and every field here is public
-    // (name, age band, PB, tier) — no DOB/notes. Coaches and viewers alike.
-    await requireSignedIn(ctx);
+    // Coach / super-user ONLY (docs/access-control.md). A cross-roster leaderboard
+    // exposes every swimmer's name and time, so it is never shown to a viewer — a
+    // parent/swimmer sees names and times for their own linked swimmer(s) alone.
+    await requireCoach(ctx);
 
     const results = await ctx.db
       .query("results")
@@ -325,12 +324,13 @@ export const getProgression = query({
     // De-dupe and cap so a squad with repeats or a huge selection stays bounded.
     const ids = [...new Set(args.swimmerIds)].slice(0, MAX_SERIES);
 
-    // Any signed-in user may chart any swimmer; the payload is what's scoped
-    // (docs/access-control.md). `viewOf` decides per swimmer whether the DOB —
-    // and thus the qualifying-cut overlay — is included; projections are coach-
-    // only. This replaces the old own-swimmer-only gate: viewers now browse the
-    // whole roster's progression, just without other swimmers' sensitive fields.
-    const { profile, viewOf } = await swimmerViewer(ctx);
+    // Role-scoped SERVER-SIDE (docs/access-control.md): a coach / super-user
+    // charts any swimmers; a VIEWER may chart ONLY their own linked swimmer(s).
+    // A selection that includes one swimmer the viewer isn't linked to is
+    // rejected outright — never silently trimmed — so a viewer never sees another
+    // swimmer's name, times, or history here. Projections stay coach-only below.
+    const profile = await requireSwimmersAccess(ctx, ids);
+    const staff = profile.role !== "VIEWER";
 
     const series: Array<{
       swimmerId: Id<"swimmers">;
@@ -395,14 +395,17 @@ export const getProgression = query({
           isPB: pb !== null && r._id === pb.resultId,
         }));
 
-      const view = viewOf(swimmer);
+      // A viewer only ever reaches their OWN linked swimmers here (gated above),
+      // so every charted swimmer is one they may see in full detail: staff get
+      // "full", a viewer "sensitive". The exact DOB is always included so the
+      // qualifying-cut overlay resolves per the swimmer's age; "public" never
+      // occurs on this screen any more.
+      const view = staff ? "full" : "sensitive";
       series.push({
         swimmerId: id,
         name: swimmer.name,
         gender: swimmer.gender,
-        // Redact the exact DOB unless the caller may see this swimmer's
-        // sensitive fields; "public" gets null and no cut overlay.
-        dob: view === "public" ? null : swimmer.dob,
+        dob: swimmer.dob,
         view,
         pbTimeMs: pb ? pb.timeMs : null,
         points,
@@ -457,7 +460,7 @@ export const getProgression = query({
       standards,
       // Projections are staff-only (docs/access-control.md): coaches and the
       // super-user, never a viewer — not even for their own swimmer.
-      canSeeProjections: profile.role !== "VIEWER",
+      canSeeProjections: staff,
     };
   },
 });

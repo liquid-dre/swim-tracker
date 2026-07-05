@@ -382,14 +382,15 @@ export const listForProfile = query({
 });
 
 // ---------------------------------------------------------------------------
-// listSwimmersForPicker — the whole roster as PUBLIC picker rows
+// listSwimmersForPicker — the roster as name-search rows for "Find a swimmer"
 // ---------------------------------------------------------------------------
 //
-// Any signed-in user may list every swimmer here (docs/access-control.md): this
-// powers the "chart any swimmer" progression picker a viewer uses to see how
-// another swimmer has progressed. Public fields only — name, gender, age band,
-// active flag; no DOB/notes. The heavy per-swimmer detail (and any sensitive
-// field) still flows through the scoped reads, redacted per viewer.
+// The ONLY place a viewer sees names beyond their own linked swimmer(s), and it
+// exists solely so a parent can search the roster to REQUEST coach-approved
+// access to their child (`/me/find`, requestSwimmerAccess). Public identity
+// fields only — name, gender, age band, active flag; no DOB/notes, no times. All
+// swimmer-scoped data (times, history, PBs) still flows through the access-gated
+// reads, so finding a name here grants a viewer nothing until a coach approves.
 export const listSwimmersForPicker = query({
   args: {},
   returns: v.array(
