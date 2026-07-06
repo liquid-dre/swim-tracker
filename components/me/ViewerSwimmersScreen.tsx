@@ -32,7 +32,7 @@ export function ViewerSwimmersScreen() {
   const swimmers = data?.swimmers as ViewerSwimmerRow[] | undefined;
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex min-w-0 flex-col gap-8">
       <PageHeader
         title="My swimmers"
         breadcrumb={trailForHref("/me/swimmers")}

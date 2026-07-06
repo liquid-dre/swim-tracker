@@ -80,7 +80,9 @@ export function StatusMatrixScreen() {
   const rows = useMemo(() => data?.rows ?? [], [data]);
 
   return (
-    <div className="flex flex-col gap-6">
+    // min-w-0 on the screen column so a wide matrix can never widen the page:
+    // it is bounded to the content column and scrolls inside its own card.
+    <div className="flex min-w-0 flex-col gap-6">
       <PageHeader
         title="Qualification status"
         breadcrumb={trailForHref(pathname)}
@@ -162,14 +164,19 @@ export function StatusMatrixScreen() {
             style={{ opacity: refetching ? 0.55 : 1 }}
             aria-busy={refetching}
           >
-            <div className="max-h-[70vh] overflow-auto custom-scrollbar">
+            {/* relative: the cells' sr-only spans are position:absolute; without a
+                positioned ancestor inside the scroll box their containing block
+                becomes the app inset, so the ones in far-right (scrolled-off)
+                columns push the whole page wide. Anchoring them here keeps them
+                clipped with the table. */}
+            <div className="relative w-full max-h-[70vh] overflow-auto custom-scrollbar">
               <table className="w-full border-separate border-spacing-0 text-sm">
                 <thead>
                   <tr>
                     {/* Corner: sticky on both axes so it never scrolls away. */}
                     <th
                       scope="col"
-                      className="sticky left-0 top-0 z-30 w-px whitespace-nowrap border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500"
+                      className="sticky left-0 top-0 z-30 w-px whitespace-nowrap border-b border-gray-200 bg-gray-50 px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 shadow-[6px_0_8px_-6px_rgba(16,24,40,0.10)]"
                     >
                       Swimmer
                     </th>
@@ -191,7 +198,7 @@ export function StatusMatrixScreen() {
                     <tr key={r.swimmerId} className="group">
                       <th
                         scope="row"
-                        className="sticky left-0 z-10 w-px whitespace-nowrap border-b border-gray-100 bg-white px-4 py-2.5 text-left align-middle font-medium text-ink transition-colors group-hover:bg-aqua-50"
+                        className="sticky left-0 z-10 w-px whitespace-nowrap border-b border-gray-100 bg-white px-4 py-2.5 text-left align-middle font-medium text-ink shadow-[6px_0_8px_-6px_rgba(16,24,40,0.10)] transition-colors group-hover:bg-aqua-50"
                       >
                         <Link
                           href={`${swimmerBase}/${r.swimmerId}`}

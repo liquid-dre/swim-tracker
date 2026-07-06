@@ -152,7 +152,7 @@ export function CompareScreen() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <PageHeader
         title="Comparison"
         breadcrumb={trailForHref(pathname)}
@@ -248,7 +248,7 @@ export function CompareScreen() {
               {/* Leaderboard */}
               <section className="flex flex-col gap-3">
                 <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
-                  <div className="overflow-x-auto custom-scrollbar">
+                  <div className="relative overflow-x-auto custom-scrollbar">
                     <table className="w-full text-base">
                       <thead>
                         <tr className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">

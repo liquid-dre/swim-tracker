@@ -10,7 +10,7 @@
 
 export type Stroke = "FREE" | "BACK" | "BREAST" | "FLY" | "IM";
 export type Course = "SCM" | "LCM";
-export type Distance = 50 | 100 | 200 | 400 | 800 | 1500;
+export type Distance = 25 | 50 | 100 | 200 | 400 | 800 | 1500;
 
 /** The shape isValidEvent needs from an event-whitelist row (BRD §4.3, §7). */
 export type EventDef = {
@@ -301,7 +301,7 @@ export const STROKE_ORDER: ReadonlyArray<Stroke> = [
 
 /** Canonical distance order (short → long). */
 export const DISTANCE_ORDER: ReadonlyArray<Distance> = [
-  50, 100, 200, 400, 800, 1500,
+  25, 50, 100, 200, 400, 800, 1500,
 ];
 
 /** Human event label, e.g. "100 IM" / "800 Free". */
@@ -679,8 +679,9 @@ export function tierCoversEvent(
   const s = stroke as Stroke;
   switch (tier) {
     case "LEVEL_2":
-      // Everything up to 200 m (50 m is LEVEL_2-only; 200 IM included).
-      return d <= 200;
+      // 50–200 m (50 m is LEVEL_2-only; 200 IM included). 25 m sprints are
+      // development events with no qualifying cut, so exclude them.
+      return d >= 50 && d <= 200;
     case "LEVEL_3":
       if (s === "IM") return d === 200; // 200 IM only (no 400 IM)
       if (s === "FLY") return d === 100; // no 200 Fly
