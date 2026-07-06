@@ -5,7 +5,7 @@ import { eventLabel } from "../lib/swim";
 
 // The strokes/distances/courses match the shared validators in schema.ts.
 type Stroke = "FREE" | "BACK" | "BREAST" | "FLY" | "IM";
-type Distance = 50 | 100 | 200 | 400 | 800 | 1500;
+type Distance = 25 | 50 | 100 | 200 | 400 | 800 | 1500;
 type Course = "SCM" | "LCM";
 
 type SeedEvent = {
@@ -20,6 +20,13 @@ const SCM_ONLY: Course[] = ["SCM"];
 // The COMPLETE event whitelist from BRD §4.3. The (distance, stroke) pairs
 // here are the only real events; allowedCourses encodes the course notes.
 const EVENTS: SeedEvent[] = [
+  // 25 — FREE/BACK/BREAST/FLY, SCM only (one length of a 25 m pool; you can't
+  // swim 25 m long-course). No 25 IM. Development sprints — no qualifying cut.
+  { distance: 25, stroke: "FREE", allowedCourses: SCM_ONLY },
+  { distance: 25, stroke: "BACK", allowedCourses: SCM_ONLY },
+  { distance: 25, stroke: "BREAST", allowedCourses: SCM_ONLY },
+  { distance: 25, stroke: "FLY", allowedCourses: SCM_ONLY },
+
   // 50 — FREE/BACK/BREAST/FLY, SCM + LCM. No 50 IM.
   { distance: 50, stroke: "FREE", allowedCourses: BOTH },
   { distance: 50, stroke: "BACK", allowedCourses: BOTH },
@@ -104,6 +111,7 @@ const strokeValidator = v.union(
 );
 const courseValidator = v.union(v.literal("SCM"), v.literal("LCM"));
 const distanceValidator = v.union(
+  v.literal(25),
   v.literal(50),
   v.literal(100),
   v.literal(200),

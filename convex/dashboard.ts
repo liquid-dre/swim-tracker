@@ -45,6 +45,7 @@ const stroke = v.union(
   v.literal("IM"),
 );
 const distance = v.union(
+  v.literal(25),
   v.literal(50),
   v.literal(100),
   v.literal(200),

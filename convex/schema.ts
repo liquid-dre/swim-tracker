@@ -13,6 +13,7 @@ const stroke = v.union(
 );
 const course = v.union(v.literal("SCM"), v.literal("LCM"));
 const distance = v.union(
+  v.literal(25),
   v.literal(50),
   v.literal(100),
   v.literal(200),

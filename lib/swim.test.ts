@@ -210,6 +210,10 @@ describe("isValidEvent", () => {
   // The complete event whitelist (BRD §4.3), mirroring convex/events.ts.
   const BOTH = ["SCM", "LCM"] as const;
   const events: EventDef[] = [
+    { distance: 25, stroke: "FREE", allowedCourses: ["SCM"], active: true }, // SCM-only
+    { distance: 25, stroke: "BACK", allowedCourses: ["SCM"], active: true },
+    { distance: 25, stroke: "BREAST", allowedCourses: ["SCM"], active: true },
+    { distance: 25, stroke: "FLY", allowedCourses: ["SCM"], active: true },
     { distance: 50, stroke: "FREE", allowedCourses: [...BOTH], active: true },
     { distance: 50, stroke: "BACK", allowedCourses: [...BOTH], active: true },
     { distance: 50, stroke: "BREAST", allowedCourses: [...BOTH], active: true },
@@ -232,6 +236,8 @@ describe("isValidEvent", () => {
     expect(isValidEvent(800, "FREE", "SCM", events)).toBe(true);
     expect(isValidEvent(100, "IM", "SCM", events)).toBe(true);
     expect(isValidEvent(400, "IM", "LCM", events)).toBe(true);
+    expect(isValidEvent(25, "FREE", "SCM", events)).toBe(true); // 25 m sprint
+    expect(isValidEvent(25, "FLY", "SCM", events)).toBe(true);
   });
 
   it("rejects events not on the whitelist", () => {
@@ -239,10 +245,12 @@ describe("isValidEvent", () => {
     expect(isValidEvent(50, "IM", "LCM", events)).toBe(false);
     expect(isValidEvent(800, "FLY", "LCM", events)).toBe(false); // no 800 Fly
     expect(isValidEvent(400, "BACK", "LCM", events)).toBe(false); // 400 is Free/IM only
+    expect(isValidEvent(25, "IM", "SCM", events)).toBe(false); // no 25 IM
   });
 
   it("rejects a valid event on a disallowed course", () => {
     expect(isValidEvent(100, "IM", "LCM", events)).toBe(false); // 100 IM is SCM-only
+    expect(isValidEvent(25, "FREE", "LCM", events)).toBe(false); // 25 m is SCM-only
   });
 
   it("rejects an inactive event", () => {
@@ -454,6 +462,12 @@ describe("tierCoversEvent (§4.9 coverage is a hard rule)", () => {
     expect(tierCoversEvent("LEVEL_2", 50, "FREE")).toBe(true);
     expect(tierCoversEvent("LEVEL_3", 50, "FREE")).toBe(false);
     expect(tierCoversEvent("SANJ", 50, "FREE")).toBe(false);
+  });
+
+  it("25 m sprints have no qualifying cut at any tier", () => {
+    expect(tierCoversEvent("LEVEL_2", 25, "FREE")).toBe(false);
+    expect(tierCoversEvent("LEVEL_3", 25, "FREE")).toBe(false);
+    expect(tierCoversEvent("SANJ", 25, "FREE")).toBe(false);
   });
 
   it("LEVEL_2 tops out at 200 m (+ 200 IM); nothing longer", () => {
