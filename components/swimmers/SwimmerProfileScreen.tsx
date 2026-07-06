@@ -108,7 +108,7 @@ export function SwimmerProfileScreen({
   );
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex min-w-0 flex-col gap-8">
       <div className="flex flex-col gap-4">
         <PageHeader
           title={swimmer.name}

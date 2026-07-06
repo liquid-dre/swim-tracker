@@ -514,7 +514,7 @@ function ScreenFrame({
 }) {
   const pathname = usePathname();
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <PageHeader
         title="Standards"
         breadcrumb={trailForHref(pathname)}
