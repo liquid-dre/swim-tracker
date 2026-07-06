@@ -73,6 +73,22 @@ export function LogScreen({
     setMeetEdited(value.trim() !== "");
   }
 
+  // Pick a distance and, when that distance only ever runs on ONE course, snap
+  // the course to it automatically (e.g. 25 m is SCM-only — you can't swim it in
+  // a long-course pool). The stroke is respected when one is already chosen so
+  // the resolved course matches the real event. When a distance runs on both
+  // courses (50/100/200/…) nothing is auto-picked — the coach chooses.
+  function handleDistanceChange(next: number) {
+    setDistance(next);
+    const courses = new Set<Course>();
+    for (const e of events ?? []) {
+      if (e.distance !== next) continue;
+      if (stroke !== null && e.stroke !== stroke) continue;
+      for (const c of e.allowedCourses) courses.add(c);
+    }
+    if (courses.size === 1) setCourse([...courses][0]);
+  }
+
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [recent, setRecent] = useState<SavedEntry[]>([]);
@@ -111,7 +127,7 @@ export function LogScreen({
     try {
       const id = await logResult({
         swimmerId,
-        distance: distance as 50 | 100 | 200 | 400 | 800 | 1500,
+        distance: distance as 25 | 50 | 100 | 200 | 400 | 800 | 1500,
         stroke,
         course,
         swimType,
@@ -209,7 +225,7 @@ export function LogScreen({
               distance={distance}
               stroke={stroke}
               course={course}
-              onDistance={setDistance}
+              onDistance={handleDistanceChange}
               onStroke={setStroke}
               onCourse={setCourse}
               disabled={loading}
