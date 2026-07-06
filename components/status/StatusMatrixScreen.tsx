@@ -164,7 +164,12 @@ export function StatusMatrixScreen() {
             style={{ opacity: refetching ? 0.55 : 1 }}
             aria-busy={refetching}
           >
-            <div className="w-full max-h-[70vh] overflow-auto custom-scrollbar">
+            {/* relative: the cells' sr-only spans are position:absolute; without a
+                positioned ancestor inside the scroll box their containing block
+                becomes the app inset, so the ones in far-right (scrolled-off)
+                columns push the whole page wide. Anchoring them here keeps them
+                clipped with the table. */}
+            <div className="relative w-full max-h-[70vh] overflow-auto custom-scrollbar">
               <table className="w-full border-separate border-spacing-0 text-sm">
                 <thead>
                   <tr>

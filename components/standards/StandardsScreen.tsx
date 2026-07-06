@@ -289,7 +289,7 @@ export function StandardsScreen() {
           </p>
         </div>
 
-        <div className="custom-scrollbar overflow-x-auto">
+        <div className="relative custom-scrollbar overflow-x-auto">
           <table className="w-full min-w-[28rem] text-base">
             <thead>
               <tr className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
