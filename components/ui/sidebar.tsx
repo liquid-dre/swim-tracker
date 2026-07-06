@@ -316,8 +316,12 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
         // status matrix / comparison table) forces the whole shell past the
         // viewport and slides content under the fixed sidebar. min-w-0 lets the
         // inset shrink to the available width; wide content scrolls inside its
-        // own overflow container instead.
-        "relative flex w-full min-w-0 flex-1 flex-col bg-background",
+        // own overflow container instead. overflow-x-clip is the belt-and-braces
+        // guard: it never lets any stray wide child produce a page-level
+        // horizontal scrollbar / left-squashed layout (esp. on mobile), while
+        // clip (unlike hidden) creates no scroll container, so the sticky top bar
+        // still pins to the viewport.
+        "relative flex w-full min-w-0 flex-1 flex-col overflow-x-clip bg-background",
         "md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
         className
       )}
