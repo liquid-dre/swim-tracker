@@ -3,7 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowRight, Users } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Circle,
+  ListChecks,
+  Timer,
+  Users,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import type { api } from "@/convex/_generated/api";
 import { TierBadge } from "@/components/ui/TierBadge";
@@ -47,7 +55,20 @@ export function SquadStats({ data }: { data: DashboardData | undefined }) {
     );
   }
 
-  const { counts } = data;
+  const { counts, setup } = data;
+
+  // A brand-new coach gets a guided setup thread instead of a wall of zeros —
+  // the three steps below are the dependency chain the whole app hangs off.
+  if (counts.swimmers === 0 || !setup.hasStandards || !setup.hasResults) {
+    return (
+      <FirstRunChecklist
+        hasSwimmers={counts.swimmers > 0}
+        hasStandards={setup.hasStandards}
+        hasResults={setup.hasResults}
+      />
+    );
+  }
+
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       <StatCard label="Swimmers" value={counts.swimmers} sub="on the active roster" />
@@ -69,6 +90,101 @@ export function SquadStats({ data }: { data: DashboardData | undefined }) {
         tone={counts.closeToCut > 0 ? "warn" : "muted"}
       />
     </div>
+  );
+}
+
+function FirstRunChecklist({
+  hasSwimmers,
+  hasStandards,
+  hasResults,
+}: {
+  hasSwimmers: boolean;
+  hasStandards: boolean;
+  hasResults: boolean;
+}) {
+  const steps: Array<{
+    done: boolean;
+    href: string;
+    label: string;
+    desc: string;
+    icon: LucideIcon;
+  }> = [
+    {
+      done: hasSwimmers,
+      href: "/swimmers",
+      label: "Add your swimmers",
+      desc: "Name, date of birth and gender — ages drive every cut lookup.",
+      icon: Users,
+    },
+    {
+      done: hasStandards,
+      href: "/standards",
+      label: "Import the qualifying standards",
+      desc: "One CSV import fills in every tier, gap and status across the app.",
+      icon: ListChecks,
+    },
+    {
+      done: hasResults,
+      href: "/log",
+      label: "Log your first time",
+      desc: "Meet times set PBs; trials and practice are tracked but never count.",
+      icon: Timer,
+    },
+  ];
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm sm:p-6">
+      <h2 className="text-md font-semibold text-ink">Set up your squad</h2>
+      <p className="mt-1 text-sm text-ink-muted">
+        Three steps, in order — then this space becomes your live squad overview.
+      </p>
+      <ol className="mt-4 flex flex-col divide-y divide-gray-100">
+        {steps.map((s) => (
+          <li key={s.href}>
+            <Link
+              href={s.href}
+              className="group flex items-center gap-3 rounded-lg px-1 py-3 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {s.done ? (
+                <CheckCircle2
+                  aria-hidden
+                  className="size-5 shrink-0 text-success-ink"
+                  strokeWidth={1.75}
+                />
+              ) : (
+                <Circle
+                  aria-hidden
+                  className="size-5 shrink-0 text-ink-faint"
+                  strokeWidth={1.75}
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <span
+                  className={cn(
+                    "text-sm font-medium",
+                    s.done ? "text-ink-muted" : "text-ink",
+                  )}
+                >
+                  {s.label}
+                  {s.done && (
+                    <span className="ml-2 text-xs font-medium text-success-ink">
+                      Done
+                    </span>
+                  )}
+                </span>
+                <p className="mt-0.5 text-xs text-ink-muted">{s.desc}</p>
+              </div>
+              {!s.done && (
+                <ArrowRight
+                  aria-hidden
+                  className="size-4 shrink-0 text-ink-faint transition-transform [transition-duration:var(--dur-1)] group-hover:translate-x-0.5 group-hover:text-brand-500"
+                />
+              )}
+            </Link>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

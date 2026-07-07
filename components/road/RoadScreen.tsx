@@ -11,7 +11,9 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
 import { Segmented } from "@/components/ui/Segmented";
 import { FilterBar } from "@/components/ui/FilterBar";
+import { StandardsMissing } from "@/components/ui/StandardsMissing";
 import { trailForHref } from "@/lib/nav";
+import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { usePickerSwimmers } from "@/lib/usePickerSwimmers";
 import { formatTime, type Tier } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
@@ -105,6 +107,11 @@ export function RoadScreen() {
   const loadingSwimmers = swimmers === undefined;
   const swimmerChosen = swimmerId !== "";
 
+  // Staff get the "import standards" pointer; a viewer can't reach that screen.
+  const profile = useCurrentProfile();
+  const isStaff =
+    profile !== undefined && profile !== null && profile.role !== "VIEWER";
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -173,10 +180,12 @@ export function RoadScreen() {
           title="Swimmer not found"
           body="That swimmer may have been removed. Pick another from the list above."
         />
+      ) : !data.hasStandards ? (
+        <StandardsMissing isStaff={isStaff} />
       ) : data.events.length === 0 ? (
         <EmptyState
           title={`No ${TIER_FULL[tier]} cuts at age ${data.swimmer.age}`}
-          body={`${data.swimmer.name} has no ${TIER_FULL[tier]} events at their exact age. This tier may not cover their age group, or the cuts aren’t loaded. Try another target tier.`}
+          body={`${data.swimmer.name} has no ${TIER_FULL[tier]} events at their exact age. This tier may not cover their age group. Try another target tier.`}
         />
       ) : (
         <RoadResults data={data} tier={tier} />

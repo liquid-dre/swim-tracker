@@ -527,6 +527,9 @@ export const getQualificationMatrix = query({
   returns: v.object({
     events: v.array(matrixEvent), // LCM columns, canonical 50→1500 order
     rows: v.array(matrixRow),
+    // False until any cuts are imported — the screen explains the blank matrix
+    // and points a coach at Standards instead of looking broken.
+    hasStandards: v.boolean(),
   }),
   handler: async (ctx, args) => {
     // Role-scoped. Staff get the full roster (optionally squad-filtered); a
@@ -664,6 +667,7 @@ export const getQualificationMatrix = query({
         label: e.label,
       })),
       rows,
+      hasStandards: allStandards.length > 0,
     };
   },
 });
@@ -724,6 +728,9 @@ export const getRoadToQualify = query({
       }),
       tier,
       events: v.array(roadEvent),
+      // False when no cuts exist for this swimmer's gender at all — the screen
+      // explains the empty road instead of looking broken.
+      hasStandards: v.boolean(),
     }),
   ),
   handler: async (ctx, { swimmerId, tier: targetTier }) => {
@@ -843,6 +850,7 @@ export const getRoadToQualify = query({
       },
       tier: targetTier,
       events: [...withTime, ...noTime],
+      hasStandards: allStandards.length > 0,
     };
   },
 });

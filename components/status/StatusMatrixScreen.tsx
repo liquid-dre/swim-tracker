@@ -10,6 +10,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { StandardsMissing } from "@/components/ui/StandardsMissing";
 import { Select } from "@/components/ui/Select";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { TierBadge } from "@/components/ui/TierBadge";
@@ -146,6 +147,8 @@ export function StatusMatrixScreen() {
 
       {data === undefined ? (
         <MatrixSkeleton />
+      ) : !data.hasStandards ? (
+        <StandardsMissing isStaff={showSquad} />
       ) : rows.length === 0 ? (
         <EmptyState
           title="No swimmers match these filters"

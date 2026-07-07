@@ -93,6 +93,12 @@ export const getCoachDashboard = query({
       cutsQualified: v.number(), // swimmer×event cells with a tier met (LCM)
       closeToCut: v.number(), // swimmers within 1.00s of a next cut
     }),
+    // First-run signals: which setup steps (swimmers → standards → results)
+    // still need doing. Drives the dashboard checklist for a new coach.
+    setup: v.object({
+      hasStandards: v.boolean(),
+      hasResults: v.boolean(),
+    }),
     roster: v.array(rosterRow),
   }),
   handler: async (ctx) => {
@@ -133,6 +139,7 @@ export const getCoachDashboard = query({
     let pbsThisWeek = 0;
     let cutsQualified = 0;
     let closeToCut = 0;
+    let hasResults = false;
     const roster = [];
 
     for (const swimmer of swimmers) {
@@ -142,6 +149,7 @@ export const getCoachDashboard = query({
         .take(SWIMMER_RESULTS_LIMIT);
       const pbs = computePersonalBests(results as ResultForPB[]);
       const age = computeAge(swimmer.dob, today); // display age (as of today)
+      if (results.length > 0) hasResults = true;
 
       // "PBs this week": any headline (fastest-ever MEET) whose date is inside the
       // window — i.e. the swimmer set a new lifetime best this week (any course).
@@ -223,6 +231,10 @@ export const getCoachDashboard = query({
         pbsThisWeek,
         cutsQualified,
         closeToCut,
+      },
+      setup: {
+        hasStandards: allStandards.length > 0,
+        hasResults,
       },
       roster,
     };
