@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 /*
   Last-resort boundary: replaces the ROOT layout when even it throws, so
   globals.css and the Outfit font are not guaranteed to be loaded. Everything
@@ -13,7 +15,9 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  console.error(error);
+  useEffect(() => {
+    console.error(error);
+  }, [error]);
 
   return (
     <html lang="en">

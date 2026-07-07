@@ -108,7 +108,10 @@ export function RoadScreen() {
   const swimmerChosen = swimmerId !== "";
 
   // Staff get the "import standards" pointer; a viewer can't reach that screen.
+  // While the profile is in flight, hold the skeleton rather than flashing the
+  // viewer copy at a coach.
   const profile = useCurrentProfile();
+  const profileLoading = profile === undefined;
   const isStaff =
     profile !== undefined && profile !== null && profile.role !== "VIEWER";
 
@@ -165,10 +168,16 @@ export function RoadScreen() {
             title="Swimmer not found"
             body="That swimmer may have been removed. Pick another from the list above."
           />
+        ) : !allData.hasStandards ? (
+          profileLoading ? (
+            <RoadSkeleton />
+          ) : (
+            <StandardsMissing isStaff={isStaff} />
+          )
         ) : allData.events.length === 0 ? (
           <EmptyState
             title={`No qualifying cuts at age ${allData.swimmer.age}`}
-            body={`${allData.swimmer.name} has no long-course qualifying cuts at their exact age yet. This may be an age no tier covers, or the cuts aren’t loaded.`}
+            body={`${allData.swimmer.name} has no long-course qualifying cuts at their exact age yet. This may be an age no tier covers.`}
           />
         ) : (
           <AllTierResults data={allData} />
@@ -181,7 +190,11 @@ export function RoadScreen() {
           body="That swimmer may have been removed. Pick another from the list above."
         />
       ) : !data.hasStandards ? (
-        <StandardsMissing isStaff={isStaff} />
+        profileLoading ? (
+          <RoadSkeleton />
+        ) : (
+          <StandardsMissing isStaff={isStaff} />
+        )
       ) : data.events.length === 0 ? (
         <EmptyState
           title={`No ${TIER_FULL[tier]} cuts at age ${data.swimmer.age}`}

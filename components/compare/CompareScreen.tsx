@@ -214,7 +214,10 @@ export function CompareScreen() {
       ) : (
         <div className="flex flex-col gap-5">
           {data.truncated && (
-            <p className="rounded-lg border border-warning-500/30 bg-warning-50 px-4 py-2.5 text-sm text-gray-700">
+            <p
+              role="status"
+              className="rounded-lg border border-warning-500/30 bg-warning-50 px-4 py-2.5 text-sm text-gray-700"
+            >
               This event has more logged results than the comparison can scan —
               the oldest were skipped, so a PB set long ago may be missing.
             </p>

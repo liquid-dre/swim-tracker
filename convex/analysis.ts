@@ -913,6 +913,9 @@ export const getStrokeProfile = query({
         active: v.boolean(),
       }),
       events: v.array(strokeProfileEvent),
+      // False when no cuts exist for this swimmer's gender — callers show the
+      // standards-missing guidance instead of a shrugging empty state.
+      hasStandards: v.boolean(),
     }),
   ),
   handler: async (ctx, { swimmerId }) => {
@@ -1031,6 +1034,7 @@ export const getStrokeProfile = query({
         active: swimmer.active,
       },
       events,
+      hasStandards: allStandards.length > 0,
     };
   },
 });

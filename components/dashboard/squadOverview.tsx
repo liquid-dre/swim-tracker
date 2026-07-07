@@ -14,6 +14,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import type { api } from "@/convex/_generated/api";
+import { buttonClasses } from "@/components/ui/Button";
 import { TierBadge } from "@/components/ui/TierBadge";
 import { formatTime } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
@@ -295,10 +296,7 @@ export function RosterOverview({ data }: { data: DashboardData | undefined }) {
                 appear here.
               </p>
             </div>
-            <Link
-              href="/swimmers"
-              className="mt-1 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 text-base font-medium text-white shadow-theme-xs outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
-            >
+            <Link href="/swimmers" className={cn("mt-1", buttonClasses("primary", "md"))}>
               Go to roster
             </Link>
           </div>

@@ -88,6 +88,8 @@ export function TimeEntryLogScreen() {
     (role !== "ALL" ? 1 : 0) +
     (type !== "ALL" ? 1 : 0) +
     (from !== "" || to !== "" ? 1 : 0);
+  const filtering =
+    swimmer !== "ALL" || enterer !== "ALL" || secondaryCount > 0;
   const loading = pageStatus === "LoadingFirstPage";
 
   return (
@@ -266,10 +268,14 @@ export function TimeEntryLogScreen() {
       {!loading && rows.length > 0 && (
         <div className="flex items-center justify-between gap-4 px-1">
           <p className="text-xs text-ink-faint">
-            {filtered.length === rows.length
-              ? `${rows.length} ${rows.length === 1 ? "entry" : "entries"}`
-              : `${filtered.length} of ${rows.length} entries`}
-            {pageStatus !== "Exhausted" && " loaded · newest first"}
+            {/* Filters search only the loaded window — say so while older rows
+                remain, or a filtered read looks complete when it isn't. */}
+            {filtering && pageStatus !== "Exhausted"
+              ? `${filtered.length} matching — only the ${rows.length} loaded entries were searched`
+              : filtered.length === rows.length
+                ? `${rows.length} ${rows.length === 1 ? "entry" : "entries"}${pageStatus !== "Exhausted" ? " loaded" : ""}`
+                : `${filtered.length} of ${rows.length} entries`}
+            {" · newest first"}
           </p>
           {pageStatus !== "Exhausted" && (
             <Button

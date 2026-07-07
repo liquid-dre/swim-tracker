@@ -102,7 +102,10 @@ export function SwimmersScreen({
 
       {/* Mirrors the server's defensive read cap so hitting it is never silent. */}
       {swimmers !== undefined && swimmers.length === ROSTER_CAP && (
-        <p className="rounded-lg border border-warning-500/30 bg-warning-50 px-4 py-2.5 text-sm text-gray-700">
+        <p
+          role="status"
+          className="rounded-lg border border-warning-500/30 bg-warning-50 px-4 py-2.5 text-sm text-gray-700"
+        >
           Showing the first {ROSTER_CAP} swimmers — use search to find anyone
           not listed.
         </p>

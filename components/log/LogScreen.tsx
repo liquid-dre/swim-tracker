@@ -1,12 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { Timer, Trash2 } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
 import { DateField } from "@/components/ui/DateField";
@@ -428,9 +429,9 @@ function EmptyRoster() {
           Add a swimmer on the Roster screen first, then come back to log their times.
         </p>
       </div>
-      <Button variant="secondary" size="sm" onClick={() => (window.location.href = "/swimmers")}>
+      <Link href="/swimmers" className={buttonClasses("secondary", "sm")}>
         Go to roster
-      </Button>
+      </Link>
     </div>
   );
 }

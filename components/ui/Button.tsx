@@ -7,6 +7,7 @@ const base =
   "inline-flex items-center justify-center gap-2 rounded-lg font-medium whitespace-nowrap " +
   "transition-[background-color,border-color,color,transform] [transition-duration:var(--dur-1)] " +
   "[transition-timing-function:var(--ease-standard)] " +
+  "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
   "active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50";
 
 const variants: Record<Variant, string> = {

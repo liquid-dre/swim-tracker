@@ -91,7 +91,9 @@ export function StatusMatrixScreen() {
       />
 
       {/* Slim toolbar: all three cross-cutting filters behind the popover so the
-          matrix itself is the hero. */}
+          matrix itself is the hero. Hidden while the standards-missing guidance
+          shows — three working filters above an unfillable grid only confuse. */}
+      {data !== undefined && !data.hasStandards ? null : (
       <FilterBar
         filters={
           <>
@@ -144,11 +146,18 @@ export function StatusMatrixScreen() {
           setSquad("ALL");
         }}
       />
+      )}
 
       {data === undefined ? (
         <MatrixSkeleton />
       ) : !data.hasStandards ? (
-        <StandardsMissing isStaff={showSquad} />
+        // Hold the skeleton until the role is known — never flash viewer copy
+        // at a coach.
+        profile === undefined ? (
+          <MatrixSkeleton />
+        ) : (
+          <StandardsMissing isStaff={showSquad} />
+        )
       ) : rows.length === 0 ? (
         <EmptyState
           title="No swimmers match these filters"

@@ -313,7 +313,7 @@ export function DateField({
               type="button"
               disabled={disabled}
               aria-label={label ? `Open calendar for ${label}` : "Open calendar"}
-              className="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-primary focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed"
+              className="flex size-11 lg:size-7 shrink-0 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-primary focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed"
             >
               <CalendarIcon aria-hidden className="size-4" strokeWidth={1.75} />
             </button>
@@ -452,7 +452,9 @@ function FlipCalendar({
               aria-pressed={isSelected}
               onClick={() => handleSelect(d)}
               className={cn(
-                "flex h-8 items-center justify-center rounded-md text-sm tabular-nums outline-none",
+                // Day cells: ≥40px on touch (44px is impossible in a 7-col month
+                // grid that fits a phone popover; 40px is the WCAG 2.5.8 minimum).
+                "flex h-10 lg:h-8 items-center justify-center rounded-md text-sm tabular-nums outline-none",
                 "transition-colors [transition-duration:var(--dur-1)]",
                 "focus-visible:ring-2 focus-visible:ring-ring",
                 isSelected
@@ -533,7 +535,7 @@ function NavButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="flex size-7 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
+      className="flex size-11 lg:size-7 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
     >
       {children}
     </button>

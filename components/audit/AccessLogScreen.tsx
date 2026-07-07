@@ -99,6 +99,8 @@ export function AccessLogScreen() {
   );
 
   const secondaryCount = (status !== "ALL" ? 1 : 0) + (type !== "ALL" ? 1 : 0);
+  const filtering =
+    swimmer !== "ALL" || viewer !== "ALL" || coach !== "ALL" || secondaryCount > 0;
   const loading = pageStatus === "LoadingFirstPage";
 
   return (
@@ -274,10 +276,14 @@ export function AccessLogScreen() {
       {!loading && rows.length > 0 && (
         <div className="flex items-center justify-between gap-4 px-1">
           <p className="text-xs text-ink-faint">
-            {filtered.length === rows.length
-              ? `${rows.length} ${rows.length === 1 ? "event" : "events"}`
-              : `${filtered.length} of ${rows.length} events`}
-            {pageStatus !== "Exhausted" && " loaded · newest first"}
+            {/* Filters search only the loaded window — say so while older rows
+                remain, or a filtered read looks complete when it isn't. */}
+            {filtering && pageStatus !== "Exhausted"
+              ? `${filtered.length} matching — only the ${rows.length} loaded events were searched`
+              : filtered.length === rows.length
+                ? `${rows.length} ${rows.length === 1 ? "event" : "events"}${pageStatus !== "Exhausted" ? " loaded" : ""}`
+                : `${filtered.length} of ${rows.length} events`}
+            {" · newest first"}
           </p>
           {pageStatus !== "Exhausted" && (
             <Button

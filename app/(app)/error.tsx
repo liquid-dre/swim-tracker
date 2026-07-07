@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { ConvexError } from "convex/values";
 import { TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
@@ -29,8 +30,15 @@ export default function AppError({
       <div className="space-y-1">
         <p className="text-base font-medium text-ink">Something went wrong</p>
         <p className="mx-auto max-w-[52ch] text-sm text-ink-muted">
-          {errorMessage(error, "This page hit an unexpected error. Your data is safe.")}
+          {/* Only a ConvexError carries a message written for the user; any
+              other error's message is framework boilerplate in production. */}
+          {error instanceof ConvexError
+            ? errorMessage(error)
+            : "This page hit an unexpected error. Your data is safe."}
         </p>
+        {error.digest && (
+          <p className="text-xs text-ink-faint">Reference: {error.digest}</p>
+        )}
       </div>
       <Button variant="secondary" onClick={reset}>
         Try again
