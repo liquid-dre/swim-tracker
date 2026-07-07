@@ -54,13 +54,15 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       } else {
         const user = await ctx.db.get(userId);
         const name = (user?.name as string | undefined) || undefined;
-        email = (user?.email as string | undefined) ?? "";
+        // Stored normalised — every email lookup (profiles.by_email, pending
+        // access claims) compares trimmed lowercase.
+        email = ((user?.email as string | undefined) ?? "").trim().toLowerCase();
         profileName = name || email || "Swimmer";
         profileId = await ctx.db.insert("profiles", {
           authId: userId,
           name: profileName,
           email,
-          role: supers.has(email.toLowerCase()) ? "SUPER_USER" : "VIEWER",
+          role: supers.has(email) ? "SUPER_USER" : "VIEWER",
         });
       }
 

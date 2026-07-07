@@ -142,7 +142,7 @@ export const assignCoachToClub = mutation({
 
     const profile = await ctx.db
       .query("profiles")
-      .filter((q) => q.eq(q.field("email"), normalized))
+      .withIndex("by_email", (q) => q.eq("email", normalized))
       .unique();
     if (!profile) {
       throw new ConvexError(
@@ -215,7 +215,7 @@ export const createCoachInvite = mutation({
     // an invite link they'd have to click while already signed in.
     const existing = await ctx.db
       .query("profiles")
-      .filter((q) => q.eq(q.field("email"), normalized))
+      .withIndex("by_email", (q) => q.eq("email", normalized))
       .unique();
     if (existing) {
       throw new ConvexError(

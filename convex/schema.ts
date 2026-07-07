@@ -64,7 +64,9 @@ export default defineSchema({
     clubId: v.optional(v.id("clubs")),
   })
     .index("by_authId", ["authId"])
-    .index("by_club", ["clubId"]),
+    .index("by_club", ["clubId"])
+    // Email is normalised (trimmed, lowercased) at write time; lookups rely on that.
+    .index("by_email", ["email"]),
 
   swimmers: defineTable({
     name: v.string(),

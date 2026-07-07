@@ -46,7 +46,7 @@ export async function grantSwimmerAccess(
 
   const profile = await ctx.db
     .query("profiles")
-    .filter((q) => q.eq(q.field("email"), email))
+    .withIndex("by_email", (q) => q.eq("email", email))
     .unique();
 
   if (profile) {
