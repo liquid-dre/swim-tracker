@@ -195,6 +195,27 @@ export default defineSchema({
     .index("by_event_global", ["distance", "stroke", "course"])
     .index("by_date", ["swimDate"]),
 
+  // Dated coaching notes about training focus (§R16). A running LOG / audit
+  // trail — past notes PERSIST and stay visible, so a reader lines a training
+  // phase up against how times moved in that period. Two scopes: a note about a
+  // whole SQUAD (shows for every member) or one SWIMMER. `noteDate` is the ISO
+  // date the phase applies FROM (defaults to today) and anchors both the timeline
+  // and the progression-chart overlay. SEPARATE from a result's per-swim `notes`.
+  trainingNotes: defineTable({
+    scope: v.union(v.literal("SQUAD"), v.literal("SWIMMER")),
+    squadId: v.optional(v.id("squads")), // set when scope === "SQUAD"
+    swimmerId: v.optional(v.id("swimmers")), // set when scope === "SWIMMER"
+    authorId: v.id("profiles"), // the coach who wrote it
+    focus: v.optional(v.string()), // short title, e.g. "Streamlining & underwater"
+    body: v.string(), // the note itself
+    noteDate: v.string(), // ISO date the phase applies from
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_swimmer", ["swimmerId"])
+    .index("by_squad", ["squadId"])
+    .index("by_date", ["noteDate"]),
+
   // Coach app settings — a single, club-wide singleton row (BRD §5.12, Step 13).
   // `key` is always "app" so the row is found/upserted by a stable lookup. Season
   // ranking reads `seasonStart` here; unset (or no row) => the default rolling

@@ -20,18 +20,19 @@ import { notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
 import { SquadForm, type EditableSquad } from "./SquadForm";
 import { SquadMembersSheet } from "./SquadMembersSheet";
+import { SquadTrainingNotesSheet } from "@/components/training/SquadTrainingNotesSheet";
 
 type FormTarget = EditableSquad | "new" | null;
-type MembersTarget = { _id: Id<"squads">; name: string } | null;
-type DeleteTarget = { _id: Id<"squads">; name: string } | null;
+type SquadTarget = { _id: Id<"squads">; name: string } | null;
 
-export function SquadsScreen() {
+export function SquadsScreen({ today }: { today: string }) {
   const squads = useQuery(api.squads.listSquads, {});
   const deleteSquad = useMutation(api.squads.deleteSquad);
 
   const [formTarget, setFormTarget] = useState<FormTarget>(null);
-  const [membersTarget, setMembersTarget] = useState<MembersTarget>(null);
-  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
+  const [membersTarget, setMembersTarget] = useState<SquadTarget>(null);
+  const [notesTarget, setNotesTarget] = useState<SquadTarget>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SquadTarget>(null);
 
   const loading = squads === undefined;
   const isEmpty = !loading && squads.length === 0;
@@ -116,6 +117,11 @@ export function SquadsScreen() {
                           Manage members
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          onClick={() => setNotesTarget({ _id: sq._id, name: sq.name })}
+                        >
+                          Training notes
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           onClick={() =>
                             setFormTarget({
                               _id: sq._id,
@@ -174,6 +180,16 @@ export function SquadsScreen() {
         squad={membersTarget}
         onOpenChange={(o) => {
           if (!o) setMembersTarget(null);
+        }}
+      />
+
+      <SquadTrainingNotesSheet
+        key={notesTarget?._id ?? "notes-closed"}
+        open={notesTarget !== null}
+        squad={notesTarget}
+        today={today}
+        onOpenChange={(o) => {
+          if (!o) setNotesTarget(null);
         }}
       />
 

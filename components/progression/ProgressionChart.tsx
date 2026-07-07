@@ -87,6 +87,14 @@ export type ProgressionSeries = {
   points: ProgressionPoint[];
 };
 
+// A training-note marker for the single-swimmer overlay (§R16): a subtle flag at
+// the note's phase date so a training focus lines up with the time trend.
+export type NoteMarker = {
+  noteDate: string;
+  focus: string | null;
+  scopeLabel: string;
+};
+
 type ChartPoint = ProgressionPoint & { t: number };
 
 function msToShort(ms: number): string {
@@ -102,6 +110,7 @@ export function ProgressionChart({
   course,
   standards,
   projectionTier = null,
+  noteMarkers,
 }: {
   series: ProgressionSeries[];
   single: boolean;
@@ -114,6 +123,8 @@ export function ProgressionChart({
   // The target tier for the time-to-qualify projection (§5.6). Non-null only for
   // a single swimmer on LCM; the projection draws toward this tier's cut.
   projectionTier?: Tier | null;
+  // Training-note markers (§R16) — single-swimmer only; undefined/empty hides them.
+  noteMarkers?: NoteMarker[];
 }) {
   const reduced = usePrefersReducedMotion();
 
@@ -149,6 +160,15 @@ export function ProgressionChart({
   // padding), so birthday steps line up with the plotted swims and the padding
   // stays clean breathing room at the edges.
   const overlay = buildTierOverlay(series, standards, single, tMin, tMax);
+
+  // Training-note markers (§R16) — single swimmer only. Group notes that share a
+  // date into one flag (its title lists them) so a busy phase doesn't stack flags,
+  // and drop any whose date falls outside the visible x-domain.
+  const markers = buildNoteMarkers(
+    single ? noteMarkers : undefined,
+    tMin - tPad,
+    domainTMax + tPad,
+  );
 
   // Fold the drawn cut values (and the projection's endpoints) into the y-domain
   // so a cut faster or slower than every swim still shows — the gap to the next
@@ -224,6 +244,21 @@ export function ProgressionChart({
               cursor={{ stroke: CHART.axis, strokeDasharray: "3 3" }}
               content={<ProgressionTooltip single={single} />}
             />
+            {/* Training-note markers (§R16): a quiet dashed vertical at each phase
+                date topped with a small flag; the focus shows on hover/tap via the
+                SVG title. Rendered first so cut lines and swims sit on top. */}
+            {markers.map((m) => (
+              <ReferenceLine
+                key={`note-${m.t}`}
+                x={m.t}
+                stroke="var(--color-gray-400)"
+                strokeWidth={1}
+                strokeDasharray="2 4"
+                strokeOpacity={0.5}
+                ifOverflow="hidden"
+                label={<NoteFlagLabel title={m.title} />}
+              />
+            ))}
             {overlay?.lines.map((l) => (
               <ReferenceLine
                 key={l.key}
@@ -313,12 +348,83 @@ export function ProgressionChart({
         <TierOverlayLegend entries={overlay.legend} single={single} />
       )}
 
+      {markers.length > 0 && (
+        <div className="flex items-center gap-1.5 px-1 text-xs text-ink-muted">
+          <svg aria-hidden width="14" height="12" viewBox="0 0 14 12">
+            <line
+              x1="2"
+              y1="0"
+              x2="2"
+              y2="12"
+              stroke="var(--color-gray-400)"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+            />
+            <path d="M2 1 L9 3 L2 5 Z" fill="var(--color-gray-400)" />
+          </svg>
+          <span>
+            Training-note markers — hover a flag for the focus of that phase.
+          </span>
+        </div>
+      )}
+
       {projection && projectionTier && (
         <ProjectionNote projection={projection} tier={projectionTier} color={projColor} />
       )}
 
       <Legend series={data} single={single} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Training-note markers (§R16)
+// ---------------------------------------------------------------------------
+
+type ChartMarker = { t: number; title: string };
+
+// Group note markers by their (numeric) date so notes sharing a day become one
+// flag whose hover title lists them, and drop any outside the visible x-window.
+function buildNoteMarkers(
+  markers: NoteMarker[] | undefined,
+  xLo: number,
+  xHi: number,
+): ChartMarker[] {
+  if (!markers || markers.length === 0) return [];
+  const byT = new Map<number, string[]>();
+  for (const m of markers) {
+    const t = isoToMs(m.noteDate);
+    if (Number.isNaN(t) || t < xLo || t > xHi) continue;
+    const label = m.focus ? `${m.focus} · ${m.scopeLabel}` : m.scopeLabel;
+    const arr = byT.get(t);
+    if (arr) arr.push(label);
+    else byT.set(t, [label]);
+  }
+  return [...byT.entries()]
+    .map(([t, labels]) => ({
+      t,
+      title: `${msToShort(t)} — ${labels.join(" · ")}`,
+    }))
+    .sort((a, b) => a.t - b.t);
+}
+
+// The flag drawn at the top of a note-marker line. Recharts hands the label a
+// viewBox in plot pixels; we anchor a small flag at its top-left and expose the
+// focus as an SVG <title> (native hover/tap tooltip, no extra chart chrome).
+function NoteFlagLabel(props: {
+  title: string;
+  viewBox?: { x?: number; y?: number };
+}) {
+  const { title, viewBox } = props;
+  const x = viewBox?.x ?? 0;
+  const y = viewBox?.y ?? 0;
+  return (
+    <g transform={`translate(${x}, ${y})`} style={{ cursor: "default" }}>
+      <title>{title}</title>
+      {/* A generous transparent hit area so the flag is easy to hover/tap. */}
+      <rect x={-4} y={-2} width={16} height={14} fill="transparent" />
+      <path d="M0 1 L8 3.5 L0 6 Z" fill="var(--color-gray-400)" />
+    </g>
   );
 }
 

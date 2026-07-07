@@ -20,6 +20,7 @@ import { HistoryTable, type HistoryResult } from "./HistoryTable";
 import { ResultEditSheet } from "./ResultEditSheet";
 import { ViewerAccessSection } from "./ViewerAccessSection";
 import { SchoolGalaSheet } from "@/components/me/SchoolGalaSheet";
+import { TrainingNotesTimeline } from "@/components/training/TrainingNotesTimeline";
 
 /*
   Swimmer profile (Step 6, BRD §5.4). Identity sits above the swim data. For a
@@ -136,6 +137,17 @@ export function SwimmerProfileScreen({
     </div>
   );
 
+  // Training notes (§R16): the dated audit trail of what's being worked on,
+  // merging this swimmer's personal notes with their squads' notes. Shown to
+  // coaches and to the swimmer's viewers alike; writes are coach-only server-side.
+  const notesContent = (
+    <TrainingNotesTimeline
+      swimmerId={swimmerId}
+      swimmerName={swimmer.name}
+      today={today}
+    />
+  );
+
   return (
     <div className="flex min-w-0 flex-col gap-8">
       <div className="flex flex-col gap-4">
@@ -181,8 +193,12 @@ export function SwimmerProfileScreen({
       </div>
 
       {viewerArea ? (
-        // Viewer: just the times, no tab bar and no access admin.
-        timesContent
+        // Viewer: times then the (read-only) training-notes log, no tab bar and
+        // no access admin.
+        <div className="flex flex-col gap-8">
+          {timesContent}
+          {notesContent}
+        </div>
       ) : (
         <Tabs
           ariaLabel={`${swimmer.name} sections`}
@@ -190,6 +206,11 @@ export function SwimmerProfileScreen({
           onValueChange={setTab}
           items={[
             { value: "times", label: "Times", content: timesContent },
+            {
+              value: "notes",
+              label: "Training notes",
+              content: notesContent,
+            },
             {
               value: "access",
               label: "Access",

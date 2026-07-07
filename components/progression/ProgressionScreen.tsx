@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
-import { LineChart as LineChartIcon, Search, Users, X } from "lucide-react";
+import { Flag, LineChart as LineChartIcon, Search, Users, X } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -91,6 +91,9 @@ export function ProgressionScreen() {
   // History (every logged swim + the cuts, no forecast) is the default view —
   // the honest, unembellished read; Projection is opt-in.
   const [chartView, setChartView] = useState<ChartView>("history");
+  // Training-note markers (§R16) — on by default so a single swimmer's phases
+  // are discoverable, but toggleable since they're a secondary, quiet overlay.
+  const [showNotes, setShowNotes] = useState(true);
   const [singleId, setSingleId] = useState<Id<"swimmers"> | "">("");
   const [groupIds, setGroupIds] = useState<Id<"swimmers">[]>([]);
   const [squadFilter, setSquadFilter] = useState<string>("ALL");
@@ -160,6 +163,25 @@ export function ProgressionScreen() {
   const series = data?.series ?? [];
   const withData = series.filter((s) => s.points.length > 0);
   const single = withData.length === 1;
+
+  // Training-note markers (§R16): only for a single charted swimmer. The read is
+  // role-scoped server-side (a viewer sees only their own linked swimmer's notes).
+  const singleSwimmerId = single
+    ? (withData[0].swimmerId as Id<"swimmers">)
+    : null;
+  const notesData = useQuery(
+    api.trainingNotes.getSwimmerTrainingNotes,
+    singleSwimmerId ? { swimmerId: singleSwimmerId } : "skip",
+  );
+  const noteMarkers = useMemo(
+    () =>
+      (notesData?.notes ?? []).map((n) => ({
+        noteDate: n.noteDate,
+        focus: n.focus,
+        scopeLabel: n.scopeLabel,
+      })),
+    [notesData],
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -243,11 +265,29 @@ export function ProgressionScreen() {
         />
       ) : (
         <section className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <h2 className="text-sm font-semibold text-ink">
               {data.event.label} · {data.event.course}
             </h2>
-            <p className="text-xs text-ink-faint">Lower = faster</p>
+            <div className="flex items-center gap-3">
+              {single && noteMarkers.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowNotes((v) => !v)}
+                  aria-pressed={showNotes}
+                  className={
+                    "inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
+                    (showNotes
+                      ? "border-brand-200 bg-brand-50 text-brand-600"
+                      : "border-gray-200 bg-white text-ink-muted hover:bg-surface-2")
+                  }
+                >
+                  <Flag className="size-3.5" strokeWidth={2} />
+                  Training notes
+                </button>
+              )}
+              <p className="text-xs text-ink-faint">Lower = faster</p>
+            </div>
           </div>
 
           {single && <SingleSummary series={withData[0]} />}
@@ -305,6 +345,7 @@ export function ProgressionScreen() {
                 ? projectionTier
                 : null
             }
+            noteMarkers={single && showNotes ? noteMarkers : undefined}
           />
         </section>
       )}
