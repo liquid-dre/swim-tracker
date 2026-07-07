@@ -75,7 +75,7 @@ export function SwimmersScreen({
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search swimmers"
             aria-label="Search swimmers"
-            className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-base text-ink placeholder:text-ink-muted outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
+            className="h-11 lg:h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-base text-ink placeholder:text-ink-muted outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
           />
         </div>
         <div className="ml-auto">

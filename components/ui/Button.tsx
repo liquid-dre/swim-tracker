@@ -17,9 +17,11 @@ const variants: Record<Variant, string> = {
   danger: "bg-error-500 text-white shadow-theme-xs hover:bg-error-600",
 };
 
+// ≥44px targets on touch viewports (PRODUCT.md); compact from lg up so the
+// dense coach toolbars keep their density.
 const sizes: Record<Size, string> = {
-  sm: "h-8 px-3 text-sm",
-  md: "h-9 px-4 text-base",
+  sm: "h-11 px-3 text-sm lg:h-8",
+  md: "h-11 px-4 text-base lg:h-9",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

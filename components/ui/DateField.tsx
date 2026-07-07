@@ -272,7 +272,7 @@ export function DateField({
       <div
         data-invalid={effectiveError ? true : undefined}
         className={cn(
-          "flex h-9 items-center gap-1 rounded-lg border bg-white pl-3 pr-1 text-base",
+          "flex h-11 lg:h-9 items-center gap-1 rounded-lg border bg-white pl-3 pr-1 text-base",
           "transition-[border-color,box-shadow] [transition-duration:var(--dur-1)]",
           "focus-within:border-brand-300 focus-within:shadow-focus-ring",
           disabled && "cursor-not-allowed opacity-50",

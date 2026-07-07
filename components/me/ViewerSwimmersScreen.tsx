@@ -42,7 +42,7 @@ export function ViewerSwimmersScreen() {
             <ReadOnlyChip />
             <Link
               href="/me/find"
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex h-11 lg:h-9 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Search className="size-4 text-ink-faint" strokeWidth={1.75} />
               Find a swimmer
