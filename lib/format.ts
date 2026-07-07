@@ -17,6 +17,20 @@ export function formatShortDate(iso: string): string {
   return `${day} ${month} ${year}`;
 }
 
+/**
+ * An epoch-ms timestamp → "1 Feb 2026, 14:30" in local time. For audit "when"
+ * columns, where the wall-clock moment (not just the day) is the point. Uses the
+ * local Date parts deliberately — a coach reads it in their own timezone.
+ */
+export function formatDateTime(ms: number): string {
+  const d = new Date(ms);
+  const day = d.getDate();
+  const month = MONTHS[d.getMonth()] ?? "";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${day} ${month} ${d.getFullYear()}, ${hh}:${mm}`;
+}
+
 /** "2026-03-14" → "Mar 2026". Returns the input unchanged if it's not ISO. */
 export function formatMonthYear(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);

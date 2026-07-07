@@ -139,9 +139,58 @@ export default defineSchema({
   pendingSwimmerAccess: defineTable({
     email: v.string(),
     swimmerId: v.id("swimmers"),
+    // The coach who issued the invite (§R17 audit trail). Optional so rows created
+    // before the audit trail existed still validate. Used to attribute the CLAIMED
+    // event (the inviting coach is the approver) and the EXPIRED event.
+    invitedByProfileId: v.optional(v.id("profiles")),
+    invitedByName: v.optional(v.string()),
+    invitedAt: v.optional(v.number()), // when the invite was issued (expiry clock)
   })
     .index("by_email", ["email"])
     .index("by_swimmer", ["swimmerId"]),
+
+  // Viewer-access audit trail (§R17, Part A). An append-only log of every access
+  // event — who did what, when, and by which account — over the R5 invite flow.
+  // Revoke/unlink delete the live link/pending row, so their provenance MUST be
+  // captured here or it's lost. Snapshots the actor + viewer identity at event
+  // time so the history reads true even if a name later changes. Coach-only reads.
+  accessEvents: defineTable({
+    type: v.union(
+      v.literal("INVITED"), // coach invited/linked a viewer
+      v.literal("CLAIMED"), // viewer signed up / claimed the invite → linked
+      v.literal("REVOKED"), // coach withdrew a pending invite
+      v.literal("UNLINKED"), // coach removed an existing viewer's access
+      v.literal("EXPIRED"), // an invite lapsed unclaimed
+      v.literal("REQUESTED"), // viewer asked for access (self-request flow)
+      v.literal("APPROVED"), // coach approved a self-request → linked
+      v.literal("DENIED"), // coach denied a self-request
+    ),
+    swimmerId: v.id("swimmers"),
+    at: v.number(),
+    // Subject viewer — always by (normalised) email; the profile id + name are
+    // filled once an account exists.
+    viewerEmail: v.string(),
+    viewerProfileId: v.optional(v.id("profiles")),
+    viewerName: v.optional(v.string()),
+    // The account that PERFORMED the event (a coach for INVITED/REVOKED/UNLINKED/
+    // APPROVED/DENIED; the viewer for CLAIMED/REQUESTED; system for EXPIRED).
+    actorProfileId: v.optional(v.id("profiles")),
+    actorName: v.optional(v.string()),
+    actorRole: v.optional(
+      v.union(
+        v.literal("SUPER_USER"),
+        v.literal("COACH"),
+        v.literal("VIEWER"),
+      ),
+    ),
+    // The inviting/responsible coach ("by which coach"): the approver on CLAIMED,
+    // and the issuer on EXPIRED — where the actor is the viewer / system.
+    approverProfileId: v.optional(v.id("profiles")),
+    approverName: v.optional(v.string()),
+  })
+    .index("by_swimmer", ["swimmerId"])
+    .index("by_viewerEmail", ["viewerEmail"])
+    .index("by_at", ["at"]),
 
   // Editable event whitelist (seeded from §4.3).
   events: defineTable({
@@ -189,11 +238,37 @@ export default defineSchema({
     notes: v.optional(v.string()),
     enteredBy: v.id("profiles"),
     createdAt: v.number(),
+    // Edit provenance (§R17, Part B). Set on every updateResult so a coach can
+    // audit who last changed a time and when. Optional so rows never edited (or
+    // created before the audit trail) still validate.
+    lastEditedBy: v.optional(v.id("profiles")),
+    updatedAt: v.optional(v.number()),
   })
     .index("by_swimmer", ["swimmerId"])
     .index("by_event", ["swimmerId", "distance", "stroke", "course"])
     .index("by_event_global", ["distance", "stroke", "course"])
     .index("by_date", ["swimDate"]),
+
+  // Dated coaching notes about training focus (§R16). A running LOG / audit
+  // trail — past notes PERSIST and stay visible, so a reader lines a training
+  // phase up against how times moved in that period. Two scopes: a note about a
+  // whole SQUAD (shows for every member) or one SWIMMER. `noteDate` is the ISO
+  // date the phase applies FROM (defaults to today) and anchors both the timeline
+  // and the progression-chart overlay. SEPARATE from a result's per-swim `notes`.
+  trainingNotes: defineTable({
+    scope: v.union(v.literal("SQUAD"), v.literal("SWIMMER")),
+    squadId: v.optional(v.id("squads")), // set when scope === "SQUAD"
+    swimmerId: v.optional(v.id("swimmers")), // set when scope === "SWIMMER"
+    authorId: v.id("profiles"), // the coach who wrote it
+    focus: v.optional(v.string()), // short title, e.g. "Streamlining & underwater"
+    body: v.string(), // the note itself
+    noteDate: v.string(), // ISO date the phase applies from
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_swimmer", ["swimmerId"])
+    .index("by_squad", ["squadId"])
+    .index("by_date", ["noteDate"]),
 
   // Coach app settings — a single, club-wide singleton row (BRD §5.12, Step 13).
   // `key` is always "app" so the row is found/upserted by a stable lookup. Season

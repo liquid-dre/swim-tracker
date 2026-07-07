@@ -8,6 +8,8 @@ import {
   requireCoach,
   requireSignedIn,
 } from "./authz";
+import { recordAccessEvent } from "./audit";
+import type { Doc } from "./_generated/dataModel";
 
 // Viewer ↔ swimmer linkage (BRD §2, §5.9, Step 15; access-control Phase 6). A
 // coach grants a viewer read access to one or more swimmers; every viewer-facing
@@ -32,6 +34,10 @@ export async function grantSwimmerAccess(
   swimmerId: Id<"swimmers">,
   rawEmail: string,
   swimmerName: string,
+  // The coach performing the grant, snapshotted onto the audit trail (§R17). A
+  // new link / pending invite records an INVITED event by this actor; an
+  // idempotent re-grant records nothing. Optional so legacy callers still compile.
+  actor?: Doc<"profiles"> | null,
 ): Promise<
   "linked" | "already_linked" | "pending" | "already_pending" | "coach" | "skipped"
 > {
@@ -54,6 +60,14 @@ export async function grantSwimmerAccess(
       .first();
     if (existing) return "already_linked";
     await ctx.db.insert("swimmerAccess", { profileId: profile._id, swimmerId });
+    await recordAccessEvent(ctx, {
+      type: "INVITED",
+      swimmerId,
+      viewerEmail: email,
+      viewerProfileId: profile._id,
+      viewerName: profile.name,
+      actor,
+    });
     await ctx.scheduler.runAfter(0, internal.emails.sendViewerInvite, {
       toEmail: email,
       swimmerName,
@@ -69,7 +83,19 @@ export async function grantSwimmerAccess(
     .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
     .first();
   if (pending) return "already_pending";
-  await ctx.db.insert("pendingSwimmerAccess", { email, swimmerId });
+  await ctx.db.insert("pendingSwimmerAccess", {
+    email,
+    swimmerId,
+    invitedByProfileId: actor?._id,
+    invitedByName: actor?.name,
+    invitedAt: Date.now(),
+  });
+  await recordAccessEvent(ctx, {
+    type: "INVITED",
+    swimmerId,
+    viewerEmail: email,
+    actor,
+  });
   await ctx.scheduler.runAfter(0, internal.emails.sendViewerInvite, {
     toEmail: email,
     swimmerName,
@@ -101,7 +127,13 @@ export const grantViewerAccess = mutation({
     const email = viewerEmail.trim().toLowerCase();
     if (email === "") throw new Error("Enter the viewer's email.");
 
-    const status = await grantSwimmerAccess(ctx, swimmerId, email, swimmer.name);
+    const status = await grantSwimmerAccess(
+      ctx,
+      swimmerId,
+      email,
+      swimmer.name,
+      profile,
+    );
     if (status === "coach") {
       throw new Error(
         "That account is a coach or admin and already sees every swimmer.",
@@ -132,7 +164,20 @@ export const unlinkViewer = mutation({
       .withIndex("by_profile", (q) => q.eq("profileId", profileId))
       .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
       .first();
-    if (link) await ctx.db.delete(link._id);
+    if (link) {
+      // Record WHO removed access, and for WHOM, before the link is gone (§R17):
+      // once deleted the provenance can't be reconstructed.
+      const viewer = await ctx.db.get(profileId);
+      await ctx.db.delete(link._id);
+      await recordAccessEvent(ctx, {
+        type: "UNLINKED",
+        swimmerId,
+        viewerEmail: viewer?.email ?? "",
+        viewerProfileId: profileId,
+        viewerName: viewer?.name,
+        actor: profile,
+      });
+    }
     return null;
   },
 });
@@ -157,6 +202,16 @@ export const cancelPendingViewer = mutation({
       .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
       .collect();
     for (const r of rows) await ctx.db.delete(r._id);
+    // Record the withdrawal even if the row was already gone (idempotent-friendly),
+    // so a coach can see the invite was revoked and by whom (§R17).
+    if (rows.length > 0) {
+      await recordAccessEvent(ctx, {
+        type: "REVOKED",
+        swimmerId,
+        viewerEmail: normalized,
+        actor: profile,
+      });
+    }
     return null;
   },
 });
@@ -260,6 +315,14 @@ export const requestSwimmerAccess = mutation({
       swimmerId,
       createdAt: Date.now(),
     });
+    await recordAccessEvent(ctx, {
+      type: "REQUESTED",
+      swimmerId,
+      viewerEmail: profile.email,
+      viewerProfileId: profile._id,
+      viewerName: profile.name,
+      actor: profile, // the viewer performed the request
+    });
     return { status: "requested" as const };
   },
 });
@@ -342,6 +405,15 @@ export const approveAccessRequest = mutation({
       });
     }
     await ctx.db.delete(requestId);
+    const requester = await ctx.db.get(request.profileId);
+    await recordAccessEvent(ctx, {
+      type: "APPROVED",
+      swimmerId: request.swimmerId,
+      viewerEmail: requester?.email ?? "",
+      viewerProfileId: request.profileId,
+      viewerName: requester?.name,
+      actor: profile,
+    });
     return null;
   },
 });
@@ -355,7 +427,16 @@ export const denyAccessRequest = mutation({
     if (!request) return null;
     const swimmer = await ctx.db.get(request.swimmerId);
     if (swimmer) assertCoachManagesSwimmer(profile, swimmer);
+    const requester = await ctx.db.get(request.profileId);
     await ctx.db.delete(requestId);
+    await recordAccessEvent(ctx, {
+      type: "DENIED",
+      swimmerId: request.swimmerId,
+      viewerEmail: requester?.email ?? "",
+      viewerProfileId: request.profileId,
+      viewerName: requester?.name,
+      actor: profile,
+    });
     return null;
   },
 });

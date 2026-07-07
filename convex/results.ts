@@ -224,6 +224,11 @@ export const updateResult = mutation({
     if (args.venue !== undefined) patch.venue = cleanOptional(args.venue);
     if (args.notes !== undefined) patch.notes = cleanOptional(args.notes);
 
+    // Edit provenance (§R17, Part B): record WHO changed the time and WHEN on
+    // every edit, so a coach can audit later changes — not just the original entry.
+    patch.lastEditedBy = profile._id;
+    patch.updatedAt = Date.now();
+
     await ctx.db.patch(args.resultId, patch);
     return null;
   },

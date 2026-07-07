@@ -126,7 +126,7 @@ export const addSwimmer = mutation({
     // one bad address never blocks creating the swimmer. Each new grant schedules
     // an invite email (Phase 7). The coach can review access on the profile after.
     for (const email of args.viewerEmails ?? []) {
-      await grantSwimmerAccess(ctx, swimmerId, email, name);
+      await grantSwimmerAccess(ctx, swimmerId, email, name, profile);
     }
 
     return swimmerId;
