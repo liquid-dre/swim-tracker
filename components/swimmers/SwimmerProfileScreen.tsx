@@ -98,11 +98,27 @@ export function SwimmerProfileScreen({
     ? (row: HistoryResult) => row.swimType === "SCHOOL_GALA"
     : undefined;
 
-  // The Times sections — the read the profile always leads with. History is
-  // editable only for a coach who manages this swimmer; a viewer edits just their
-  // own school-gala rows; any other-club coach gets it read-only.
+  // Training notes (§R16): the dated audit trail of what's being worked on,
+  // merging this swimmer's personal notes with their squads' notes. Shown to
+  // coaches and to the swimmer's viewers alike; writes are coach-only server-side.
+  // It LEADS the profile (above the PB board) so a reader sees the current
+  // training focus — the phase the swimmer is in — before the times it explains.
+  const notesContent = (
+    <TrainingNotesTimeline
+      swimmerId={swimmerId}
+      swimmerName={swimmer.name}
+      today={today}
+    />
+  );
+
+  // The Times sections — led by the training-notes log, then the read the profile
+  // is built around. History is editable only for a coach who manages this
+  // swimmer; a viewer edits just their own school-gala rows; any other-club coach
+  // gets it read-only.
   const timesContent = (
     <div className="flex flex-col gap-8">
+      {notesContent}
+
       <Section
         title="Personal bests"
         hint="Fastest meet time per event and course. Trials, practice and school galas never set a PB."
@@ -135,17 +151,6 @@ export function SwimmerProfileScreen({
         />
       </Section>
     </div>
-  );
-
-  // Training notes (§R16): the dated audit trail of what's being worked on,
-  // merging this swimmer's personal notes with their squads' notes. Shown to
-  // coaches and to the swimmer's viewers alike; writes are coach-only server-side.
-  const notesContent = (
-    <TrainingNotesTimeline
-      swimmerId={swimmerId}
-      swimmerName={swimmer.name}
-      today={today}
-    />
   );
 
   return (
@@ -193,12 +198,9 @@ export function SwimmerProfileScreen({
       </div>
 
       {viewerArea ? (
-        // Viewer: times then the (read-only) training-notes log, no tab bar and
+        // Viewer: the training-notes log leads, then the times — no tab bar and
         // no access admin.
-        <div className="flex flex-col gap-8">
-          {timesContent}
-          {notesContent}
-        </div>
+        timesContent
       ) : (
         <Tabs
           ariaLabel={`${swimmer.name} sections`}
@@ -206,11 +208,6 @@ export function SwimmerProfileScreen({
           onValueChange={setTab}
           items={[
             { value: "times", label: "Times", content: timesContent },
-            {
-              value: "notes",
-              label: "Training notes",
-              content: notesContent,
-            },
             {
               value: "access",
               label: "Access",
