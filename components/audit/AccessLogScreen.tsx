@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery } from "convex/react";
 import { ShieldCheck } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
+import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
@@ -60,8 +61,12 @@ function viewerLabel(row: AccessRow): string {
 
 export function AccessLogScreen() {
   const pathname = usePathname();
-  const data = useQuery(api.audit.listAccessLog, {});
-  const rows = useMemo<AccessRow[]>(() => data?.rows ?? [], [data]);
+  // Cursor-paginated so the trail is complete; "Load more" walks further back.
+  const {
+    results: rows,
+    status: pageStatus,
+    loadMore,
+  } = usePaginatedQuery(api.audit.listAccessLog, {}, { initialNumItems: PAGE });
 
   const [swimmer, setSwimmer] = useState("ALL");
   const [viewer, setViewer] = useState("ALL");
@@ -94,7 +99,7 @@ export function AccessLogScreen() {
   );
 
   const secondaryCount = (status !== "ALL" ? 1 : 0) + (type !== "ALL" ? 1 : 0);
-  const loading = data === undefined;
+  const loading = pageStatus === "LoadingFirstPage";
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -267,14 +272,31 @@ export function AccessLogScreen() {
       )}
 
       {!loading && rows.length > 0 && (
-        <p className="px-1 text-xs text-ink-faint">
-          {filtered.length} of {rows.length}{" "}
-          {rows.length === 1 ? "event" : "events"}
-        </p>
+        <div className="flex items-center justify-between gap-4 px-1">
+          <p className="text-xs text-ink-faint">
+            {filtered.length} of {rows.length}{" "}
+            {rows.length === 1 ? "event" : "events"}
+            {pageStatus !== "Exhausted" && " loaded · newest first"}
+          </p>
+          {pageStatus !== "Exhausted" && (
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={pageStatus === "LoadingMore"}
+              onClick={() => loadMore(PAGE)}
+            >
+              Load older events
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );
 }
+
+// Page size: generous enough that the filter dropdowns (derived from loaded
+// rows) are useful on first paint, small enough to stay snappy.
+const PAGE = 300;
 
 function distinct(values: string[]): string[] {
   return [...new Set(values.filter((v) => v.trim() !== ""))].sort((a, b) =>

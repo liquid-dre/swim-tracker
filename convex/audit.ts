@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, query } from "./_generated/server";
@@ -20,23 +21,8 @@ import { eventLabel } from "../lib/swim";
   bounded (club scale, BRD §11.1).
 */
 
-const role = v.union(
-  v.literal("SUPER_USER"),
-  v.literal("COACH"),
-  v.literal("VIEWER"),
-);
 type Role = "SUPER_USER" | "COACH" | "VIEWER";
 
-const accessEventType = v.union(
-  v.literal("INVITED"),
-  v.literal("CLAIMED"),
-  v.literal("REVOKED"),
-  v.literal("UNLINKED"),
-  v.literal("EXPIRED"),
-  v.literal("REQUESTED"),
-  v.literal("APPROVED"),
-  v.literal("DENIED"),
-);
 type AccessEventType =
   | "INVITED"
   | "CLAIMED"
@@ -147,30 +133,7 @@ function swimmerNameResolver(ctx: QueryCtx) {
 // listAccessLog — Part A: chronological viewer-access events (coach-only)
 // ---------------------------------------------------------------------------
 
-const ACCESS_LOG_LIMIT = 1000;
 const LINK_SCAN_LIMIT = 5000;
-
-const linkStatus = v.union(
-  v.literal("active"),
-  v.literal("pending"),
-  v.literal("revoked"),
-  v.literal("expired"),
-);
-
-const accessLogRow = v.object({
-  _id: v.id("accessEvents"),
-  type: accessEventType,
-  at: v.number(),
-  swimmerId: v.id("swimmers"),
-  swimmerName: v.string(),
-  viewerEmail: v.string(),
-  viewerName: v.union(v.string(), v.null()),
-  actorName: v.union(v.string(), v.null()),
-  actorRole: v.union(role, v.null()),
-  approverName: v.union(v.string(), v.null()),
-  // Current status of THIS viewer↔swimmer link (same across its events).
-  status: linkStatus,
-});
 
 const TERMINAL: ReadonlySet<AccessEventType> = new Set([
   "REVOKED",
@@ -180,17 +143,19 @@ const TERMINAL: ReadonlySet<AccessEventType> = new Set([
 ]);
 
 export const listAccessLog = query({
-  args: {},
-  returns: v.object({ rows: v.array(accessLogRow) }),
-  handler: async (ctx) => {
+  // Cursor-paginated (newest first) so the trail is complete — the old fixed
+  // .take() cap silently dropped history past it, which an audit log must not do.
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
     await requireCoach(ctx);
 
     // Newest-first over the append-only log.
-    const events = await ctx.db
+    const paged = await ctx.db
       .query("accessEvents")
       .withIndex("by_at")
       .order("desc")
-      .take(ACCESS_LOG_LIMIT);
+      .paginate(args.paginationOpts);
+    const events = paged.page;
 
     // Current status per (viewerEmail|swimmerId) link. active > pending > the
     // latest terminal event → revoked/expired. Live links/pendings win over any
@@ -225,8 +190,11 @@ export const listAccessLog = query({
       if (p?.email) pendingSet.add(key(p.email, r.swimmerId));
     }
 
-    // Latest terminal event per key (events already newest-first, so the first
-    // terminal seen for a key is the most recent one).
+    // Latest terminal event per key, within THIS page (newest-first, so the first
+    // terminal seen for a key is its most recent one here). Live links/pendings
+    // above are page-independent; the only cross-page imprecision is a terminated
+    // link whose newest terminal sits on an older page reading "revoked" rather
+    // than "expired" — acceptable for a convenience label on an append-only log.
     const latestTerminal = new Map<string, AccessEventType>();
     for (const ev of events) {
       if (!TERMINAL.has(ev.type)) continue;
@@ -260,7 +228,7 @@ export const listAccessLog = query({
       })),
     );
 
-    return { rows };
+    return { ...paged, page: rows };
   },
 });
 
@@ -268,41 +236,20 @@ export const listAccessLog = query({
 // listTimeEntryLog — Part B: result entry + edit provenance (coach-only)
 // ---------------------------------------------------------------------------
 
-const TIME_LOG_LIMIT = 1500;
-
-const swimType = v.union(
-  v.literal("MEET"),
-  v.literal("TIME_TRIAL"),
-  v.literal("PRACTICE"),
-  v.literal("SCHOOL_GALA"),
-);
-
-const person = v.object({ name: v.string(), role });
-
-const timeLogRow = v.object({
-  _id: v.id("results"),
-  swimmerId: v.id("swimmers"),
-  swimmerName: v.string(),
-  label: v.string(),
-  course: v.union(v.literal("SCM"), v.literal("LCM")),
-  timeMs: v.number(),
-  swimType,
-  swimDate: v.string(),
-  enteredBy: v.union(person, v.null()),
-  createdAt: v.number(),
-  editedBy: v.union(person, v.null()),
-  updatedAt: v.union(v.number(), v.null()),
-});
-
 export const listTimeEntryLog = query({
-  args: {},
-  returns: v.object({ rows: v.array(timeLogRow) }),
-  handler: async (ctx) => {
+  // Cursor-paginated (newest-entered first) — see listAccessLog on why the audit
+  // trails never hard-cap.
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, args) => {
     await requireCoach(ctx);
 
     // Newest-entered first (createdAt ≈ _creationTime; there's no createdAt index,
     // and the default index orders by creation time).
-    const results = await ctx.db.query("results").order("desc").take(TIME_LOG_LIMIT);
+    const paged = await ctx.db
+      .query("results")
+      .order("desc")
+      .paginate(args.paginationOpts);
+    const results = paged.page;
 
     const getProfile = profileResolver(ctx);
     const swimmerName = swimmerNameResolver(ctx);
@@ -333,6 +280,6 @@ export const listTimeEntryLog = query({
       })),
     );
 
-    return { rows };
+    return { ...paged, page: rows };
   },
 });

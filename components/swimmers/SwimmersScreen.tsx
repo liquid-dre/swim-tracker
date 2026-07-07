@@ -17,6 +17,9 @@ import { SwimmerForm } from "./SwimmerForm";
 type Scope = "active" | "all";
 type EditTarget = RosterRow | "new" | null;
 
+// Server-side LIMIT in convex/swimmers.ts listSwimmers.
+const ROSTER_CAP = 500;
+
 export function SwimmersScreen({
   today,
   myClubOnly = false,
@@ -96,6 +99,14 @@ export function SwimmersScreen({
         onEdit={(row) => setEditing(row)}
         onToggleActive={(row) => toggleActive(row._id, !row.active)}
       />
+
+      {/* Mirrors the server's defensive read cap so hitting it is never silent. */}
+      {swimmers !== undefined && swimmers.length === ROSTER_CAP && (
+        <p className="rounded-lg border border-warning-500/30 bg-warning-50 px-4 py-2.5 text-sm text-gray-700">
+          Showing the first {ROSTER_CAP} swimmers — use search to find anyone
+          not listed.
+        </p>
+      )}
 
       <SwimmerForm
         key={editing === null ? "closed" : editing === "new" ? "new" : editing._id}

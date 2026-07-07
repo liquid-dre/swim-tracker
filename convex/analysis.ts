@@ -124,6 +124,9 @@ export const getEventComparison = query({
   returns: v.object({
     event: eventSummary,
     rows: v.array(comparisonRow),
+    // True when the event's result scan hit its cap — some swimmers' older
+    // results were not considered, so the leaderboard may be incomplete.
+    truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
     // Role-scoped. A coach / super-user sees the full cross-roster leaderboard;
@@ -253,6 +256,7 @@ export const getEventComparison = query({
         label: eventLabel(args.distance, args.stroke),
       },
       rows,
+      truncated: results.length === EVENT_RESULTS_LIMIT,
     };
   },
 });
