@@ -25,6 +25,9 @@ const swimType = v.union(
   v.literal("MEET"),
   v.literal("TIME_TRIAL"),
   v.literal("PRACTICE"),
+  // Parent-entered school-gala time (§R15): UNOFFICIAL — never counts toward a
+  // headline PB or any qualifying surface; shows only in progression + history.
+  v.literal("SCHOOL_GALA"),
 );
 
 // The data model from BRD §7 (profiles, swimmers, squads, squadMemberships,

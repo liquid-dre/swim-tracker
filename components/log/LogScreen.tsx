@@ -19,7 +19,7 @@ import { galaForDate } from "@/lib/galaCalendar";
 import { parseDigits, TimeField } from "./TimeField";
 import { EventSelectors, isValidEventTriple } from "./EventSelectors";
 
-type SwimType = "MEET" | "TIME_TRIAL" | "PRACTICE";
+type SwimType = "MEET" | "TIME_TRIAL" | "PRACTICE" | "SCHOOL_GALA";
 
 type SavedEntry = {
   id: Id<"results">;
@@ -259,12 +259,20 @@ export function LogScreen({
                   { value: "MEET", label: "Meet" },
                   { value: "TIME_TRIAL", label: "Trial" },
                   { value: "PRACTICE", label: "Practice" },
+                  { value: "SCHOOL_GALA", label: "School gala" },
                 ]}
               />
-              {swimType !== "MEET" && (
-                <p className="mt-1.5 text-xs text-ink-muted">
-                  Only meet times count toward a personal best.
+              {swimType === "SCHOOL_GALA" ? (
+                <p className="mt-1.5 text-xs text-warning-ink">
+                  Unofficial — shows in progression and history only. Never counts
+                  toward a personal best or qualifying.
                 </p>
+              ) : (
+                swimType !== "MEET" && (
+                  <p className="mt-1.5 text-xs text-ink-muted">
+                    Only meet times count toward a personal best.
+                  </p>
+                )
               )}
             </Field>
 
@@ -355,9 +363,20 @@ function RecentList({
                 <p className="text-xs text-ink-muted">
                   {r.event} · {r.course}
                   {r.swimType !== "MEET" && (
-                    <span className="text-ink-faint">
+                    <span
+                      className={
+                        r.swimType === "SCHOOL_GALA"
+                          ? "text-warning-ink"
+                          : "text-ink-faint"
+                      }
+                    >
                       {" "}
-                      · {r.swimType === "TIME_TRIAL" ? "Trial" : "Practice"}
+                      ·{" "}
+                      {r.swimType === "TIME_TRIAL"
+                        ? "Trial"
+                        : r.swimType === "PRACTICE"
+                          ? "Practice"
+                          : "School gala"}
                     </span>
                   )}
                 </p>

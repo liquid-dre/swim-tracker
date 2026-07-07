@@ -31,6 +31,7 @@ import {
   projectCrossing,
   computeQualifyProjection,
   worldRecordMs,
+  authorizeResultWrite,
   type EventDef,
   type ResultForPB,
   type StandardCut,
@@ -444,6 +445,39 @@ describe("computePersonalBests", () => {
     // Courses never merge: two separate 100 Free records.
     const oneHundreds = pbs.filter((p) => p.distance === 100);
     expect(oneHundreds).toHaveLength(2);
+  });
+
+  // §R15 — SCHOOL_GALA is UNOFFICIAL: it never sets a headline PB, never counts
+  // as an overall best, never seeds an improvement baseline, and never appears
+  // on the PB board at all (it lives only in progression + history).
+  it("excludes SCHOOL_GALA from headline, overallBest and improvement", () => {
+    const pbs = computePersonalBests([
+      r(100, "FREE", "LCM", 55000, "SCHOOL_GALA", "2026-01-01", "School gala"), // fastest overall, but a gala
+      r(100, "FREE", "LCM", 62000, "MEET", "2026-02-01", "Autumn Open"),
+      r(100, "FREE", "LCM", 61000, "PRACTICE", "2026-03-01"),
+    ]);
+    expect(pbs).toHaveLength(1);
+    // Headline is the meet time, never the faster gala.
+    expect(pbs[0].headline?.timeMs).toBe(62000);
+    // The gala (55000) is faster than the practice (61000) but must NOT be the
+    // overall best — practice is the fastest OFFICIAL swim.
+    expect(pbs[0].overallBest).toEqual({
+      timeMs: 61000,
+      swimDate: "2026-03-01",
+      swimType: "PRACTICE",
+    });
+    // Improvement baseline is the earliest OFFICIAL swim (the meet), never the gala.
+    expect(pbs[0].improvement?.fromMs).toBe(62000);
+    expect(pbs[0].improvement?.fromSwimType).toBe("MEET");
+  });
+
+  it("never surfaces an event that has only SCHOOL_GALA times on the PB board", () => {
+    const pbs = computePersonalBests([
+      r(50, "FLY", "SCM", 33000, "SCHOOL_GALA", "2026-01-01", "School gala"),
+      r(50, "FLY", "SCM", 34000, "SCHOOL_GALA", "2026-02-01", "School gala"),
+    ]);
+    // A gala-only event contributes no PB group at all.
+    expect(pbs).toHaveLength(0);
   });
 });
 
@@ -1060,12 +1094,13 @@ describe("computeSeasonImprovements", () => {
     expect(e.improvedPct).toBeCloseTo(3.23, 2);
   });
 
-  it("excludes practice/time-trial and pre-season swims", () => {
+  it("excludes practice/time-trial/school-gala and pre-season swims", () => {
     const out = computeSeasonImprovements(
       [
         swim({ timeMs: 65000, swimDate: "2025-05-01" }), // pre-season → ignored
         swim({ timeMs: 61000, swimDate: "2025-08-01", swimType: "PRACTICE" }), // not MEET
         swim({ timeMs: 63000, swimDate: "2025-08-15", swimType: "TIME_TRIAL" }), // not MEET
+        swim({ timeMs: 55000, swimDate: "2025-08-20", swimType: "SCHOOL_GALA" }), // unofficial (§R15)
         swim({ timeMs: 62000, swimDate: "2025-09-01" }), // only one qualifying MEET
       ],
       start,
@@ -1367,5 +1402,116 @@ describe("computeQualifyProjection", () => {
     expect(
       computeQualifyProjection(stalled, 60000, today, { recentMeets: 4 }).status,
     ).toBe("no_trend");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// authorizeResultWrite (BRD §R15) — the ONE viewer write, server-enforced
+// ---------------------------------------------------------------------------
+
+describe("authorizeResultWrite", () => {
+  it("lets a coach who manages the swimmer write any type", () => {
+    for (const t of ["MEET", "TIME_TRIAL", "PRACTICE", "SCHOOL_GALA"] as const) {
+      expect(
+        authorizeResultWrite({
+          role: "COACH",
+          managesSwimmer: true,
+          linkedToSwimmer: false,
+          targetSwimType: t,
+        }),
+      ).toBeNull();
+    }
+  });
+
+  it("rejects a coach who does not manage the swimmer", () => {
+    expect(
+      authorizeResultWrite({
+        role: "COACH",
+        managesSwimmer: false,
+        linkedToSwimmer: false,
+        targetSwimType: "MEET",
+      }),
+    ).toMatch(/your own club/i);
+  });
+
+  it("lets the super-user write anything for anyone", () => {
+    expect(
+      authorizeResultWrite({
+        role: "SUPER_USER",
+        managesSwimmer: true,
+        linkedToSwimmer: false,
+        targetSwimType: "SCHOOL_GALA",
+      }),
+    ).toBeNull();
+  });
+
+  it("lets a linked viewer create a SCHOOL_GALA time", () => {
+    expect(
+      authorizeResultWrite({
+        role: "VIEWER",
+        managesSwimmer: false,
+        linkedToSwimmer: true,
+        targetSwimType: "SCHOOL_GALA",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects a viewer writing any non-gala type (the whole point)", () => {
+    for (const t of ["MEET", "TIME_TRIAL", "PRACTICE"] as const) {
+      expect(
+        authorizeResultWrite({
+          role: "VIEWER",
+          managesSwimmer: false,
+          linkedToSwimmer: true,
+          targetSwimType: t,
+        }),
+      ).toMatch(/school gala/i);
+    }
+  });
+
+  it("rejects a viewer not linked to the swimmer, even for a gala", () => {
+    expect(
+      authorizeResultWrite({
+        role: "VIEWER",
+        managesSwimmer: false,
+        linkedToSwimmer: false,
+        targetSwimType: "SCHOOL_GALA",
+      }),
+    ).toMatch(/your own swimmer/i);
+  });
+
+  it("lets a linked viewer edit/delete an existing SCHOOL_GALA row", () => {
+    expect(
+      authorizeResultWrite({
+        role: "VIEWER",
+        managesSwimmer: false,
+        linkedToSwimmer: true,
+        targetSwimType: "SCHOOL_GALA",
+        existingSwimType: "SCHOOL_GALA",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects a viewer touching a non-gala row (can't edit or retype a meet)", () => {
+    // Editing a MEET row (even to keep it SCHOOL_GALA) is refused via existingSwimType.
+    expect(
+      authorizeResultWrite({
+        role: "VIEWER",
+        managesSwimmer: false,
+        linkedToSwimmer: true,
+        targetSwimType: "SCHOOL_GALA",
+        existingSwimType: "MEET",
+      }),
+    ).toMatch(/school gala/i);
+    // Retyping a gala to a meet is refused via targetSwimType.
+    expect(
+      authorizeResultWrite({
+        role: "VIEWER",
+        managesSwimmer: false,
+        linkedToSwimmer: true,
+        targetSwimType: "MEET",
+        existingSwimType: "SCHOOL_GALA",
+      }),
+    ).toMatch(/school gala/i);
   });
 });

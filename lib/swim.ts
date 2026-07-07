@@ -463,7 +463,7 @@ export function worldRecordMs(
 // swim (any type) against the current headline PB. All pure so it can be unit-
 // tested and run identically on the server (Convex) and, if needed, the client.
 
-export type SwimType = "MEET" | "TIME_TRIAL" | "PRACTICE";
+export type SwimType = "MEET" | "TIME_TRIAL" | "PRACTICE" | "SCHOOL_GALA";
 
 /** The minimal result fields the PB derivation reads. */
 export type ResultForPB = {
@@ -568,8 +568,15 @@ function earliest<T extends { timeMs: number; swimDate: string }>(
 export function computePersonalBests(
   results: ReadonlyArray<ResultForPB>,
 ): EventPB[] {
+  // School-gala times are UNOFFICIAL (parent-entered, §R15): they never set a
+  // headline PB, never count as an overall best, never seed an improvement
+  // baseline, and never appear on the PB board — they live only in progression
+  // and history. Drop them before any grouping or best-time logic so nothing
+  // downstream can mistake a gala time for a "best".
+  const official = results.filter((r) => r.swimType !== "SCHOOL_GALA");
+
   const groups = new Map<string, ResultForPB[]>();
-  for (const r of results) {
+  for (const r of official) {
     const key = `${r.distance}|${r.stroke}|${r.course}`;
     const arr = groups.get(key);
     if (arr) arr.push(r);
@@ -1694,4 +1701,66 @@ export function computeQualifyProjection(
     toMs: cutMs,
     meetCount,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 10. Result-write authorization — the ONE viewer write (BRD §R15)
+// ---------------------------------------------------------------------------
+//
+// Coaches (and the super-user) edit; viewers are read-only EVERYWHERE except
+// one narrow path: logging/editing/deleting a SCHOOL_GALA time for a swimmer
+// they are linked to. This pure predicate encodes that rule so the exact same
+// judgement runs in the Convex mutations (server-enforced) and in unit tests.
+// The convex wrapper (`assertMayWriteResult`) loads the link/club facts and
+// hands them here; here we only decide.
+
+export type WriteRole = "SUPER_USER" | "COACH" | "VIEWER";
+
+/**
+ * The facts a result write is judged on:
+ *   - `managesSwimmer`  the caller is staff who may EDIT this swimmer (a coach in
+ *                       the swimmer's club, or the super-user).
+ *   - `linkedToSwimmer` the caller is a viewer linked to this swimmer.
+ *   - `targetSwimType`  the swim type the write RESULTS in (an edit's new type,
+ *                       or the row's own type for a create/delete).
+ *   - `existingSwimType` the row's current type — set for edit/delete, so a
+ *                       viewer can never touch (or retype) a non-gala row.
+ */
+export type ResultWriteRequest = {
+  role: WriteRole;
+  managesSwimmer: boolean;
+  linkedToSwimmer: boolean;
+  targetSwimType: SwimType;
+  existingSwimType?: SwimType;
+};
+
+/**
+ * Decide whether a result write is allowed. Returns `null` when allowed, or a
+ * human-readable reason string when rejected (the caller throws it).
+ *
+ *   - Staff (COACH / SUPER_USER): allowed only when they manage the swimmer;
+ *     any swim type, including SCHOOL_GALA.
+ *   - VIEWER: allowed ONLY when linked to the swimmer AND the write both lands
+ *     on SCHOOL_GALA and (for an edit/delete) touches a row that is already
+ *     SCHOOL_GALA. Every other viewer write — a meet time, retyping a gala to a
+ *     meet, editing someone else's row — is rejected.
+ */
+export function authorizeResultWrite(req: ResultWriteRequest): string | null {
+  if (req.role === "SUPER_USER" || req.role === "COACH") {
+    return req.managesSwimmer
+      ? null
+      : "You can only edit swimmers in your own club.";
+  }
+
+  // VIEWER — the single allowed write.
+  if (!req.linkedToSwimmer) {
+    return "You can only log times for your own swimmer.";
+  }
+  if (req.targetSwimType !== "SCHOOL_GALA") {
+    return "Parents can only log school gala times.";
+  }
+  if (req.existingSwimType !== undefined && req.existingSwimType !== "SCHOOL_GALA") {
+    return "Parents can only change school gala times.";
+  }
+  return null;
 }

@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { authorizeResultWrite, type SwimType } from "../lib/swim";
 
 // Server-side authorization helpers. Every query and mutation authenticates
 // through these — access control is never trusted to the client (CLAUDE.md:
@@ -154,6 +155,51 @@ export function assertCoachManagesSwimmer(
   if (swimmer.clubId !== profile.clubId) {
     throw new Error("You can only edit swimmers in your own club.");
   }
+}
+
+/**
+ * Assert `profile` may WRITE a result of `targetSwimType` for `swimmer`, and
+ * throw a clear message otherwise (§R15). The single seam every result
+ * create/edit/delete authorizes through:
+ *   - COACH / SUPER_USER: must MANAGE the swimmer (own-club coach, or super).
+ *   - VIEWER (parent): may write ONLY a SCHOOL_GALA time, and only for a swimmer
+ *     they are linked to; on an edit/delete the row must ALREADY be SCHOOL_GALA
+ *     (`existingSwimType`), so a viewer can never touch — or retype — a meet row.
+ * The judgement itself is the pure `authorizeResultWrite`; here we only load the
+ * link/club facts it needs (a single bounded lookup for a viewer).
+ */
+export async function assertMayWriteResult(
+  ctx: QueryCtx | MutationCtx,
+  profile: Doc<"profiles">,
+  swimmer: Doc<"swimmers">,
+  targetSwimType: SwimType,
+  existingSwimType?: SwimType,
+): Promise<void> {
+  let managesSwimmer = false;
+  let linkedToSwimmer = false;
+
+  if (profile.role === "SUPER_USER") {
+    managesSwimmer = true;
+  } else if (profile.role === "COACH") {
+    managesSwimmer = profile.clubId != null && swimmer.clubId === profile.clubId;
+  } else {
+    // VIEWER — is this swimmer linked to them? (bounded single-row lookup)
+    const link = await ctx.db
+      .query("swimmerAccess")
+      .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
+      .filter((q) => q.eq(q.field("swimmerId"), swimmer._id))
+      .first();
+    linkedToSwimmer = link !== null;
+  }
+
+  const reason = authorizeResultWrite({
+    role: profile.role,
+    managesSwimmer,
+    linkedToSwimmer,
+    targetSwimType,
+    existingSwimType,
+  });
+  if (reason !== null) throw new Error(reason);
 }
 
 /**

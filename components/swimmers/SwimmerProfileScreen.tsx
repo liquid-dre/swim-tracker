@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
-import { CalendarClock, Timer } from "lucide-react";
+import { CalendarClock, PlusCircle, Timer } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -19,6 +19,7 @@ import { ImprovementSummary } from "./ImprovementSummary";
 import { HistoryTable, type HistoryResult } from "./HistoryTable";
 import { ResultEditSheet } from "./ResultEditSheet";
 import { ViewerAccessSection } from "./ViewerAccessSection";
+import { SchoolGalaSheet } from "@/components/me/SchoolGalaSheet";
 
 /*
   Swimmer profile (Step 6, BRD §5.4). Identity sits above the swim data. For a
@@ -49,6 +50,11 @@ export function SwimmerProfileScreen({
   const [editing, setEditing] = useState<HistoryResult | null>(null);
   const [deleting, setDeleting] = useState<HistoryResult | null>(null);
   const [tab, setTab] = useState("times");
+  // Viewer (parent) school-gala entry (§R15): the one write a viewer gets, for a
+  // swimmer they're already linked to (they reached this /me route via the
+  // server-side access gate). `galaEditing` null = a new entry, else that row.
+  const [galaOpen, setGalaOpen] = useState(false);
+  const [galaEditing, setGalaEditing] = useState<HistoryResult | null>(null);
 
   // Pending-request count for the Access tab pill, so a coach on the Times tab
   // still sees when someone is waiting. Shares the query the Access panel uses
@@ -71,14 +77,34 @@ export function SwimmerProfileScreen({
         { label: swimmer.name },
       ];
 
+  // A viewer reaching a /me swimmer is, by the server-side access gate, linked to
+  // them — so they may log/edit/delete that swimmer's school-gala times (§R15).
+  const canLogGala = viewerArea;
+
+  // History editing splits three ways: a managing coach edits every row; a viewer
+  // edits ONLY the school-gala rows they added; anyone else is read-only.
+  const historyOnEdit = editable
+    ? (row: HistoryResult) => setEditing(row)
+    : canLogGala
+      ? (row: HistoryResult) => {
+          setGalaEditing(row);
+          setGalaOpen(true);
+        }
+      : undefined;
+  const historyOnDelete =
+    editable || canLogGala ? (row: HistoryResult) => setDeleting(row) : undefined;
+  const historyCanEditRow = canLogGala
+    ? (row: HistoryResult) => row.swimType === "SCHOOL_GALA"
+    : undefined;
+
   // The Times sections — the read the profile always leads with. History is
-  // editable only for a coach who manages this swimmer; a viewer (and any
-  // other-club coach) gets it read-only (no actions column).
+  // editable only for a coach who manages this swimmer; a viewer edits just their
+  // own school-gala rows; any other-club coach gets it read-only.
   const timesContent = (
     <div className="flex flex-col gap-8">
       <Section
         title="Personal bests"
-        hint="Fastest meet time per event and course. Trials and practice never set a PB."
+        hint="Fastest meet time per event and course. Trials, practice and school galas never set a PB."
       >
         <PbBoard pbs={personalBests} />
       </Section>
@@ -95,13 +121,16 @@ export function SwimmerProfileScreen({
         hint={
           editable
             ? "Every logged swim. Filter, sort, edit or delete."
-            : "Every logged swim. Filter and sort."
+            : canLogGala
+              ? "Every logged swim. Filter and sort. You can edit or remove the school gala times you add."
+              : "Every logged swim. Filter and sort."
         }
       >
         <HistoryTable
           rows={history}
-          onEdit={editable ? (row) => setEditing(row) : undefined}
-          onDelete={editable ? (row) => setDeleting(row) : undefined}
+          onEdit={historyOnEdit}
+          onDelete={historyOnDelete}
+          canEditRow={historyCanEditRow}
         />
       </Section>
     </div>
@@ -121,6 +150,18 @@ export function SwimmerProfileScreen({
               >
                 <Timer className="size-4" /> Log a time
               </Link>
+            ) : canLogGala ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setGalaEditing(null);
+                  setGalaOpen(true);
+                }}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <PlusCircle className="size-4 text-ink-faint" strokeWidth={1.75} />
+                Log a school gala time
+              </button>
             ) : undefined
           }
         />
@@ -176,6 +217,24 @@ export function SwimmerProfileScreen({
           if (!o) setEditing(null);
         }}
       />
+
+      {/* Viewer school-gala entry / edit (§R15). Keyed per target so the form
+          re-seeds cleanly between "new" and editing a specific row. */}
+      {canLogGala && (
+        <SchoolGalaSheet
+          key={galaEditing?._id ?? "new"}
+          open={galaOpen}
+          result={galaEditing}
+          swimmerId={swimmerId}
+          swimmerName={swimmer.name}
+          swimmerDob={swimmer.dob}
+          today={today}
+          onOpenChange={(o) => {
+            setGalaOpen(o);
+            if (!o) setGalaEditing(null);
+          }}
+        />
+      )}
 
       <ConfirmDialog
         open={deleting !== null}

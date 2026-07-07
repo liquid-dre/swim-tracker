@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { Info } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { DateField } from "@/components/ui/DateField";
-import { Segmented } from "@/components/ui/Segmented";
+import { SchoolGalaBadge } from "@/components/ui/SchoolGalaBadge";
 import {
   Sheet,
   SheetContent,
@@ -16,49 +18,58 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Textarea } from "@/components/ui/Textarea";
 import { errorMessage, notify } from "@/lib/notify";
-import {
-  computeAge,
-  formatTime,
-  type Course,
-  type Stroke,
-  type SwimType,
-} from "@/lib/swim";
+import { computeAge, formatTime, type Course, type Stroke } from "@/lib/swim";
 import { parseDigits, TimeField } from "@/components/log/TimeField";
 import { EventSelectors, isValidEventTriple } from "@/components/log/EventSelectors";
-import type { HistoryResult } from "./HistoryTable";
+import type { HistoryResult } from "@/components/swimmers/HistoryTable";
 
 /*
-  Edit an existing result (Step 6). A right-side slide-over mirroring SwimmerForm.
-  The event (distance → stroke → course) is constrained to the active whitelist so
-  an edit can never land off it (100 IM stays SCM-only, etc.); the server
-  re-validates regardless. The parent keys this per target so state seeds cleanly.
+  School-gala entry (BRD §R15) — the ONE write a viewer (parent) gets. A focused
+  slide-over scoped to a single swimmer they are already linked to: pick the
+  event off the whitelist, the date, the gala name, and the time (right-to-left
+  digit entry). The swim type is FIXED to SCHOOL_GALA — a parent can never log a
+  meet, trial or practice — and the server re-enforces that regardless. Doubles
+  as the edit form for a gala row the parent already entered.
+
+  It says plainly what a school gala is (and is not) so nobody mistakes it for an
+  official time: it tracks progress, it never sets a personal best or a cut.
 */
-export function ResultEditSheet({
+
+const LIMIT_COPY =
+  "School gala times track your swimmer's progress but don't count toward personal bests or qualifying — those come from official meets.";
+
+export function SchoolGalaSheet({
   open,
   onOpenChange,
-  result,
+  swimmerId,
+  swimmerName,
   swimmerDob,
   today,
+  result = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  result: HistoryResult | null;
+  swimmerId: Id<"swimmers">;
+  swimmerName: string;
   swimmerDob: string;
   today: string;
+  // When set, the sheet edits this existing (school-gala) row instead of creating.
+  result?: HistoryResult | null;
 }) {
   const events = useQuery(api.events.listActiveEvents, open ? {} : "skip");
+  const logResult = useMutation(api.results.logResult);
   const updateResult = useMutation(api.results.updateResult);
 
+  const editing = result !== null;
+
   const [distance, setDistance] = useState<number | null>(result?.distance ?? null);
-  const [stroke, setStroke] = useState<Stroke | null>((result?.stroke as Stroke) ?? null);
+  const [stroke, setStroke] = useState<Stroke | null>(
+    (result?.stroke as Stroke) ?? null,
+  );
   const [course, setCourse] = useState<Course | null>(result?.course ?? null);
-  const [swimType, setSwimType] = useState<SwimType>(result?.swimType ?? "MEET");
   const [swimDate, setSwimDate] = useState(result?.swimDate ?? today);
-  const [meetName, setMeetName] = useState(result?.meetName ?? "");
-  const [venue, setVenue] = useState(result?.venue ?? "");
-  const [notes, setNotes] = useState(result?.notes ?? "");
+  const [galaName, setGalaName] = useState(result?.meetName ?? "");
   const [digits, setDigits] = useState(
     result ? (formatTime(result.timeMs).match(/\d/g)?.join("") ?? "").slice(-6) : "",
   );
@@ -74,33 +85,41 @@ export function ResultEditSheet({
       ? computeAge(swimmerDob, swimDate)
       : null;
   const canSave =
-    eventValid &&
-    dateValid &&
-    ageAtSwim !== null &&
-    parsed.ms !== null &&
-    !saving;
+    eventValid && dateValid && ageAtSwim !== null && parsed.ms !== null && !saving;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSave || result === null || distance === null || stroke === null || course === null) {
-      return;
-    }
+    if (!canSave || distance === null || stroke === null || course === null) return;
+
     setSaving(true);
     setServerError(null);
+    const galaTrimmed = galaName.trim();
     try {
-      await updateResult({
-        resultId: result._id,
-        distance: distance as 50 | 100 | 200 | 400 | 800 | 1500,
-        stroke,
-        course,
-        swimType,
-        swimDate,
-        timeInput: parsed.text!,
-        meetName: meetName.trim(),
-        venue: venue.trim(),
-        notes: notes.trim(),
-      });
-      notify.success("Result updated");
+      if (editing && result) {
+        await updateResult({
+          resultId: result._id,
+          distance: distance as 25 | 50 | 100 | 200 | 400 | 800 | 1500,
+          stroke,
+          course,
+          swimType: "SCHOOL_GALA",
+          swimDate,
+          timeInput: parsed.text!,
+          meetName: galaTrimmed,
+        });
+        notify.success("School gala time updated");
+      } else {
+        await logResult({
+          swimmerId,
+          distance: distance as 25 | 50 | 100 | 200 | 400 | 800 | 1500,
+          stroke,
+          course,
+          swimType: "SCHOOL_GALA",
+          swimDate,
+          timeInput: parsed.text!,
+          meetName: galaTrimmed === "" ? undefined : galaTrimmed,
+        });
+        notify.success("School gala time added");
+      }
       onOpenChange(false);
     } catch (err) {
       setServerError(errorMessage(err));
@@ -113,15 +132,28 @@ export function ResultEditSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-md" side="right">
         <SheetHeader>
-          <SheetTitle>Edit result</SheetTitle>
+          <SheetTitle>
+            {editing ? "Edit school gala time" : "Log a school gala time"}
+          </SheetTitle>
           <SheetDescription>
-            Only meet times count toward a personal best. Changes are re-validated
-            against the event whitelist.
+            For {swimmerName}. School gala times are unofficial.
           </SheetDescription>
         </SheetHeader>
 
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4">
+            {/* The rule, stated up front so it's read before the first field. */}
+            <p className="flex gap-2 rounded-xl border border-warning-subtle bg-warning-subtle/60 px-3 py-2.5 text-xs leading-relaxed text-warning-ink">
+              <Info aria-hidden className="mt-0.5 size-4 shrink-0" strokeWidth={2} />
+              <span>{LIMIT_COPY}</span>
+            </p>
+
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-ink">Type</span>
+              {/* Fixed — a parent can only ever log a school gala time. */}
+              <SchoolGalaBadge />
+            </div>
+
             <EventSelectors
               events={events}
               distance={distance}
@@ -132,21 +164,6 @@ export function ResultEditSheet({
               onCourse={setCourse}
               disabled={events === undefined}
             />
-
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-ink">Type</span>
-              <Segmented
-                ariaLabel="Swim type"
-                value={swimType}
-                onChange={setSwimType}
-                options={[
-                  { value: "MEET", label: "Meet" },
-                  { value: "TIME_TRIAL", label: "Trial" },
-                  { value: "PRACTICE", label: "Practice" },
-                  { value: "SCHOOL_GALA", label: "School gala" },
-                ]}
-              />
-            </div>
 
             <TimeField digits={digits} onDigits={setDigits} />
 
@@ -164,23 +181,13 @@ export function ResultEditSheet({
                     : undefined
               }
             />
+
             <Input
-              label="Meet name"
-              value={meetName}
-              onChange={(e) => setMeetName(e.target.value)}
-              placeholder="e.g. Summer Championships"
-            />
-            <Input
-              label="Venue"
-              value={venue}
-              onChange={(e) => setVenue(e.target.value)}
-              placeholder="Optional"
-            />
-            <Textarea
-              label="Notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional"
+              label="Gala name"
+              value={galaName}
+              onChange={(e) => setGalaName(e.target.value)}
+              placeholder="e.g. Inter-house Gala"
+              hint="Optional — the school or gala this was swum at."
             />
           </div>
 
@@ -195,7 +202,7 @@ export function ResultEditSheet({
                 Cancel
               </Button>
               <Button type="submit" variant="primary" loading={saving} disabled={!canSave}>
-                Save changes
+                {editing ? "Save changes" : "Add gala time"}
               </Button>
             </div>
           </SheetFooter>

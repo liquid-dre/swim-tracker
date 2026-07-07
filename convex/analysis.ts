@@ -77,6 +77,7 @@ const swimType = v.union(
   v.literal("MEET"),
   v.literal("TIME_TRIAL"),
   v.literal("PRACTICE"),
+  v.literal("SCHOOL_GALA"), // parent-entered, unofficial — shown in progression (§R15)
 );
 
 const eventSummary = v.object({
@@ -345,7 +346,7 @@ export const getProgression = query({
         resultId: Id<"results">;
         swimDate: string;
         timeMs: number;
-        swimType: "MEET" | "TIME_TRIAL" | "PRACTICE";
+        swimType: "MEET" | "TIME_TRIAL" | "PRACTICE" | "SCHOOL_GALA";
         isMeet: boolean;
         isPB: boolean;
       }>;
