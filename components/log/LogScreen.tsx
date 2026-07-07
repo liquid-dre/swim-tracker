@@ -7,6 +7,7 @@ import { Timer, Trash2 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
 import { DateField } from "@/components/ui/DateField";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -92,6 +93,7 @@ export function LogScreen({
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [recent, setRecent] = useState<SavedEntry[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState<SavedEntry | null>(null);
 
   const timeRef = useRef<HTMLInputElement>(null);
 
@@ -165,14 +167,12 @@ export function LogScreen({
     }
   }
 
+  // Deleting a result is irreversible, so it confirms like every other delete
+  // in the app; ConfirmDialog owns the pending/error state.
   async function onDeleteRecent(entry: SavedEntry) {
-    try {
-      await deleteResult({ resultId: entry.id });
-      setRecent((prev) => prev.filter((r) => r.id !== entry.id));
-      notify.success("Entry removed");
-    } catch (err) {
-      notify.error(err);
-    }
+    await deleteResult({ resultId: entry.id });
+    setRecent((prev) => prev.filter((r) => r.id !== entry.id));
+    notify.success("Entry removed");
   }
 
   const loading = swimmers === undefined || events === undefined;
@@ -312,7 +312,25 @@ export function LogScreen({
         </form>
       )}
 
-      {recent.length > 0 && <RecentList entries={recent} onDelete={onDeleteRecent} />}
+      {recent.length > 0 && (
+        <RecentList entries={recent} onDelete={setConfirmDelete} />
+      )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirmDelete(null);
+        }}
+        title="Delete this time?"
+        description={
+          confirmDelete
+            ? `${confirmDelete.swimmer} — ${confirmDelete.event} (${confirmDelete.course}), ${confirmDelete.time}. This can't be undone.`
+            : ""
+        }
+        onConfirm={async () => {
+          if (confirmDelete) await onDeleteRecent(confirmDelete);
+        }}
+      />
     </div>
   );
 }
@@ -388,7 +406,7 @@ function RecentList({
                 type="button"
                 aria-label={`Remove ${r.swimmer} ${r.event}`}
                 onClick={() => onDelete(r)}
-                className="inline-flex size-8 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-danger-ink focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex size-11 lg:size-8 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-danger-ink focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Trash2 className="size-4" />
               </button>
