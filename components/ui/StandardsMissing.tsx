@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ListChecks } from "lucide-react";
 
+import { buttonClasses } from "@/components/ui/Button";
+
 /*
   Zero standards is a setup gap, not "no data" — without cuts the qualifying
   surfaces (status matrix, road to qualify, tier overlays) render blank and
@@ -18,14 +20,11 @@ export function StandardsMissing({ isStaff }: { isStaff: boolean }) {
         <p className="mx-auto max-w-[52ch] text-sm text-ink-muted">
           {isStaff
             ? "This screen compares meet times against the qualifying cuts. Import the standards once and every tier, gap, and status fills in."
-            : "Qualifying tiers appear here once the coach has imported the standards."}
+            : "Qualifying tiers appear here once the coach has imported the standards — ask your coach when they'll be in."}
         </p>
       </div>
       {isStaff && (
-        <Link
-          href="/standards"
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 text-sm font-medium text-white shadow-theme-xs outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-ring lg:h-9"
-        >
+        <Link href="/standards" className={buttonClasses("primary", "md")}>
           Import standards
         </Link>
       )}

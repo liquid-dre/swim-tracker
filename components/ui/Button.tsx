@@ -24,6 +24,11 @@ const sizes: Record<Size, string> = {
   md: "h-11 px-4 text-base lg:h-9",
 };
 
+/** The full Button class string, for link elements styled as buttons. */
+export function buttonClasses(variant: Variant = "primary", size: Size = "md") {
+  return `${base} ${variants[variant]} ${sizes[size]}`;
+}
+
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;

@@ -46,8 +46,17 @@ export default function GlobalError({
           <p style={{ margin: "0.25rem 0 1.25rem", fontSize: "0.875rem", color: "#667085" }}>
             The app hit an unexpected error. Your data is safe.
           </p>
+          {/* Self-contained hover/focus states — the app stylesheet may be gone. */}
+          <style>{`
+            .ge-retry:hover { background: #3641f5 !important; }
+            .ge-retry:focus-visible {
+              outline: none;
+              box-shadow: 0 0 0 4px rgba(70, 95, 255, 0.12);
+            }
+          `}</style>
           <button
             onClick={reset}
+            className="ge-retry"
             style={{
               height: "2.75rem",
               padding: "0 1rem",

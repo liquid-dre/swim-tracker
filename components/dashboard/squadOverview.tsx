@@ -139,12 +139,9 @@ function FirstRunChecklist({
         Three steps, in order — then this space becomes your live squad overview.
       </p>
       <ol className="mt-4 flex flex-col divide-y divide-gray-100">
-        {steps.map((s) => (
-          <li key={s.href}>
-            <Link
-              href={s.href}
-              className="group flex items-center gap-3 rounded-lg px-1 py-3 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"
-            >
+        {steps.map((s) => {
+          const rowBody = (
+            <>
               {s.done ? (
                 <CheckCircle2
                   aria-hidden
@@ -180,9 +177,26 @@ function FirstRunChecklist({
                   className="size-4 shrink-0 text-ink-faint transition-transform [transition-duration:var(--dur-1)] group-hover:translate-x-0.5 group-hover:text-brand-500"
                 />
               )}
-            </Link>
-          </li>
-        ))}
+            </>
+          );
+          return (
+            <li key={s.href}>
+              {/* Completed steps drop the link: only what still needs doing
+                  reads (and acts) as tappable — a done-row mis-tap on a phone
+                  would navigate away from the remaining steps. */}
+              {s.done ? (
+                <div className="flex items-center gap-3 px-1 py-3">{rowBody}</div>
+              ) : (
+                <Link
+                  href={s.href}
+                  className="group flex items-center gap-3 rounded-lg px-1 py-3 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {rowBody}
+                </Link>
+              )}
+            </li>
+          );
+        })}
       </ol>
     </section>
   );
