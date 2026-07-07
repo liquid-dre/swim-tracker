@@ -26,6 +26,7 @@ import {
 } from "@/lib/swim";
 import { formatMonthYear, formatSeconds, formatShortDate } from "@/lib/format";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import {
   CHART,
   CHART_ANIM_MS,
@@ -127,6 +128,9 @@ export function ProgressionChart({
   noteMarkers?: NoteMarker[];
 }) {
   const reduced = usePrefersReducedMotion();
+  // Phone-width: a slightly shorter plot and slimmer time gutter keep the
+  // chart plus its summary strip inside one viewport without squeezing the data.
+  const narrow = useMediaQuery("(max-width: 639px)");
 
   const data: Array<{ color: string; name: string; points: ChartPoint[] }> = series.map(
     (s, i) => ({
@@ -213,7 +217,7 @@ export function ProgressionChart({
   return (
     <div className="flex flex-col gap-4">
       <div
-        style={{ width: "100%", height: 360 }}
+        style={{ width: "100%", height: narrow ? 300 : 360 }}
         role="img"
         aria-label={`Progression chart, time over date with a faster time plotted lower; the axis floor sits just under the world record. ${summary}`}
       >
@@ -238,7 +242,7 @@ export function ProgressionChart({
               tick={{ fill: CHART.tick, fontSize: 11 }}
               tickLine={false}
               axisLine={{ stroke: CHART.axis }}
-              width={64}
+              width={narrow ? 54 : 64}
             />
             <Tooltip
               cursor={{ stroke: CHART.axis, strokeDasharray: "3 3" }}
