@@ -46,6 +46,27 @@ const swimType = v.union(
   v.literal("PRACTICE"),
   v.literal("SCHOOL_GALA"), // parent-entered, unofficial (§R15)
 );
+const role = v.union(
+  v.literal("SUPER_USER"),
+  v.literal("COACH"),
+  v.literal("VIEWER"),
+);
+
+// Entry / edit provenance for a history row (§R17, Part B). Coach-only: null for
+// a viewer so a parent never sees which coach captured a time. `enteredBy` is
+// the original enterer (name + role, so a parent-entered SCHOOL_GALA reads as a
+// viewer); the edit block is set only once a row has been changed.
+const provenance = v.union(
+  v.null(),
+  v.object({
+    enteredByName: v.string(),
+    enteredByRole: role,
+    enteredAt: v.number(),
+    editedByName: v.union(v.string(), v.null()),
+    editedByRole: v.union(role, v.null()),
+    editedAt: v.union(v.number(), v.null()),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Return validators (one place, shared by both queries)
@@ -99,6 +120,7 @@ const historyRow = v.object({
   meetName: v.union(v.string(), v.null()),
   venue: v.union(v.string(), v.null()),
   notes: v.union(v.string(), v.null()),
+  provenance, // who entered/edited this time (coach-only; null for a viewer)
 });
 
 const swimmerSummary = v.object({
@@ -179,24 +201,68 @@ export const getSwimmerProfile = query({
     const inSystemSince = new Date(swimmer.createdAt).toISOString().slice(0, 10);
     const club = swimmer.clubId ? await ctx.db.get(swimmer.clubId) : null;
 
+    // Entry provenance is coach-only (§R17): a viewer never sees which coach
+    // captured a time. Resolve enterer/editor names once, memoised, for staff.
+    const staff = profile.role !== "VIEWER";
+    const profileCache = new Map<
+      Id<"profiles">,
+      { name: string; role: "SUPER_USER" | "COACH" | "VIEWER" } | null
+    >();
+    const personFor = async (id: Id<"profiles"> | undefined) => {
+      if (!id) return null;
+      if (profileCache.has(id)) return profileCache.get(id)!;
+      const p = await ctx.db.get(id);
+      const shaped = p ? { name: p.name, role: p.role } : null;
+      profileCache.set(id, shaped);
+      return shaped;
+    };
+
     // History: newest first is the useful default for a log; the client can
     // re-sort. Attach the human event label so the table stays presentational.
-    const history = [...results]
-      .sort((a, b) => (a.swimDate < b.swimDate ? 1 : a.swimDate > b.swimDate ? -1 : 0))
-      .map((res) => ({
-        _id: res._id,
-        distance: res.distance,
-        stroke: res.stroke,
-        course: res.course,
-        label: eventLabel(res.distance, res.stroke),
-        timeMs: res.timeMs,
-        swimType: res.swimType,
-        swimDate: res.swimDate,
-        ageAtSwim: res.ageAtSwim,
-        meetName: res.meetName ?? null,
-        venue: res.venue ?? null,
-        notes: res.notes ?? null,
-      }));
+    const sorted = [...results].sort((a, b) =>
+      a.swimDate < b.swimDate ? 1 : a.swimDate > b.swimDate ? -1 : 0,
+    );
+    const history = await Promise.all(
+      sorted.map(async (res) => {
+        let prov = null as
+          | null
+          | {
+              enteredByName: string;
+              enteredByRole: "SUPER_USER" | "COACH" | "VIEWER";
+              enteredAt: number;
+              editedByName: string | null;
+              editedByRole: "SUPER_USER" | "COACH" | "VIEWER" | null;
+              editedAt: number | null;
+            };
+        if (staff) {
+          const enterer = await personFor(res.enteredBy);
+          const editor = await personFor(res.lastEditedBy);
+          prov = {
+            enteredByName: enterer?.name ?? "(removed account)",
+            enteredByRole: enterer?.role ?? "VIEWER",
+            enteredAt: res.createdAt,
+            editedByName: res.lastEditedBy ? (editor?.name ?? "(removed account)") : null,
+            editedByRole: res.lastEditedBy ? (editor?.role ?? "VIEWER") : null,
+            editedAt: res.updatedAt ?? null,
+          };
+        }
+        return {
+          _id: res._id,
+          distance: res.distance,
+          stroke: res.stroke,
+          course: res.course,
+          label: eventLabel(res.distance, res.stroke),
+          timeMs: res.timeMs,
+          swimType: res.swimType,
+          swimDate: res.swimDate,
+          ageAtSwim: res.ageAtSwim,
+          meetName: res.meetName ?? null,
+          venue: res.venue ?? null,
+          notes: res.notes ?? null,
+          provenance: prov,
+        };
+      }),
+    );
 
     return {
       swimmer: {

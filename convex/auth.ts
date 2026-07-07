@@ -36,6 +36,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 
       let profileId;
       let email: string;
+      let profileName: string; // display name, used to attribute a CLAIMED event
       if (existing) {
         // Promote an already-provisioned account if it was just added to the
         // allow-list; never demote (a super-user removed from the list keeps
@@ -49,13 +50,15 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         }
         profileId = existing._id;
         email = existing.email ?? "";
+        profileName = existing.name;
       } else {
         const user = await ctx.db.get(userId);
         const name = (user?.name as string | undefined) || undefined;
         email = (user?.email as string | undefined) ?? "";
+        profileName = name || email || "Swimmer";
         profileId = await ctx.db.insert("profiles", {
           authId: userId,
-          name: name || email || "Swimmer",
+          name: profileName,
           email,
           role: supers.has(email.toLowerCase()) ? "SUPER_USER" : "VIEWER",
         });
@@ -85,6 +88,23 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
             await ctx.db.insert("swimmerAccess", {
               profileId,
               swimmerId: p.swimmerId,
+            });
+            // Audit trail (§R17): the viewer just CLAIMED this pre-authorised
+            // invite. The inviting coach (stored on the pending row) is the
+            // approver. Inlined because this callback's generic ctx can't import
+            // the typed helper's index types; the shape matches accessEvents.
+            await ctx.db.insert("accessEvents", {
+              type: "CLAIMED",
+              swimmerId: p.swimmerId,
+              at: Date.now(),
+              viewerEmail: normalized,
+              viewerProfileId: profileId,
+              viewerName: profileName || undefined,
+              actorProfileId: profileId, // the viewer performed the claim
+              actorName: profileName || undefined,
+              actorRole: "VIEWER",
+              approverProfileId: p.invitedByProfileId,
+              approverName: p.invitedByName,
             });
           }
           await ctx.db.delete(p._id);

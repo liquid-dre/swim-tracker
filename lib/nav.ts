@@ -3,13 +3,16 @@ import {
   Award,
   BarChart3,
   Building2,
+  ClipboardList,
   Gauge,
   Grid3x3,
   LayoutDashboard,
   LineChart,
   Radar,
   Ruler,
+  ScrollText,
   Shield,
+  ShieldCheck,
   Target,
   Timer,
   TrendingUp,
@@ -132,6 +135,19 @@ export const NAV: NavNode[] = [
       { label: "Status matrix", href: "/status", icon: Grid3x3 },
       { label: "Road to qualify", href: "/road", icon: Target },
       { label: "Standards", href: "/standards", icon: Ruler },
+    ],
+  },
+  // Coach-only audit trails (§R17). Read-only history of who did what: viewer
+  // access grants/revocations, and time entry/edit provenance. Server-enforced
+  // coach-only (requireCoach); viewers never see these (route + query gated).
+  {
+    kind: "group",
+    label: "Audit",
+    icon: ScrollText,
+    roles: ["COACH"],
+    items: [
+      { label: "Access log", href: "/audit/access", icon: ShieldCheck },
+      { label: "Time-entry log", href: "/audit/times", icon: ClipboardList },
     ],
   },
   // Super-user only (access-control Phase 4). Reserved under /admin, which

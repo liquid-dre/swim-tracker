@@ -10,9 +10,11 @@
 
 import type * as admin from "../admin.js";
 import type * as analysis from "../analysis.js";
+import type * as audit from "../audit.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as clubs from "../clubs.js";
+import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as emails from "../emails.js";
 import type * as events from "../events.js";
@@ -37,9 +39,11 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   analysis: typeof analysis;
+  audit: typeof audit;
   auth: typeof auth;
   authz: typeof authz;
   clubs: typeof clubs;
+  crons: typeof crons;
   dashboard: typeof dashboard;
   emails: typeof emails;
   events: typeof events;

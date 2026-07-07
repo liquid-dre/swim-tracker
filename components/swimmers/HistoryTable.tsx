@@ -6,7 +6,8 @@ import { ArrowDown, ArrowUp, MoreHorizontal } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Course, SwimType } from "@/lib/swim";
 import { formatTime } from "@/lib/swim";
-import { formatShortDate } from "@/lib/format";
+import { formatShortDate, formatDateTime } from "@/lib/format";
+import { roleLabel, type Role } from "@/lib/nav";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { SchoolGalaBadge } from "@/components/ui/SchoolGalaBadge";
@@ -24,6 +25,17 @@ import {
   edit/delete mutations; this owns only view state (filters + sort).
 */
 
+// Entry / edit provenance (§R17, Part B). Coach-only — null for a viewer, so a
+// parent never sees which coach captured a time.
+export type EntryProvenance = {
+  enteredByName: string;
+  enteredByRole: Role;
+  enteredAt: number;
+  editedByName: string | null;
+  editedByRole: Role | null;
+  editedAt: number | null;
+};
+
 export type HistoryResult = {
   _id: Id<"results">;
   distance: number;
@@ -37,6 +49,7 @@ export type HistoryResult = {
   meetName: string | null;
   venue: string | null;
   notes: string | null;
+  provenance?: EntryProvenance | null;
 };
 
 type SortField = "date" | "time";
@@ -211,7 +224,14 @@ export function HistoryTable({
                   <td className="whitespace-nowrap px-4 py-3 text-ink sm:px-6">
                     {formatShortDate(r.swimDate)}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 font-medium text-ink">{r.label}</td>
+                  <td className="px-4 py-3">
+                    <span className="block whitespace-nowrap font-medium text-ink">
+                      {r.label}
+                    </span>
+                    {r.provenance && (
+                      <EntryLine provenance={r.provenance} swimType={r.swimType} />
+                    )}
+                  </td>
                   <td className="hidden px-4 py-3 text-ink-muted sm:table-cell">{r.course}</td>
                   <td className="px-4 py-3">
                     <TypeBadge type={r.swimType} />
@@ -287,6 +307,41 @@ function SortHeader({
         strokeWidth={2.25}
       />
     </button>
+  );
+}
+
+// The per-row entry provenance (§R17): who logged this time, and whether it was
+// later edited. A viewer (parent) enterer is called out — since parents can only
+// enter SCHOOL_GALA (§R15), that reads as an unofficial, parent-captured time.
+// The full detail (roles + exact timestamps) rides in the title for a hover read.
+function EntryLine({
+  provenance: p,
+  swimType,
+}: {
+  provenance: EntryProvenance;
+  swimType: SwimType;
+}) {
+  const enteredByViewer = p.enteredByRole === "VIEWER";
+  const title =
+    `Logged by ${p.enteredByName} (${roleLabel(p.enteredByRole)}) on ${formatDateTime(p.enteredAt)}` +
+    (p.editedByName && p.editedAt !== null
+      ? ` · edited by ${p.editedByName} (${roleLabel(p.editedByRole ?? "VIEWER")}) on ${formatDateTime(p.editedAt)}`
+      : "");
+  return (
+    <span
+      className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-faint"
+      title={title}
+    >
+      <span className="whitespace-nowrap">
+        Logged by <span className="text-ink-muted">{p.enteredByName}</span>
+      </span>
+      {enteredByViewer && swimType === "SCHOOL_GALA" && (
+        <span className="whitespace-nowrap font-medium text-warning-ink">· parent</span>
+      )}
+      {p.editedByName && (
+        <span className="whitespace-nowrap">· edited</span>
+      )}
+    </span>
   );
 }
 
