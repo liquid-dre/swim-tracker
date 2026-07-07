@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
@@ -257,19 +257,19 @@ function assertValidCut(
   events: EventDef[],
 ): void {
   if (cut.isCatchAllYoung && cut.isCatchAllOld) {
-    throw new Error("A cut can't be both a youngest and an oldest catch-all.");
+    throw new ConvexError("A cut can't be both a youngest and an oldest catch-all.");
   }
   if (!Number.isInteger(cut.age) || cut.age <= 0 || cut.age > 100) {
-    throw new Error(`Invalid age "${cut.age}".`);
+    throw new ConvexError(`Invalid age "${cut.age}".`);
   }
   if (!Number.isInteger(cut.timeMs) || cut.timeMs <= 0) {
-    throw new Error("Enter a valid time.");
+    throw new ConvexError("Enter a valid time.");
   }
   if (!isValidEvent(cut.distance, cut.stroke, "LCM", events)) {
-    throw new Error(`${eventLabel(cut.distance, cut.stroke)} is not a long-course event.`);
+    throw new ConvexError(`${eventLabel(cut.distance, cut.stroke)} is not a long-course event.`);
   }
   if (!tierCoversEvent(cut.tier, cut.distance, cut.stroke)) {
-    throw new Error(
+    throw new ConvexError(
       `That tier has no cut for ${eventLabel(cut.distance, cut.stroke)}.`,
     );
   }
@@ -305,7 +305,7 @@ export const createStandard = mutation({
       )
       .take(200);
     if (siblings.some((s) => s.age === args.age)) {
-      throw new Error(
+      throw new ConvexError(
         "A cut already exists for that age and tier — edit it instead.",
       );
     }
@@ -330,9 +330,9 @@ export const updateStandard = mutation({
   handler: async (ctx, { standardId, timeMs }) => {
     await requireSuperUser(ctx);
     const existing = await ctx.db.get(standardId);
-    if (!existing) throw new Error("That cut no longer exists.");
+    if (!existing) throw new ConvexError("That cut no longer exists.");
     if (!Number.isInteger(timeMs) || timeMs <= 0) {
-      throw new Error("Enter a valid time.");
+      throw new ConvexError("Enter a valid time.");
     }
     await ctx.db.patch(standardId, { timeMs });
     return null;

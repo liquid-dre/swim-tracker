@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { toast } from "sonner";
 
 /*
@@ -12,6 +13,11 @@ import { toast } from "sonner";
 
 /** Pull a human-readable message out of whatever a mutation threw. */
 export function errorMessage(err: unknown, fallback = "Something went wrong"): string {
+  // ConvexError first: in production Convex redacts plain Error messages, so the
+  // server's own words only survive the trip inside `data`.
+  if (err instanceof ConvexError) {
+    return typeof err.data === "string" && err.data ? err.data : fallback;
+  }
   if (typeof err === "string") return err;
   if (err instanceof Error && err.message) return err.message;
   if (err && typeof err === "object" && "message" in err) {

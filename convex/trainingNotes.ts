@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
@@ -40,14 +40,14 @@ function cleanNoteDate(noteDate: string | undefined): string {
   if (noteDate === undefined || noteDate.trim() === "") return todayIso();
   const trimmed = noteDate.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    throw new Error("Note date must be YYYY-MM-DD.");
+    throw new ConvexError("Note date must be YYYY-MM-DD.");
   }
   const date = new Date(`${trimmed}T00:00:00Z`);
   if (
     Number.isNaN(date.getTime()) ||
     date.toISOString().slice(0, 10) !== trimmed
   ) {
-    throw new Error("That is not a real date.");
+    throw new ConvexError("That is not a real date.");
   }
   return trimmed;
 }
@@ -56,14 +56,14 @@ function cleanFocus(focus: string | undefined): string | undefined {
   if (focus === undefined) return undefined;
   const trimmed = focus.trim();
   if (trimmed === "") return undefined;
-  if (trimmed.length > FOCUS_MAX) throw new Error("Focus is too long.");
+  if (trimmed.length > FOCUS_MAX) throw new ConvexError("Focus is too long.");
   return trimmed;
 }
 
 function cleanBody(body: string): string {
   const trimmed = body.trim();
-  if (trimmed === "") throw new Error("A note is required.");
-  if (trimmed.length > BODY_MAX) throw new Error("This note is too long.");
+  if (trimmed === "") throw new ConvexError("A note is required.");
+  if (trimmed.length > BODY_MAX) throw new ConvexError("This note is too long.");
   return trimmed;
 }
 
@@ -80,14 +80,14 @@ async function authorizeNoteWrite(
 ): Promise<Doc<"profiles">> {
   const profile = await requireCoach(ctx);
   if (scope === "SWIMMER") {
-    if (!ids.swimmerId) throw new Error("Pick a swimmer for this note.");
+    if (!ids.swimmerId) throw new ConvexError("Pick a swimmer for this note.");
     const swimmer = await ctx.db.get(ids.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     assertCoachManagesSwimmer(profile, swimmer);
   } else {
-    if (!ids.squadId) throw new Error("Pick a squad for this note.");
+    if (!ids.squadId) throw new ConvexError("Pick a squad for this note.");
     const squad = await ctx.db.get(ids.squadId);
-    if (!squad) throw new Error("Squad not found.");
+    if (!squad) throw new ConvexError("Squad not found.");
   }
   return profile;
 }
@@ -137,7 +137,7 @@ export const updateTrainingNote = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const note = await ctx.db.get(args.noteId);
-    if (!note) throw new Error("Note not found.");
+    if (!note) throw new ConvexError("Note not found.");
     // Re-authorise against the note's OWN scope (never trust the client's claim).
     await authorizeNoteWrite(ctx, note.scope, {
       squadId: note.squadId,
@@ -241,7 +241,7 @@ export const getSwimmerTrainingNotes = query({
     // server-side, so a direct call can't read an unlinked swimmer's notes.
     const profile = await requireSwimmerAccess(ctx, args.swimmerId);
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
 
     const editable =
       profile.role === "SUPER_USER" ||
@@ -325,7 +325,7 @@ export const getSquadTrainingNotes = query({
   handler: async (ctx, args) => {
     await requireCoach(ctx);
     const squad = await ctx.db.get(args.squadId);
-    if (!squad) throw new Error("Squad not found.");
+    if (!squad) throw new ConvexError("Squad not found.");
 
     const notes = await ctx.db
       .query("trainingNotes")

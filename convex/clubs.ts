@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -10,8 +10,8 @@ import { requireCoach, requireSignedIn, requireSuperUser } from "./authz";
 
 function cleanName(name: string): string {
   const trimmed = name.trim();
-  if (trimmed.length === 0) throw new Error("Enter a club name.");
-  if (trimmed.length > 80) throw new Error("Club name is too long.");
+  if (trimmed.length === 0) throw new ConvexError("Enter a club name.");
+  if (trimmed.length > 80) throw new ConvexError("Club name is too long.");
   return trimmed;
 }
 
@@ -37,7 +37,7 @@ export const renameClub = mutation({
   handler: async (ctx, { clubId, name }) => {
     await requireSuperUser(ctx);
     const club = await ctx.db.get(clubId);
-    if (!club) throw new Error("That club no longer exists.");
+    if (!club) throw new ConvexError("That club no longer exists.");
     await ctx.db.patch(clubId, { name: cleanName(name) });
     return null;
   },
@@ -135,22 +135,22 @@ export const assignCoachToClub = mutation({
     await requireSuperUser(ctx);
 
     const club = await ctx.db.get(clubId);
-    if (!club) throw new Error("That club no longer exists.");
+    if (!club) throw new ConvexError("That club no longer exists.");
 
     const normalized = email.trim().toLowerCase();
-    if (normalized === "") throw new Error("Enter the coach's email.");
+    if (normalized === "") throw new ConvexError("Enter the coach's email.");
 
     const profile = await ctx.db
       .query("profiles")
       .filter((q) => q.eq(q.field("email"), normalized))
       .unique();
     if (!profile) {
-      throw new Error(
+      throw new ConvexError(
         "No account uses that email yet. Ask them to sign up first, then assign.",
       );
     }
     if (profile.role === "SUPER_USER") {
-      throw new Error("That account is a super-user and already sees every club.");
+      throw new ConvexError("That account is a super-user and already sees every club.");
     }
 
     await ctx.db.patch(profile._id, { role: "COACH", clubId });
@@ -170,7 +170,7 @@ export const removeCoach = mutation({
     const profile = await ctx.db.get(profileId);
     if (!profile) return null;
     if (profile.role !== "COACH") {
-      throw new Error("That account is not a coach.");
+      throw new ConvexError("That account is not a coach.");
     }
     await ctx.db.patch(profileId, { role: "VIEWER", clubId: undefined });
     return null;
@@ -206,10 +206,10 @@ export const createCoachInvite = mutation({
     const admin = await requireSuperUser(ctx);
 
     const club = await ctx.db.get(clubId);
-    if (!club) throw new Error("That club no longer exists.");
+    if (!club) throw new ConvexError("That club no longer exists.");
 
     const normalized = normaliseEmail(email);
-    if (normalized === "") throw new Error("Enter the coach's email.");
+    if (normalized === "") throw new ConvexError("Enter the coach's email.");
 
     // If the account already exists, assigning directly is the better path than
     // an invite link they'd have to click while already signed in.
@@ -218,7 +218,7 @@ export const createCoachInvite = mutation({
       .filter((q) => q.eq(q.field("email"), normalized))
       .unique();
     if (existing) {
-      throw new Error(
+      throw new ConvexError(
         "That email already has an account — use “Assign coach” to add them to a club instead.",
       );
     }
@@ -281,7 +281,7 @@ export const revokeCoachInvite = mutation({
     const invite = await ctx.db.get(inviteId);
     if (!invite) return null;
     if (invite.redeemedAt !== undefined) {
-      throw new Error("That invite has already been accepted.");
+      throw new ConvexError("That invite has already been accepted.");
     }
     await ctx.db.delete(inviteId);
     return null;
@@ -324,13 +324,13 @@ export const redeemCoachInvite = mutation({
       .withIndex("by_token", (q) => q.eq("token", token))
       .unique();
     if (!invite || invite.redeemedAt !== undefined) {
-      throw new Error("This invite link is invalid or has already been used.");
+      throw new ConvexError("This invite link is invalid or has already been used.");
     }
     const club = await ctx.db.get(invite.clubId);
-    if (!club) throw new Error("That club no longer exists.");
+    if (!club) throw new ConvexError("That club no longer exists.");
 
     if (profile.role === "SUPER_USER") {
-      throw new Error("You're a super-user and already manage every club.");
+      throw new ConvexError("You're a super-user and already manage every club.");
     }
 
     await ctx.db.patch(profile._id, { role: "COACH", clubId: invite.clubId });

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
@@ -52,7 +52,7 @@ const MAX_TIME_MS = 3_600_000;
 function parseTimeBounded(input: string): number {
   const ms = parseTime(input); // throws on anything ambiguous / out of range
   if (ms > MAX_TIME_MS) {
-    throw new Error("That time looks too long — check the minutes.");
+    throw new ConvexError("That time looks too long — check the minutes.");
   }
   return ms;
 }
@@ -61,18 +61,18 @@ function parseTimeBounded(input: string): number {
 function cleanSwimDate(input: string, dob: string): string {
   const trimmed = input.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    throw new Error("Swim date must be YYYY-MM-DD.");
+    throw new ConvexError("Swim date must be YYYY-MM-DD.");
   }
   const date = new Date(`${trimmed}T00:00:00Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== trimmed) {
-    throw new Error("That is not a real date.");
+    throw new ConvexError("That is not a real date.");
   }
   const today = new Date().toISOString().slice(0, 10);
   if (trimmed > today) {
-    throw new Error("Swim date cannot be in the future.");
+    throw new ConvexError("Swim date cannot be in the future.");
   }
   if (computeAge(dob, trimmed) < 0) {
-    throw new Error("Swim date is before the swimmer's date of birth.");
+    throw new ConvexError("Swim date is before the swimmer's date of birth.");
   }
   return trimmed;
 }
@@ -93,7 +93,7 @@ async function assertValidEvent(
 ): Promise<void> {
   const events = await ctx.db.query("events").take(200);
   if (!isValidEvent(d, s, c, events)) {
-    throw new Error(`${d} ${s} is not a valid ${c} event.`);
+    throw new ConvexError(`${d} ${s} is not a valid ${c} event.`);
   }
 }
 
@@ -119,7 +119,7 @@ export const logResult = mutation({
     const profile = await requireSignedIn(ctx);
 
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     // Coaches log anything for their club; a viewer only a SCHOOL_GALA time for
     // a linked swimmer. Everything else is rejected before we touch the data.
     await assertMayWriteResult(ctx, profile, swimmer, args.swimType);
@@ -170,9 +170,9 @@ export const updateResult = mutation({
     const profile = await requireSignedIn(ctx);
 
     const existing = await ctx.db.get(args.resultId);
-    if (!existing) throw new Error("Result not found.");
+    if (!existing) throw new ConvexError("Result not found.");
     const swimmer = await ctx.db.get(existing.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     // The resulting type is the new one if the edit changes it, else the row's
     // current type. A viewer may only ever touch a SCHOOL_GALA row and only keep
     // it SCHOOL_GALA — `assertMayWriteResult` enforces both from these facts.
@@ -244,9 +244,9 @@ export const deleteResult = mutation({
   handler: async (ctx, args) => {
     const profile = await requireSignedIn(ctx);
     const existing = await ctx.db.get(args.resultId);
-    if (!existing) throw new Error("Result not found.");
+    if (!existing) throw new ConvexError("Result not found.");
     const swimmer = await ctx.db.get(existing.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     // A delete doesn't change the type, so target = the row's own type: a viewer
     // may delete a SCHOOL_GALA row they're linked to, nothing else.
     await assertMayWriteResult(

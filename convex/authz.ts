@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -31,7 +32,7 @@ export async function requireSignedIn(
 ): Promise<Doc<"profiles">> {
   const profile = await getProfile(ctx);
   if (profile === null) {
-    throw new Error("You are not signed in.");
+    throw new ConvexError("You are not signed in.");
   }
   return profile;
 }
@@ -49,10 +50,10 @@ export async function requireCoach(
 ): Promise<Doc<"profiles">> {
   const profile = await getProfile(ctx);
   if (profile === null) {
-    throw new Error("You are not signed in.");
+    throw new ConvexError("You are not signed in.");
   }
   if (profile.role === "VIEWER") {
-    throw new Error("Only coaches can do that.");
+    throw new ConvexError("Only coaches can do that.");
   }
   return profile;
 }
@@ -68,10 +69,10 @@ export async function requireSuperUser(
 ): Promise<Doc<"profiles">> {
   const profile = await getProfile(ctx);
   if (profile === null) {
-    throw new Error("You are not signed in.");
+    throw new ConvexError("You are not signed in.");
   }
   if (profile.role !== "SUPER_USER") {
-    throw new Error("Only the super-user can do that.");
+    throw new ConvexError("Only the super-user can do that.");
   }
   return profile;
 }
@@ -90,7 +91,7 @@ export async function requireSwimmerAccess(
 ): Promise<Doc<"profiles">> {
   const profile = await getProfile(ctx);
   if (profile === null) {
-    throw new Error("You are not signed in.");
+    throw new ConvexError("You are not signed in.");
   }
   if (profile.role !== "VIEWER") return profile; // coach / super-user
 
@@ -100,7 +101,7 @@ export async function requireSwimmerAccess(
     .filter((q) => q.eq(q.field("swimmerId"), swimmerId))
     .first();
   if (link === null) {
-    throw new Error("You can only view your own swimmer.");
+    throw new ConvexError("You can only view your own swimmer.");
   }
   return profile;
 }
@@ -126,7 +127,7 @@ export async function requireSwimmersAccess(
   const allowed = new Set(links.map((l) => l.swimmerId));
   for (const id of swimmerIds) {
     if (!allowed.has(id)) {
-      throw new Error("You can only view your own swimmer.");
+      throw new ConvexError("You can only view your own swimmer.");
     }
   }
   return profile;
@@ -145,15 +146,15 @@ export function assertCoachManagesSwimmer(
 ): void {
   if (profile.role === "SUPER_USER") return;
   if (profile.role !== "COACH") {
-    throw new Error("Only coaches can do that.");
+    throw new ConvexError("Only coaches can do that.");
   }
   if (!profile.clubId) {
-    throw new Error(
+    throw new ConvexError(
       "You aren't assigned to a club yet. Ask an admin to add you to one.",
     );
   }
   if (swimmer.clubId !== profile.clubId) {
-    throw new Error("You can only edit swimmers in your own club.");
+    throw new ConvexError("You can only edit swimmers in your own club.");
   }
 }
 
@@ -199,7 +200,7 @@ export async function assertMayWriteResult(
     targetSwimType,
     existingSwimType,
   });
-  if (reason !== null) throw new Error(reason);
+  if (reason !== null) throw new ConvexError(reason);
 }
 
 /**
@@ -212,7 +213,7 @@ export async function accessibleSwimmerIds(
 ): Promise<{ profile: Doc<"profiles">; swimmerIds: Id<"swimmers">[] | "ALL" }> {
   const profile = await getProfile(ctx);
   if (profile === null) {
-    throw new Error("You are not signed in.");
+    throw new ConvexError("You are not signed in.");
   }
   if (profile.role !== "VIEWER") return { profile, swimmerIds: "ALL" }; // staff
 

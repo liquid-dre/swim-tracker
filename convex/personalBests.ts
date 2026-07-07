@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
@@ -159,7 +159,7 @@ export const getPersonalBests = query({
     // server-side, so a direct function call can't read an unlinked swimmer.
     await requireSwimmerAccess(ctx, args.swimmerId);
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
 
     const results = await loadResults(ctx, args.swimmerId);
     return computePersonalBests(results as ResultForPB[]);
@@ -186,7 +186,7 @@ export const getSwimmerProfile = query({
     const profile = await requireSwimmerAccess(ctx, args.swimmerId);
 
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
 
     const editable =
       profile.role === "SUPER_USER" ||
