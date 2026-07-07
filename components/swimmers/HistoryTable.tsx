@@ -9,6 +9,7 @@ import { formatTime } from "@/lib/swim";
 import { formatShortDate } from "@/lib/format";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
+import { SchoolGalaBadge } from "@/components/ui/SchoolGalaBadge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,20 +48,28 @@ const TYPE_LABEL: Record<SwimType, string> = {
   MEET: "Meet",
   TIME_TRIAL: "Trial",
   PRACTICE: "Practice",
+  SCHOOL_GALA: "School gala",
 };
 
 export function HistoryTable({
   rows,
   onEdit,
   onDelete,
+  canEditRow,
 }: {
   rows: HistoryResult[];
   // Omitted for a read-only viewer: no actions column, no edit/delete affordance.
   onEdit?: (row: HistoryResult) => void;
   onDelete?: (row: HistoryResult) => void;
+  // Per-row gate (§R15): a coach may edit every row, but a viewer (parent) may
+  // only edit/delete the SCHOOL_GALA rows they entered. When it returns false the
+  // row shows no actions even though handlers are wired. Absent = every row.
+  canEditRow?: (row: HistoryResult) => boolean;
 }) {
   // Read-only when neither handler is supplied — the whole actions column drops.
   const readOnly = !onEdit && !onDelete;
+  const rowEditable = (row: HistoryResult) =>
+    !readOnly && (canEditRow ? canEditRow(row) : true);
   const [eventFilter, setEventFilter] = useState<string>("ALL");
   const [courseFilter, setCourseFilter] = useState<CourseFilter>("ALL");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("ALL");
@@ -144,6 +153,7 @@ export function HistoryTable({
             { value: "MEET", label: "Meet" },
             { value: "TIME_TRIAL", label: "Trial" },
             { value: "PRACTICE", label: "Practice" },
+            { value: "SCHOOL_GALA", label: "School gala" },
           ]}
         />
         <div className="ml-auto">
@@ -214,10 +224,12 @@ export function HistoryTable({
                   </td>
                   {!readOnly && (
                     <td className="px-4 py-3 text-right sm:px-6">
-                      <RowActions
-                        onEdit={() => onEdit?.(r)}
-                        onDelete={() => onDelete?.(r)}
-                      />
+                      {rowEditable(r) ? (
+                        <RowActions
+                          onEdit={() => onEdit?.(r)}
+                          onDelete={() => onDelete?.(r)}
+                        />
+                      ) : null}
                     </td>
                   )}
                 </tr>
@@ -279,6 +291,10 @@ function SortHeader({
 }
 
 function TypeBadge({ type }: { type: SwimType }) {
+  // A school gala is unofficial — it gets the loud warning-toned badge, never the
+  // quiet dot treatment the official types share (§R15).
+  if (type === "SCHOOL_GALA") return <SchoolGalaBadge />;
+
   const isMeet = type === "MEET";
   return (
     <span

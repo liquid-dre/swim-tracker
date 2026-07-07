@@ -44,6 +44,7 @@ const swimType = v.union(
   v.literal("MEET"),
   v.literal("TIME_TRIAL"),
   v.literal("PRACTICE"),
+  v.literal("SCHOOL_GALA"), // parent-entered, unofficial (§R15)
 );
 
 // ---------------------------------------------------------------------------

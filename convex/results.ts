@@ -2,12 +2,15 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
-import { assertCoachManagesSwimmer, requireCoach } from "./authz";
+import { assertMayWriteResult, requireSignedIn } from "./authz";
 import { computeAge, isValidEvent, parseTime } from "../lib/swim";
 
-// Result logging (BRD §6, Step 5) — the core data-entry flow. Coaches only.
-// Every write goes through the same domain gates: whitelisted event + valid
-// course, a bulletproof-parsed in-bounds time, and a server-computed age.
+// Result logging (BRD §6, Step 5) — the core data-entry flow. Every write goes
+// through the same domain gates: whitelisted event + valid course, a bulletproof-
+// parsed in-bounds time, and a server-computed age. Authorization is unified in
+// `assertMayWriteResult` (§R15): coaches edit their club's swimmers (any type);
+// a VIEWER (parent) may create/edit/delete ONLY a SCHOOL_GALA time, and only for
+// a swimmer they are linked to — every other viewer write is rejected here.
 
 // ---------------------------------------------------------------------------
 // Shared validators (mirror the schema unions, BRD §4.1–4.3)
@@ -34,6 +37,7 @@ const swimType = v.union(
   v.literal("MEET"),
   v.literal("TIME_TRIAL"),
   v.literal("PRACTICE"),
+  v.literal("SCHOOL_GALA"), // parent-entered, unofficial (§R15)
 );
 
 // A time above an hour is not a real pool swim (the slowest 1500 is well under
@@ -112,11 +116,13 @@ export const logResult = mutation({
   },
   returns: v.id("results"),
   handler: async (ctx, args) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireSignedIn(ctx);
 
     const swimmer = await ctx.db.get(args.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
-    assertCoachManagesSwimmer(profile, swimmer);
+    // Coaches log anything for their club; a viewer only a SCHOOL_GALA time for
+    // a linked swimmer. Everything else is rejected before we touch the data.
+    await assertMayWriteResult(ctx, profile, swimmer, args.swimType);
 
     await assertValidEvent(ctx, args.distance, args.stroke, args.course);
 
@@ -161,13 +167,23 @@ export const updateResult = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireSignedIn(ctx);
 
     const existing = await ctx.db.get(args.resultId);
     if (!existing) throw new Error("Result not found.");
     const swimmer = await ctx.db.get(existing.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
-    assertCoachManagesSwimmer(profile, swimmer);
+    // The resulting type is the new one if the edit changes it, else the row's
+    // current type. A viewer may only ever touch a SCHOOL_GALA row and only keep
+    // it SCHOOL_GALA — `assertMayWriteResult` enforces both from these facts.
+    const nextSwimType = args.swimType ?? existing.swimType;
+    await assertMayWriteResult(
+      ctx,
+      profile,
+      swimmer,
+      nextSwimType,
+      existing.swimType,
+    );
 
     // Merge the event fields so we validate the resulting combination as a whole
     // (e.g. changing only the stroke must still land on the whitelist).
@@ -221,12 +237,20 @@ export const deleteResult = mutation({
   args: { resultId: v.id("results") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireSignedIn(ctx);
     const existing = await ctx.db.get(args.resultId);
     if (!existing) throw new Error("Result not found.");
     const swimmer = await ctx.db.get(existing.swimmerId);
     if (!swimmer) throw new Error("Swimmer not found.");
-    assertCoachManagesSwimmer(profile, swimmer);
+    // A delete doesn't change the type, so target = the row's own type: a viewer
+    // may delete a SCHOOL_GALA row they're linked to, nothing else.
+    await assertMayWriteResult(
+      ctx,
+      profile,
+      swimmer,
+      existing.swimType,
+      existing.swimType,
+    );
     await ctx.db.delete(args.resultId);
     return null;
   },

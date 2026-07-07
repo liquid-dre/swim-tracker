@@ -42,9 +42,11 @@ import {
   floor pinned just under the event's world record — one second faster than the
   record for the plotted gender(s). No club swim ever reaches the record, so the
   line fills the grid instead of being crushed against a distant zero baseline.
-  Every logged swim is plotted
-  (all types); MEET swims are filled dots, trials / practice are hollow, and the
-  current PB carries a ring. One line per swimmer for a group.
+  Every logged swim is plotted (all types); MEET swims are filled dots, trials /
+  practice are hollow, and the current PB carries a ring. School-gala times
+  (parent-entered, UNOFFICIAL — §R15) plot on the trajectory too but wear a
+  distinct hollow diamond in the warning tone so they can never be mistaken for
+  an official swim or a best. One line per swimmer for a group.
 
   Step 10 overlays the qualifying cuts (LCM only, §4.9): applicable L2/L3/SANJ
   cuts for the swimmer's EXACT age become horizontal tier lines. A cut can step
@@ -68,7 +70,7 @@ export type ProgressionPoint = {
   resultId: string;
   swimDate: string;
   timeMs: number;
-  swimType: "MEET" | "TIME_TRIAL" | "PRACTICE";
+  swimType: "MEET" | "TIME_TRIAL" | "PRACTICE" | "SCHOOL_GALA";
   isMeet: boolean;
   isPB: boolean;
 };
@@ -181,9 +183,10 @@ export function ProgressionChart({
     .map((s) => {
       const pb = s.points.find((p) => p.isPB);
       const meets = s.points.filter((p) => p.isMeet).length;
+      const galas = s.points.filter((p) => p.swimType === "SCHOOL_GALA").length;
       return `${s.name}: ${s.points.length} swims, ${meets} meets${
-        pb ? `, personal best ${formatTime(pb.timeMs)}` : ""
-      }.`;
+        galas ? `, ${galas} unofficial school gala${galas === 1 ? "" : "s"}` : ""
+      }${pb ? `, personal best ${formatTime(pb.timeMs)}` : ""}.`;
     })
     .join(" ");
 
@@ -680,6 +683,21 @@ function ProgressionDot({
   if (cx === undefined || cy === undefined || !payload) return <g />;
   const { isMeet, isPB } = payload;
 
+  // School gala (unofficial, §R15): a distinct hollow DIAMOND in the warning tone
+  // — never a filled/PB dot, never the same hollow circle as a trial/practice —
+  // so it reads at a glance as "on the trajectory, but not an official time".
+  if (payload.swimType === "SCHOOL_GALA") {
+    const r = 4.5;
+    return (
+      <path
+        d={`M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`}
+        fill="var(--color-gray-25)"
+        stroke="var(--color-warning-500)"
+        strokeWidth={1.75}
+      />
+    );
+  }
+
   if (isPB) {
     // PB: filled core with an outer ring so it reads as the anchor point.
     return (
@@ -705,6 +723,7 @@ const TYPE_LABEL: Record<ProgressionPoint["swimType"], string> = {
   MEET: "Meet",
   TIME_TRIAL: "Trial",
   PRACTICE: "Practice",
+  SCHOOL_GALA: "School gala",
 };
 
 type TooltipProps = {
@@ -733,7 +752,11 @@ function ProgressionTooltip({ active, payload, single }: TooltipProps) {
       <p className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
         <span>{msToShort(p.t)}</span>
         <span aria-hidden className="h-3 w-px bg-border" />
-        <span>{TYPE_LABEL[p.swimType]}</span>
+        {p.swimType === "SCHOOL_GALA" ? (
+          <span className="font-medium text-warning-ink">School gala · unofficial</span>
+        ) : (
+          <span>{TYPE_LABEL[p.swimType]}</span>
+        )}
         {p.isPB && <span className="font-medium text-brand-500">PB</span>}
       </p>
     </div>
@@ -768,6 +791,10 @@ function Legend({
           </span>
           Personal best
         </LegendMark>
+        <LegendMark>
+          <GalaDiamond />
+          <span className="text-warning-ink">School gala · unofficial</span>
+        </LegendMark>
       </div>
     );
   }
@@ -780,6 +807,10 @@ function Legend({
           <span className="text-ink">{s.name}</span>
         </LegendMark>
       ))}
+      <LegendMark>
+        <GalaDiamond />
+        <span className="text-warning-ink">school gala · unofficial</span>
+      </LegendMark>
       <span className="text-ink-faint">Filled = meet · hollow = trial/practice · ring = PB</span>
     </div>
   );
@@ -787,4 +818,18 @@ function Legend({
 
 function LegendMark({ children }: { children: React.ReactNode }) {
   return <span className="inline-flex items-center gap-1.5">{children}</span>;
+}
+
+/** The chart's school-gala marker (hollow warning-tone diamond), for legends. */
+function GalaDiamond() {
+  return (
+    <svg aria-hidden width="12" height="12" viewBox="0 0 12 12">
+      <path
+        d="M6 1 L11 6 L6 11 L1 6 Z"
+        fill="var(--color-gray-25)"
+        stroke="var(--color-warning-500)"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
 }

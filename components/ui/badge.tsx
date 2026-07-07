@@ -22,6 +22,7 @@ const badgeVariants = cva(
         secondary: "border-transparent bg-gray-100 text-gray-700",
         outline: "border-border text-ink-muted",
         success: "border-success-subtle bg-success-subtle text-success-ink",
+        warning: "border-warning-subtle bg-warning-subtle text-warning-ink",
         sanj: "border-tier-sanj-border bg-tier-sanj-bg text-tier-sanj-ink",
         l3: "border-tier-l3-border bg-tier-l3-bg text-tier-l3-ink",
         l2: "border-tier-l2-border bg-tier-l2-bg text-tier-l2-ink",
