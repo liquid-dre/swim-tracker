@@ -7,6 +7,10 @@ import { Search } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { trailForHref } from "@/lib/nav";
+import { formatSeconds, formatShortDate } from "@/lib/format";
+import { useCurrentProfile } from "@/lib/useCurrentProfile";
+import { useGreeting } from "@/lib/useGreeting";
+import { formatTime, TIER_FULL } from "@/lib/swim";
 import { NoLinkState, ReadOnlyChip } from "./viewerShared";
 
 /*
@@ -31,10 +35,16 @@ export function ViewerSwimmersScreen() {
   const data = useQuery(api.swimmers.listForProfile, {});
   const swimmers = data?.swimmers as ViewerSwimmerRow[] | undefined;
 
+  // Greet the parent/swimmer by name, like the coach dashboard does, and lead
+  // with each swimmer's current story (latest best + closest cut).
+  const profile = useCurrentProfile();
+  const greeting = useGreeting(profile?.name);
+  const highlights = useQuery(api.personalBests.getViewerHighlights, {});
+
   return (
     <div className="flex min-w-0 flex-col gap-8">
       <PageHeader
-        title="My swimmers"
+        title={greeting}
         breadcrumb={trailForHref("/me/swimmers")}
         description="The swimmer(s) you can follow. Open one to see their bests, progression and road to qualify."
         actions={
@@ -56,7 +66,50 @@ export function ViewerSwimmersScreen() {
       ) : swimmers && swimmers.length === 0 ? (
         <NoLinkState />
       ) : (
-        <SwimmerTable rows={swimmers ?? []} />
+        <>
+          {/* Each swimmer's story in one exact line — nothing motivational,
+              just where they stand (PRODUCT.md). Silent while loading and for
+              swimmers with no meet times yet. */}
+          {(highlights ?? []).some((h) => h.latestPb || h.closestCut) && (
+            <ul className="flex flex-col gap-2">
+              {(highlights ?? [])
+                .filter((h) => h.latestPb || h.closestCut)
+                .map((h) => (
+                  <li
+                    key={h.swimmerId}
+                    className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted"
+                  >
+                    <Link
+                      href={`/me/swimmers/${h.swimmerId}`}
+                      className="rounded-sm font-medium text-ink outline-none hover:text-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {h.name}
+                    </Link>
+                    {h.latestPb && (
+                      <>
+                        {" — latest best "}
+                        <span className="time tnum font-medium text-ink">
+                          {formatTime(h.latestPb.timeMs)}
+                        </span>{" "}
+                        {h.latestPb.label} {h.latestPb.course} (
+                        {formatShortDate(h.latestPb.swimDate)})
+                      </>
+                    )}
+                    {h.closestCut && (
+                      <>
+                        {" · "}
+                        <span className="tnum">
+                          {formatSeconds(h.closestCut.gapMs)}s
+                        </span>{" "}
+                        to {TIER_FULL[h.closestCut.tier]} ({h.closestCut.label})
+                      </>
+                    )}
+                  </li>
+                ))}
+            </ul>
+          )}
+          <SwimmerTable rows={swimmers ?? []} />
+        </>
       )}
     </div>
   );
