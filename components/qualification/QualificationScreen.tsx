@@ -12,6 +12,7 @@ import { TierBadge } from "@/components/ui/TierBadge";
 import { trailForHref } from "@/lib/nav";
 import { swimmerProfileBase } from "@/lib/swimmerHref";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
+import { useNewKeys } from "@/lib/useNewKeys";
 import { formatShortDate } from "@/lib/format";
 import { formatSeconds } from "@/lib/format";
 import { formatTime, TIER_FULL } from "@/lib/swim";
@@ -34,6 +35,16 @@ export function QualificationScreen() {
   // for them and stays plain text for a coach.
   const profile = useCurrentProfile();
   const isSuperUser = profile != null && profile.role === "SUPER_USER";
+
+  // Convex pushes changes live: a swimmer who qualifies while this screen is
+  // open appears with a one-shot background fade so the change is seen, not
+  // silently reshuffled. Keyed per tier so moving UP a tour also flashes.
+  const newKeys = useNewKeys(
+    (data?.tiers ?? []).flatMap((t) =>
+      t.swimmers.map((s) => `${t.tier}|${s.swimmerId}`),
+    ),
+    data !== undefined,
+  );
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -125,7 +136,12 @@ export function QualificationScreen() {
                       {swimmers.map((s) => (
                         <tr
                           key={s.swimmerId}
-                          className="border-t border-border align-top transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2"
+                          className={
+                            "border-t border-border align-top transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2" +
+                            (newKeys.has(`${tier}|${s.swimmerId}`)
+                              ? " animate-row-flash"
+                              : "")
+                          }
                         >
                           <td className="whitespace-nowrap px-4 py-3 font-medium text-ink sm:px-6">
                             <Link
