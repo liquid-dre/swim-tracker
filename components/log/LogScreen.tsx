@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
-import { Timer, Trash2 } from "lucide-react";
+import { Check, Timer, Trash2 } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -30,6 +30,13 @@ type SavedEntry = {
   course: Course;
   swimType: SwimType;
   time: string;
+  newPb: boolean;
+};
+
+const TIER_SHORT: Record<"LEVEL_2" | "LEVEL_3" | "SANJ", string> = {
+  LEVEL_2: "Level 2",
+  LEVEL_3: "Level 3",
+  SANJ: "SANJ",
 };
 
 export function LogScreen({
@@ -95,6 +102,16 @@ export function LogScreen({
   const [serverError, setServerError] = useState<string | null>(null);
   const [recent, setRecent] = useState<SavedEntry[]>([]);
   const [confirmDelete, setConfirmDelete] = useState<SavedEntry | null>(null);
+  // Brief post-save check on the button itself (the toast can be off-glance
+  // poolside); cleared on unmount so the timeout never fires into a dead tree.
+  const [justSaved, setJustSaved] = useState(false);
+  const savedTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (savedTimer.current !== null) window.clearTimeout(savedTimer.current);
+    },
+    [],
+  );
 
   const timeRef = useRef<HTMLInputElement>(null);
 
@@ -128,7 +145,7 @@ export function LogScreen({
     setSaving(true);
     setServerError(null);
     try {
-      const id = await logResult({
+      const saved = await logResult({
         swimmerId,
         distance: distance as 25 | 50 | 100 | 200 | 400 | 800 | 1500,
         stroke,
@@ -143,18 +160,33 @@ export function LogScreen({
       setRecent((prev) =>
         [
           {
-            id,
+            id: saved.resultId,
             swimmer: selectedSwimmer?.name ?? "Swimmer",
             event: `${distance} ${STROKE_LABEL[stroke]}`,
             course,
             swimType,
             time: parsedTime.text!,
+            newPb: saved.newPb,
           },
           ...prev,
         ].slice(0, 6),
       );
 
-      notify.success("Time saved");
+      // Say what the swim MEANT when it meant something — plain and specific,
+      // never a generic cheer (PRODUCT.md).
+      const firstName = (selectedSwimmer?.name ?? "Swimmer").split(" ")[0];
+      const eventName = `${distance} ${STROKE_LABEL[stroke]}`;
+      notify.success(
+        saved.newlyMetTier
+          ? `Meets the ${TIER_SHORT[saved.newlyMetTier]} cut — ${firstName}'s new ${eventName} PB`
+          : saved.newPb
+            ? `New ${eventName} PB for ${firstName}`
+            : "Time saved",
+      );
+      // A brief on-button confirmation at the point of action.
+      setJustSaved(true);
+      if (savedTimer.current !== null) window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setJustSaved(false), 1200);
       // Stay on the form for the next swim: keep swimmer, event, type, meet and
       // date; clear only the per-swim time and notes and re-focus the anchor, so
       // logging the next swimmer at the same meet is just swimmer + time.
@@ -244,7 +276,15 @@ export function LogScreen({
             {/* Desktop submit; the sticky bar below covers mobile. */}
             <div className="hidden lg:block">
               <Button type="submit" size="md" disabled={!canSave} loading={saving}>
-                <Timer className="size-4" /> Save time
+                {justSaved ? (
+                  <>
+                    <Check className="size-4" /> Saved
+                  </>
+                ) : (
+                  <>
+                    <Timer className="size-4" /> Save time
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -307,7 +347,15 @@ export function LogScreen({
           {/* Mobile sticky save bar — always in thumb reach. */}
           <div className="sticky bottom-0 -mx-4 border-t border-border bg-bg/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-bg/80 lg:hidden">
             <Button type="submit" size="md" className="w-full" disabled={!canSave} loading={saving}>
-              <Timer className="size-4" /> Save time
+              {justSaved ? (
+                <>
+                  <Check className="size-4" /> Saved
+                </>
+              ) : (
+                <>
+                  <Timer className="size-4" /> Save time
+                </>
+              )}
             </Button>
           </div>
         </form>
@@ -400,6 +448,14 @@ function RecentList({
                   )}
                 </p>
               </div>
+              {r.newPb && (
+                <span
+                  className="animate-pb-pop rounded-md bg-brand-50 px-1.5 py-0.5 text-xs font-semibold text-brand-500"
+                  title="New personal best — fastest meet time on this event"
+                >
+                  PB
+                </span>
+              )}
               <span className="time text-md font-medium tabular-nums text-ink">
                 {r.time}
               </span>

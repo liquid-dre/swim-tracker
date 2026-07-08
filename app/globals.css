@@ -537,6 +537,26 @@
   transform-box: view-box;
 }
 
+/* One-time acknowledgement pops: the PB tag on a just-logged swim and the
+   row flash when live data changes under you. Both are single-shot and both
+   collapse to instant under the prefers-reduced-motion rule below. */
+@keyframes pb-pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.1); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-pb-pop {
+  animation: pb-pop 0.35s var(--ease-standard) both;
+}
+
+@keyframes row-flash {
+  0% { background-color: var(--color-brand-50); }
+  100% { background-color: transparent; }
+}
+.animate-row-flash {
+  animation: row-flash 1.4s var(--ease-standard) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

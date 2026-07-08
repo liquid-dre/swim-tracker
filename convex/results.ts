@@ -3,7 +3,16 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { assertMayWriteResult, requireSignedIn } from "./authz";
-import { computeAge, isValidEvent, parseTime } from "../lib/swim";
+import {
+  computeAge,
+  highestTierMet,
+  isValidEvent,
+  parseTime,
+  pickApplicableStandardsPerTier,
+  tierResolutionAges,
+  type Tier,
+} from "../lib/swim";
+import { loadTourDates } from "./tours";
 
 // Result logging (BRD §6, Step 5) — the core data-entry flow. Every write goes
 // through the same domain gates: whitelisted event + valid course, a bulletproof-
@@ -114,7 +123,20 @@ export const logResult = mutation({
     venue: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
-  returns: v.id("results"),
+  returns: v.object({
+    resultId: v.id("results"),
+    // What this swim MEANT, so the save feedback can say so (§4.6: a new
+    // headline = fastest MEET time on this event+course).
+    newPb: v.boolean(),
+    // The hardest tier this time meets that the previous best didn't (LCM
+    // meets only; cuts resolved per the tour rule). Null when nothing changed.
+    newlyMetTier: v.union(
+      v.literal("LEVEL_2"),
+      v.literal("LEVEL_3"),
+      v.literal("SANJ"),
+      v.null(),
+    ),
+  }),
   handler: async (ctx, args) => {
     const profile = await requireSignedIn(ctx);
 
@@ -130,7 +152,52 @@ export const logResult = mutation({
     const timeMs = parseTimeBounded(args.timeInput);
     const ageAtSwim = computeAge(swimmer.dob, swimDate);
 
-    return await ctx.db.insert("results", {
+    // The previous headline on this event+course (fastest MEET, §4.6) — read
+    // BEFORE inserting so we can say whether this swim beat it.
+    let prevBestMs: number | null = null;
+    if (args.swimType === "MEET") {
+      const siblings = await ctx.db
+        .query("results")
+        .withIndex("by_event", (q) =>
+          q
+            .eq("swimmerId", args.swimmerId)
+            .eq("distance", args.distance)
+            .eq("stroke", args.stroke)
+            .eq("course", args.course),
+        )
+        .take(1000);
+      for (const r of siblings) {
+        if (r.swimType !== "MEET") continue;
+        if (prevBestMs === null || r.timeMs < prevBestMs) prevBestMs = r.timeMs;
+      }
+    }
+    const newPb =
+      args.swimType === "MEET" && (prevBestMs === null || timeMs < prevBestMs);
+
+    // A new LCM PB may also be the first time a qualifying cut is met — the
+    // one moment worth naming over "Time saved". Judged under the same cuts
+    // for both times (tour rule; fallback age = this swim's age).
+    let newlyMetTier: Tier | null = null;
+    if (newPb && args.course === "LCM") {
+      const rows = await ctx.db
+        .query("standards")
+        .withIndex("by_event", (q) =>
+          q
+            .eq("gender", swimmer.gender)
+            .eq("distance", args.distance)
+            .eq("stroke", args.stroke),
+        )
+        .take(500);
+      const cuts = pickApplicableStandardsPerTier(
+        rows,
+        tierResolutionAges(swimmer.dob, ageAtSwim, await loadTourDates(ctx)),
+      );
+      const tierNow = highestTierMet(timeMs, cuts);
+      const tierBefore = prevBestMs === null ? null : highestTierMet(prevBestMs, cuts);
+      if (tierNow !== null && tierNow !== tierBefore) newlyMetTier = tierNow;
+    }
+
+    const resultId = await ctx.db.insert("results", {
       swimmerId: args.swimmerId,
       distance: args.distance,
       stroke: args.stroke,
@@ -145,6 +212,8 @@ export const logResult = mutation({
       enteredBy: profile._id,
       createdAt: Date.now(),
     });
+
+    return { resultId, newPb, newlyMetTier };
   },
 });
 
