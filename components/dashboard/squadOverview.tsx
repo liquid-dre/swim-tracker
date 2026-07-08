@@ -58,20 +58,32 @@ export function SquadStats({ data }: { data: DashboardData | undefined }) {
 
   const { counts, setup } = data;
 
-  // A brand-new coach gets a guided setup thread instead of a wall of zeros —
-  // the three steps below are the dependency chain the whole app hangs off.
-  if (counts.swimmers === 0 || !setup.hasStandards || !setup.hasResults) {
+  // A brand-new coach (empty roster) gets the guided setup thread instead of a
+  // wall of zeros. Once real data exists, the live stats stay — remaining setup
+  // steps become a slim banner rather than a gate, so a standards re-import
+  // wobble never hides a working dashboard behind onboarding.
+  if (counts.swimmers === 0) {
     return (
       <FirstRunChecklist
-        hasSwimmers={counts.swimmers > 0}
+        hasSwimmers={false}
         hasStandards={setup.hasStandards}
         hasResults={setup.hasResults}
       />
     );
   }
 
+  const remaining = [
+    !setup.hasStandards && {
+      href: "/standards",
+      label: "Import the qualifying standards",
+    },
+    !setup.hasResults && { href: "/log", label: "Log your first time" },
+  ].filter(Boolean) as Array<{ href: string; label: string }>;
+
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="flex flex-col gap-4">
+      {remaining.length > 0 && <SetupBanner remaining={remaining} />}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       <StatCard label="Swimmers" value={counts.swimmers} sub="on the active roster" />
       <StatCard
         label="PBs this week"
@@ -90,6 +102,36 @@ export function SquadStats({ data }: { data: DashboardData | undefined }) {
         sub="within 1.0s of a cut"
         tone={counts.closeToCut > 0 ? "warn" : "muted"}
       />
+      </div>
+    </div>
+  );
+}
+
+// One quiet line above the live stats while setup steps remain — guidance,
+// not a warning, and never a gate once real data exists.
+function SetupBanner({
+  remaining,
+}: {
+  remaining: Array<{ href: string; label: string }>;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-theme-sm">
+      <span className="flex items-center gap-2 text-sm text-ink-muted">
+        <ListChecks aria-hidden className="size-4 text-ink-faint" strokeWidth={1.75} />
+        Finish setting up:
+      </span>
+      {remaining.map((step, i) => (
+        <span key={step.href} className="flex items-center gap-3 text-sm">
+          {i > 0 && <span aria-hidden className="text-ink-faint">·</span>}
+          <Link
+            href={step.href}
+            className="inline-flex items-center gap-1 rounded-sm font-medium text-brand-500 outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {step.label}
+            <ArrowRight aria-hidden className="size-3.5" />
+          </Link>
+        </span>
+      ))}
     </div>
   );
 }
@@ -133,9 +175,16 @@ function FirstRunChecklist({
     },
   ];
 
+  const doneCount = steps.filter((s) => s.done).length;
+
   return (
     <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm sm:p-6">
-      <h2 className="text-md font-semibold text-ink">Set up your squad</h2>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-md font-semibold text-ink">Set up your squad</h2>
+        <span className="text-xs font-medium tabular-nums text-ink-faint">
+          {doneCount} of {steps.length} done
+        </span>
+      </div>
       <p className="mt-1 text-sm text-ink-muted">
         Three steps, in order — then this space becomes your live squad overview.
       </p>
