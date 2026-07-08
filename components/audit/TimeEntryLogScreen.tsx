@@ -187,7 +187,15 @@ export function TimeEntryLogScreen() {
       {loading ? (
         <TableSkeleton />
       ) : rows.length === 0 ? (
-        filtering ? (
+        pageStatus !== "Exhausted" ? (
+          // The role filter runs after the page loads, so a page can come back
+          // empty while older history remains — never claim the search is done
+          // while the Load-older control below can still find matches.
+          <EmptyState
+            title="No matches in the newest entries yet"
+            body="Older history hasn't been searched — use “Load older entries” below to keep looking."
+          />
+        ) : filtering ? (
           <EmptyState
             title="No entries match these filters"
             body="The whole history was searched. Clear a filter to see more of the entry log."
@@ -265,7 +273,7 @@ export function TimeEntryLogScreen() {
         </div>
       )}
 
-      {!loading && rows.length > 0 && (
+      {!loading && (rows.length > 0 || pageStatus !== "Exhausted") && (
         <div className="flex items-center justify-between gap-4 px-1">
           <p className="text-xs text-ink-faint">
             {`${rows.length} ${filtering ? "matching " : ""}${

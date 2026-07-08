@@ -121,15 +121,21 @@ function SetupBanner({
         Finish setting up:
       </span>
       {remaining.map((step, i) => (
+        // The separator sits with the PRECEDING item so a wrapped line never
+        // starts with a floating dot; links get ≥44px tap height below lg.
         <span key={step.href} className="flex items-center gap-3 text-sm">
-          {i > 0 && <span aria-hidden className="text-ink-faint">·</span>}
           <Link
             href={step.href}
-            className="inline-flex items-center gap-1 rounded-sm font-medium text-brand-500 outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-h-11 items-center gap-1 rounded-sm font-medium text-brand-500 outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0"
           >
             {step.label}
             <ArrowRight aria-hidden className="size-3.5" />
           </Link>
+          {i < remaining.length - 1 && (
+            <span aria-hidden className="text-ink-faint">
+              ·
+            </span>
+          )}
         </span>
       ))}
     </div>

@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
 import { Segmented } from "@/components/ui/Segmented";
 import { FilterBar } from "@/components/ui/FilterBar";
+import { AgeUpNote } from "@/components/qualifying/AgeUpNote";
 import { StandardsMissing } from "@/components/ui/StandardsMissing";
 import { trailForHref } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
@@ -225,25 +226,6 @@ export function RoadScreen() {
   );
 }
 
-// Standards resolve to the exact single-year age, so a birthday silently moves
-// every cut — say so for a month rather than leave the swimmer wondering why
-// the gaps changed overnight. Quiet by design: context, not a warning.
-function AgeUpNote({
-  name,
-  age,
-  date,
-}: {
-  name: string;
-  age: number;
-  date: string;
-}) {
-  return (
-    <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
-      {name} turned {age} on {formatShortDate(date)} — every cut here now
-      resolves to age {age}.
-    </p>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Results — presentational (fed by the query, or by the preview harness)

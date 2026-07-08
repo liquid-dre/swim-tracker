@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { ShieldCheck } from "lucide-react";
@@ -88,18 +88,50 @@ export function AccessLogScreen() {
   );
 
   // Swimmers get a full option list; viewers are free-text emails, so their
-  // options come from the loaded rows (matching still runs server-side).
+  // options accumulate from every row seen this session (matching still runs
+  // server-side). Accumulating — never re-derived from the current page —
+  // means picking viewer A can't collapse the list to just A, and narrowing
+  // another filter can't strand the selection as a blank trigger.
   const swimmerOptions = useQuery(api.swimmers.listSwimmers, {});
+  const [seenViewers, setSeenViewers] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  const [seenCoaches, setSeenCoaches] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setSeenViewers((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const r of rows) {
+        if (!next.has(r.viewerEmail)) {
+          next.set(r.viewerEmail, viewerLabel(r));
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setSeenCoaches((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const r of rows) {
+        const name = byAccount(r)?.name;
+        if (name && !next.has(name)) {
+          next.add(name);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [rows]);
   const viewers = useMemo(
     () =>
-      [...new Map(rows.map((r) => [r.viewerEmail, viewerLabel(r)])).entries()]
+      [...seenViewers.entries()]
         .map(([email, label]) => ({ email, label }))
         .sort((a, b) => a.label.localeCompare(b.label)),
-    [rows],
+    [seenViewers],
   );
   const coaches = useMemo(
-    () => distinct(rows.map((r) => byAccount(r)?.name ?? "")),
-    [rows],
+    () => [...seenCoaches].sort((a, b) => a.localeCompare(b)),
+    [seenCoaches],
   );
 
   // The two client-side-only filters.
@@ -210,7 +242,14 @@ export function AccessLogScreen() {
       {loading ? (
         <TableSkeleton />
       ) : rows.length === 0 ? (
-        filtering ? (
+        pageStatus !== "Exhausted" ? (
+          // A page can come back empty while older history remains — never
+          // claim the search is done while Load-older can still find matches.
+          <EmptyState
+            title="No matches in the newest events yet"
+            body="Older history hasn't been searched — use “Load older events” below to keep looking."
+          />
+        ) : filtering ? (
           <EmptyState
             title="No events match these filters"
             body="The whole history was searched. Clear a filter to see more of the access record."
@@ -293,21 +332,27 @@ export function AccessLogScreen() {
                 No events match these filters
               </p>
               <p className="mx-auto mt-1 max-w-[40ch] text-sm text-ink-muted">
-                Clear a filter to see more of the access history.
+                Clear a filter to see more of the access record.
               </p>
             </div>
           )}
         </div>
       )}
 
-      {!loading && rows.length > 0 && (
+      {!loading && (rows.length > 0 || pageStatus !== "Exhausted") && (
         <div className="flex items-center justify-between gap-4 px-1">
           <p className="text-xs text-ink-faint">
             {/* Status / coach filter client-side over the loaded window — say
-                so while older rows remain, or a filtered read looks complete
-                when it isn't. The other filters search the full history. */}
+                so (naming only the active one) while older rows remain, or a
+                filtered read looks complete when it isn't. The other filters
+                search the full history. */}
             {clientFiltering && pageStatus !== "Exhausted"
-              ? `${filtered.length} matching — status and coach filters only searched the ${rows.length} loaded events`
+              ? `${filtered.length} matching — the ${[
+                  status !== "ALL" && "status",
+                  coach !== "ALL" && "coach",
+                ]
+                  .filter(Boolean)
+                  .join(" and ")} filter only searched the ${rows.length} loaded events`
               : `${filtered.length}${filtered.length !== rows.length ? ` of ${rows.length}` : ""} ${
                   filtering ? "matching " : ""
                 }${rows.length === 1 ? "event" : "events"}${pageStatus !== "Exhausted" ? " loaded" : ""}`}
@@ -329,15 +374,8 @@ export function AccessLogScreen() {
   );
 }
 
-// Page size: generous enough that the filter dropdowns (derived from loaded
-// rows) are useful on first paint, small enough to stay snappy.
+// Page size: a meaningful first window of history, small enough to stay snappy.
 const PAGE = 300;
-
-function distinct(values: string[]): string[] {
-  return [...new Set(values.filter((v) => v.trim() !== ""))].sort((a, b) =>
-    a.localeCompare(b),
-  );
-}
 
 function Th({
   children,

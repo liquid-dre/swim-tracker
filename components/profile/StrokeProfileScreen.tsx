@@ -12,6 +12,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { FilterBar } from "@/components/ui/FilterBar";
 import { useContainerWidth } from "@/hooks/use-container-width";
+import { formatShortDate } from "@/lib/format";
 import { trailForHref } from "@/lib/nav";
 import { StrokeWheel } from "./StrokeWheel";
 import { STROKE_META, WHEEL_STROKE_ORDER, type ProfileEvent } from "./strokeProfile";
@@ -237,6 +238,15 @@ function WheelPanel({
               {!data.swimmer.active && " · inactive"}
             </span>
           </header>
+
+          {/* Same age-up context the Road screen gives, sized for this card. */}
+          {data.agedUpAt && (
+            <p className="w-full rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+              Turned {data.swimmer.age} on {formatShortDate(data.agedUpAt)} —
+              no-time events now target the age-{data.swimmer.age} cuts;
+              existing bests count at the age they were swum.
+            </p>
+          )}
 
           {events.length === 0 ? (
             <div className="flex flex-col items-center gap-1 py-12 text-center">
