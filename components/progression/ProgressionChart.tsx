@@ -353,22 +353,32 @@ export function ProgressionChart({
       )}
 
       {markers.length > 0 && (
-        <div className="flex items-center gap-1.5 px-1 text-xs text-ink-muted">
-          <svg aria-hidden width="14" height="12" viewBox="0 0 14 12">
-            <line
-              x1="2"
-              y1="0"
-              x2="2"
-              y2="12"
-              stroke="var(--color-gray-400)"
-              strokeWidth="1"
-              strokeDasharray="2 2"
-            />
-            <path d="M2 1 L9 3 L2 5 Z" fill="var(--color-gray-400)" />
-          </svg>
-          <span>
-            Training-note markers — hover a flag for the focus of that phase.
-          </span>
+        // The flags' content, readable without a pointer: hover works on
+        // desktop (the SVG <title>), but touch and keyboard users get the same
+        // phases as plain text. One row per flag, chart order.
+        <div className="flex flex-col gap-1 px-1 text-xs text-ink-muted">
+          <div className="flex items-center gap-1.5">
+            <svg aria-hidden width="14" height="12" viewBox="0 0 14 12">
+              <line
+                x1="2"
+                y1="0"
+                x2="2"
+                y2="12"
+                stroke="var(--color-gray-400)"
+                strokeWidth="1"
+                strokeDasharray="2 2"
+              />
+              <path d="M2 1 L9 3 L2 5 Z" fill="var(--color-gray-400)" />
+            </svg>
+            <span>Training phases marked on the chart:</span>
+          </div>
+          <ul className="flex flex-col gap-0.5 pl-5">
+            {markers.map((m) => (
+              <li key={m.t} className="text-ink-muted">
+                {m.title}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
