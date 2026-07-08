@@ -212,6 +212,14 @@ export function RoadScreen() {
         />
       ) : (
         <>
+          {data.tour && (
+            <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
+              {data.tour.name ?? `${TIER_FULL[tier]} tour`} ·{" "}
+              {formatShortDate(data.tour.date)} — every cut here is the one{" "}
+              {data.swimmer.name} must meet at age {data.tour.ageAtTour}, their
+              age on tour day.
+            </p>
+          )}
           {data.agedUpAt && (
             <AgeUpNote
               name={data.swimmer.name}

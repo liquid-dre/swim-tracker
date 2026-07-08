@@ -6,13 +6,15 @@ import {
   computeMatrixCell,
   computePersonalBests,
   eventSortKey,
-  pickApplicableStandards,
+  pickApplicableStandardsPerTier,
+  tierResolutionAges,
   type Distance,
   type ResultForPB,
   type StandardCut,
   type Stroke,
   type Tier,
 } from "../lib/swim";
+import { loadTourDates } from "./tours";
 
 /*
   Coach dashboard squad overview (the "punchy home" — the vibrance revamp). One
@@ -111,6 +113,7 @@ export const getCoachDashboard = query({
 
     // Cuts, loaded once and grouped by (gender|distance|stroke); each swimmer
     // resolves to their exact age. Small table at club scale.
+    const tourDates = await loadTourDates(ctx);
     const allStandards = await ctx.db
       .query("standards")
       .take(DASH_STANDARDS_LIMIT);
@@ -172,11 +175,12 @@ export const getCoachDashboard = query({
 
       for (const pb of pbs) {
         if (pb.course !== "LCM" || !pb.headline) continue;
-        // Judge each PB against the cut for the swimmer's age AT THE GALA where it
-        // was swum (§4.9), not their age today.
-        const applicable = pickApplicableStandards(
+        // Same rule as the status matrix: tiers WITH a tour date judge at the
+        // swimmer's age on tour day; the rest at the age the PB was swum
+        // (§4.9) — never their age today.
+        const applicable = pickApplicableStandardsPerTier(
           cutsByEvent.get(`${swimmer.gender}|${pb.distance}|${pb.stroke}`) ?? [],
-          pb.headline.ageAtSwim ?? age,
+          tierResolutionAges(swimmer.dob, pb.headline.ageAtSwim ?? age, tourDates),
         );
         const cell = computeMatrixCell(pb.headline.timeMs, applicable);
         if (cell.tier !== null) cutsQualified += 1;

@@ -148,6 +148,19 @@ export function StatusMatrixScreen() {
       />
       )}
 
+      {/* Resolution context: with tour dates set, those tiers judge at each
+          swimmer's age ON TOUR DAY rather than the age a time was swum. */}
+      {data !== undefined &&
+        data.hasStandards &&
+        (data.tourDates.LEVEL_2 !== undefined ||
+          data.tourDates.LEVEL_3 !== undefined ||
+          data.tourDates.SANJ !== undefined) && (
+          <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
+            Tiers with a tour date are judged at each swimmer&rsquo;s age on
+            tour day; the rest at the age each time was swum.
+          </p>
+        )}
+
       {data === undefined ? (
         <MatrixSkeleton />
       ) : !data.hasStandards ? (

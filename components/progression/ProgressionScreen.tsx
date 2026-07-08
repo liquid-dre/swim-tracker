@@ -346,6 +346,7 @@ export function ProgressionScreen() {
                 : null
             }
             noteMarkers={single && showNotes ? noteMarkers : undefined}
+            tourDates={data.tourDates}
           />
         </section>
       )}

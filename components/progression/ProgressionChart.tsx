@@ -23,6 +23,7 @@ import {
   type StandardCut,
   type Stroke,
   type Tier,
+  type TourDateByTier,
 } from "@/lib/swim";
 import { formatMonthYear, formatSeconds, formatShortDate } from "@/lib/format";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
@@ -112,6 +113,7 @@ export function ProgressionChart({
   standards,
   projectionTier = null,
   noteMarkers,
+  tourDates = {},
 }: {
   series: ProgressionSeries[];
   single: boolean;
@@ -126,6 +128,8 @@ export function ProgressionChart({
   projectionTier?: Tier | null;
   // Training-note markers (§R16) — single-swimmer only; undefined/empty hides them.
   noteMarkers?: NoteMarker[];
+  // Tour dates by tier — the projection targets the age-on-tour-day cut.
+  tourDates?: TourDateByTier;
 }) {
   const reduced = usePrefersReducedMotion();
   // Phone-width: a slightly shorter plot and slimmer time gutter keep the
@@ -148,7 +152,14 @@ export function ProgressionChart({
   const tMax = Math.max(...allT);
 
   // Time-to-qualify projection (§5.6) — single swimmer + LCM + a chosen tier.
-  const projection = buildProjection(series, standards, single, course, projectionTier);
+  const projection = buildProjection(
+    series,
+    standards,
+    single,
+    course,
+    projectionTier,
+    tourDates,
+  );
   const projected = projection?.status === "projected" ? projection : null;
 
   // The projection crosses in the FUTURE, past the last real swim, so the x-axis
@@ -457,6 +468,7 @@ function buildProjection(
   single: boolean,
   course: "SCM" | "LCM",
   tier: Tier | null,
+  tourDates: TourDateByTier,
 ): QualifyProjection | null {
   if (!single || course !== "LCM" || tier === null || series.length === 0) {
     return null;
@@ -467,7 +479,11 @@ function buildProjection(
   const dob = s.dob;
   const today = todayIso();
   const rows = standards.filter((r) => r.gender === s.gender);
-  const cuts = pickApplicableStandards(rows, computeAge(dob, today));
+  // The projection aims at a FUTURE swim, so with a tour date it targets the
+  // cut for the age the swimmer will be on tour day; else today's exact age.
+  const tourDate = tourDates[tier];
+  const cutAge = computeAge(dob, tourDate ?? today);
+  const cuts = pickApplicableStandards(rows, cutAge);
   const cutMs = cuts[tier] ?? null;
   const meets = s.points
     .filter((p) => p.isMeet)
