@@ -142,18 +142,56 @@ const TERMINAL: ReadonlySet<AccessEventType> = new Set([
   "EXPIRED",
 ]);
 
+const accessEventTypeValidator = v.union(
+  v.literal("INVITED"),
+  v.literal("CLAIMED"),
+  v.literal("REVOKED"),
+  v.literal("UNLINKED"),
+  v.literal("EXPIRED"),
+  v.literal("REQUESTED"),
+  v.literal("APPROVED"),
+  v.literal("DENIED"),
+);
+
 export const listAccessLog = query({
   // Cursor-paginated (newest first) so the trail is complete — the old fixed
   // .take() cap silently dropped history past it, which an audit log must not do.
-  args: { paginationOpts: paginationOptsValidator },
+  // Swimmer / viewer / event-type filters apply SERVER-SIDE so a filtered read
+  // searches the full history, not just the loaded window.
+  args: {
+    paginationOpts: paginationOptsValidator,
+    swimmerId: v.optional(v.id("swimmers")),
+    viewerEmail: v.optional(v.string()),
+    type: v.optional(accessEventTypeValidator),
+  },
   handler: async (ctx, args) => {
     await requireCoach(ctx);
 
-    // Newest-first over the append-only log.
-    const paged = await ctx.db
-      .query("accessEvents")
-      .withIndex("by_at")
+    // Newest-first over the append-only log; the most selective filter picks
+    // the index, the rest refine it. Every index here ends on creation order,
+    // so pages stay newest-first in every mode.
+    const base =
+      args.swimmerId !== undefined
+        ? ctx.db
+            .query("accessEvents")
+            .withIndex("by_swimmer", (q) => q.eq("swimmerId", args.swimmerId!))
+        : args.viewerEmail !== undefined
+          ? ctx.db
+              .query("accessEvents")
+              .withIndex("by_viewerEmail", (q) =>
+                q.eq("viewerEmail", args.viewerEmail!),
+              )
+          : ctx.db.query("accessEvents").withIndex("by_at");
+    const paged = await base
       .order("desc")
+      .filter((q) =>
+        q.and(
+          args.type !== undefined ? q.eq(q.field("type"), args.type) : true,
+          args.swimmerId !== undefined && args.viewerEmail !== undefined
+            ? q.eq(q.field("viewerEmail"), args.viewerEmail)
+            : true,
+        ),
+      )
       .paginate(args.paginationOpts);
     const events = paged.page;
 
@@ -236,18 +274,62 @@ export const listAccessLog = query({
 // listTimeEntryLog — Part B: result entry + edit provenance (coach-only)
 // ---------------------------------------------------------------------------
 
+const swimTypeValidator = v.union(
+  v.literal("MEET"),
+  v.literal("TIME_TRIAL"),
+  v.literal("PRACTICE"),
+  v.literal("SCHOOL_GALA"),
+);
+
+const roleValidator = v.union(
+  v.literal("SUPER_USER"),
+  v.literal("COACH"),
+  v.literal("VIEWER"),
+);
+
 export const listTimeEntryLog = query({
   // Cursor-paginated (newest-entered first) — see listAccessLog on why the audit
-  // trails never hard-cap.
-  args: { paginationOpts: paginationOptsValidator },
+  // trails never hard-cap. All the screen's filters apply SERVER-SIDE so a
+  // filtered read searches the full history, not just the loaded window.
+  args: {
+    paginationOpts: paginationOptsValidator,
+    swimmerId: v.optional(v.id("swimmers")),
+    enteredBy: v.optional(v.id("profiles")),
+    swimType: v.optional(swimTypeValidator),
+    role: v.optional(roleValidator),
+    // Entry-time window in epoch ms (the client converts its local-day pickers).
+    enteredFrom: v.optional(v.number()),
+    enteredTo: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     await requireCoach(ctx);
 
-    // Newest-entered first (createdAt ≈ _creationTime; there's no createdAt index,
-    // and the default index orders by creation time).
-    const paged = await ctx.db
-      .query("results")
+    // Newest-entered first (createdAt ≈ _creationTime; there's no createdAt
+    // index, and both the default index and by_swimmer end on creation order).
+    const base =
+      args.swimmerId !== undefined
+        ? ctx.db
+            .query("results")
+            .withIndex("by_swimmer", (q) => q.eq("swimmerId", args.swimmerId!))
+        : ctx.db.query("results");
+    const paged = await base
       .order("desc")
+      .filter((q) =>
+        q.and(
+          args.enteredBy !== undefined
+            ? q.eq(q.field("enteredBy"), args.enteredBy)
+            : true,
+          args.swimType !== undefined
+            ? q.eq(q.field("swimType"), args.swimType)
+            : true,
+          args.enteredFrom !== undefined
+            ? q.gte(q.field("createdAt"), args.enteredFrom)
+            : true,
+          args.enteredTo !== undefined
+            ? q.lte(q.field("createdAt"), args.enteredTo)
+            : true,
+        ),
+      )
       .paginate(args.paginationOpts);
     const results = paged.page;
 
@@ -280,6 +362,39 @@ export const listTimeEntryLog = query({
       })),
     );
 
-    return { ...paged, page: rows };
+    // Role needs the profile join above, so it filters after the page loads —
+    // a short page is fine, pagination carries on from the real cursor.
+    const page =
+      args.role !== undefined
+        ? rows.filter((r) => r.enteredBy?.role === args.role)
+        : rows;
+
+    return { ...paged, page };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// listEnterers — the accounts a coach can filter the time-entry log by
+// ---------------------------------------------------------------------------
+//
+// Full option list for the "entered by" dropdown (deriving options from loaded
+// rows hid anyone whose entries weren't paged in yet). Includes viewers —
+// parents enter school-gala times. Small table; bounded read.
+
+export const listEnterers = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("profiles"),
+      name: v.string(),
+      role: roleValidator,
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireCoach(ctx);
+    const profiles = await ctx.db.query("profiles").take(500);
+    return profiles
+      .map((p) => ({ _id: p._id, name: p.name, role: p.role }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
 });

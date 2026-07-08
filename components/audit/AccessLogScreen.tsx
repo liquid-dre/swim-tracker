@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { usePaginatedQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { ShieldCheck } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
@@ -61,46 +62,62 @@ function viewerLabel(row: AccessRow): string {
 
 export function AccessLogScreen() {
   const pathname = usePathname();
-  // Cursor-paginated so the trail is complete; "Load more" walks further back.
-  const {
-    results: rows,
-    status: pageStatus,
-    loadMore,
-  } = usePaginatedQuery(api.audit.listAccessLog, {}, { initialNumItems: PAGE });
 
-  const [swimmer, setSwimmer] = useState("ALL");
-  const [viewer, setViewer] = useState("ALL");
+  const [swimmer, setSwimmer] = useState<"ALL" | Id<"swimmers">>("ALL");
+  const [viewer, setViewer] = useState("ALL"); // "ALL" | viewerEmail
   const [coach, setCoach] = useState("ALL");
   const [status, setStatus] = useState<"ALL" | LinkStatus>("ALL");
   const [type, setType] = useState<"ALL" | AccessEventType>("ALL");
 
-  // Distinct filter options, derived from the log itself.
-  const swimmers = useMemo(
-    () => distinct(rows.map((r) => r.swimmerName)),
+  // Swimmer / viewer / event-type filter SERVER-SIDE (full-history search);
+  // changing one restarts pagination from the newest match. Status and the
+  // responsible-coach column are computed per-row, so those two still filter
+  // client-side over the loaded window — the footer says so when they're on.
+  const {
+    results: rows,
+    status: pageStatus,
+    loadMore,
+  } = usePaginatedQuery(
+    api.audit.listAccessLog,
+    {
+      swimmerId: swimmer === "ALL" ? undefined : swimmer,
+      viewerEmail: viewer === "ALL" ? undefined : viewer,
+      type: type === "ALL" ? undefined : type,
+    },
+    { initialNumItems: PAGE },
+  );
+
+  // Swimmers get a full option list; viewers are free-text emails, so their
+  // options come from the loaded rows (matching still runs server-side).
+  const swimmerOptions = useQuery(api.swimmers.listSwimmers, {});
+  const viewers = useMemo(
+    () =>
+      [...new Map(rows.map((r) => [r.viewerEmail, viewerLabel(r)])).entries()]
+        .map(([email, label]) => ({ email, label }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
     [rows],
   );
-  const viewers = useMemo(() => distinct(rows.map(viewerLabel)), [rows]);
   const coaches = useMemo(
     () => distinct(rows.map((r) => byAccount(r)?.name ?? "")),
     [rows],
   );
 
+  // The two client-side-only filters.
   const filtered = useMemo(
     () =>
       rows.filter(
         (r) =>
-          (swimmer === "ALL" || r.swimmerName === swimmer) &&
-          (viewer === "ALL" || viewerLabel(r) === viewer) &&
           (coach === "ALL" || byAccount(r)?.name === coach) &&
-          (status === "ALL" || r.status === status) &&
-          (type === "ALL" || r.type === type),
+          (status === "ALL" || r.status === status),
       ),
-    [rows, swimmer, viewer, coach, status, type],
+    [rows, coach, status],
   );
 
   const secondaryCount = (status !== "ALL" ? 1 : 0) + (type !== "ALL" ? 1 : 0);
   const filtering =
     swimmer !== "ALL" || viewer !== "ALL" || coach !== "ALL" || secondaryCount > 0;
+  // Only these two can under-report while older pages remain un-loaded.
+  const clientFiltering = coach !== "ALL" || status !== "ALL";
   const loading = pageStatus === "LoadingFirstPage";
 
   return (
@@ -118,10 +135,13 @@ export function AccessLogScreen() {
               <Select
                 aria-label="Filter by swimmer"
                 value={swimmer}
-                onValueChange={setSwimmer}
+                onValueChange={(v) => setSwimmer(v as "ALL" | Id<"swimmers">)}
                 options={[
                   { value: "ALL", label: "All swimmers" },
-                  ...swimmers.map((s) => ({ value: s, label: s })),
+                  ...(swimmerOptions ?? []).map((s) => ({
+                    value: s._id,
+                    label: s.name,
+                  })),
                 ]}
               />
             </div>
@@ -132,7 +152,7 @@ export function AccessLogScreen() {
                 onValueChange={setViewer}
                 options={[
                   { value: "ALL", label: "All viewers" },
-                  ...viewers.map((v) => ({ value: v, label: v })),
+                  ...viewers.map((v) => ({ value: v.email, label: v.label })),
                 ]}
               />
             </div>
@@ -190,10 +210,17 @@ export function AccessLogScreen() {
       {loading ? (
         <TableSkeleton />
       ) : rows.length === 0 ? (
-        <EmptyState
-          title="No access events yet"
-          body="When you invite a viewer, or someone claims or loses access, it will be recorded here."
-        />
+        filtering ? (
+          <EmptyState
+            title="No events match these filters"
+            body="The whole history was searched. Clear a filter to see more of the access record."
+          />
+        ) : (
+          <EmptyState
+            title="No access events yet"
+            body="When you invite a viewer, or someone claims or loses access, it will be recorded here."
+          />
+        )
       ) : (
         <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
           <div className="relative overflow-x-auto custom-scrollbar">
@@ -276,13 +303,14 @@ export function AccessLogScreen() {
       {!loading && rows.length > 0 && (
         <div className="flex items-center justify-between gap-4 px-1">
           <p className="text-xs text-ink-faint">
-            {/* Filters search only the loaded window — say so while older rows
-                remain, or a filtered read looks complete when it isn't. */}
-            {filtering && pageStatus !== "Exhausted"
-              ? `${filtered.length} matching — only the ${rows.length} loaded events were searched`
-              : filtered.length === rows.length
-                ? `${rows.length} ${rows.length === 1 ? "event" : "events"}${pageStatus !== "Exhausted" ? " loaded" : ""}`
-                : `${filtered.length} of ${rows.length} events`}
+            {/* Status / coach filter client-side over the loaded window — say
+                so while older rows remain, or a filtered read looks complete
+                when it isn't. The other filters search the full history. */}
+            {clientFiltering && pageStatus !== "Exhausted"
+              ? `${filtered.length} matching — status and coach filters only searched the ${rows.length} loaded events`
+              : `${filtered.length}${filtered.length !== rows.length ? ` of ${rows.length}` : ""} ${
+                  filtering ? "matching " : ""
+                }${rows.length === 1 ? "event" : "events"}${pageStatus !== "Exhausted" ? " loaded" : ""}`}
             {" · newest first"}
           </p>
           {pageStatus !== "Exhausted" && (
