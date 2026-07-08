@@ -3,6 +3,7 @@ import {
   Award,
   BarChart3,
   Building2,
+  CalendarDays,
   ClipboardList,
   Gauge,
   Grid3x3,
@@ -157,7 +158,10 @@ export const NAV: NavNode[] = [
     label: "Admin",
     icon: Shield,
     roles: ["SUPER_USER"],
-    items: [{ label: "Clubs & coaches", href: "/admin/clubs", icon: Building2 }],
+    items: [
+      { label: "Clubs & coaches", href: "/admin/clubs", icon: Building2 },
+      { label: "Tour dates", href: "/admin/tours", icon: CalendarDays },
+    ],
   },
 ];
 

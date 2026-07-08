@@ -802,6 +802,51 @@ export function pickApplicableStandards(
   return out;
 }
 
+/** Tour dates by tier (ISO YYYY-MM-DD). Absent tier = no tour date set. */
+export type TourDateByTier = Partial<Record<Tier, string>>;
+
+/**
+ * The exact age each tier's cut resolves at for one swimmer (the birthday
+ * rule, per tour): a tier WITH a tour date judges the swimmer at the age they
+ * will be ON TOUR DAY; a tier without one keeps `fallbackAge` (the age the PB
+ * was swum, or today's age — current behaviour, §4.9). With no tour dates at
+ * all this is `fallbackAge` across the board, i.e. exactly today's rule.
+ */
+export function tierResolutionAges(
+  dob: string,
+  fallbackAge: number,
+  tours: TourDateByTier,
+): Record<Tier, number> {
+  const out = {} as Record<Tier, number>;
+  for (const tier of TIER_ORDER) {
+    const tourDate = tours[tier];
+    out[tier] = tourDate !== undefined ? computeAge(dob, tourDate) : fallbackAge;
+  }
+  return out;
+}
+
+/**
+ * `pickApplicableStandards`, but each tier resolves at ITS OWN exact age —
+ * needed once tour dates exist, because different tours fall on different
+ * dates and the swimmer may age up between them. Same output shape, so
+ * `computeMatrixCell` / `highestTierMet` work unchanged; coverage holes are
+ * still omitted, never interpolated.
+ */
+export function pickApplicableStandardsPerTier(
+  rows: ReadonlyArray<StandardCut & { tier: Tier }>,
+  ages: Record<Tier, number>,
+): ApplicableStandards {
+  const out: ApplicableStandards = {};
+  for (const tier of TIER_ORDER) {
+    const ms = resolveStandardTime(
+      rows.filter((r) => r.tier === tier),
+      ages[tier],
+    );
+    if (ms !== null) out[tier] = ms;
+  }
+  return out;
+}
+
 /**
  * The HARDEST tier a personal best meets, walking SANJ → LEVEL_3 → LEVEL_2
  * (§4.9). "Met" = the PB is at or under the cut (`pbMs <= cut`). Tiers with no
