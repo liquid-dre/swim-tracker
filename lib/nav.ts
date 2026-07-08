@@ -9,6 +9,7 @@ import {
   Grid3x3,
   LayoutDashboard,
   LineChart,
+  Plane,
   Radar,
   Ruler,
   ScrollText,
@@ -135,6 +136,7 @@ export const NAV: NavNode[] = [
     items: [
       { label: "Status matrix", href: "/status", icon: Grid3x3 },
       { label: "Road to qualify", href: "/road", icon: Target },
+      { label: "Tour qualification", href: "/qualification", icon: Plane },
       { label: "Standards", href: "/standards", icon: Ruler },
     ],
   },
