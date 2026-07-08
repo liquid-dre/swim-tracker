@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import { ShieldCheck } from "lucide-react";
@@ -97,31 +97,31 @@ export function AccessLogScreen() {
     () => new Map(),
   );
   const [seenCoaches, setSeenCoaches] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    setSeenViewers((prev) => {
-      let changed = false;
-      const next = new Map(prev);
-      for (const r of rows) {
-        if (!next.has(r.viewerEmail)) {
-          next.set(r.viewerEmail, viewerLabel(r));
-          changed = true;
-        }
+  // Merge new rows in with guarded setState DURING render — React's sanctioned
+  // "derive state from props" pattern (same as the matrix snapshot), no effect.
+  {
+    let changed = false;
+    const next = new Map(seenViewers);
+    for (const r of rows) {
+      if (!next.has(r.viewerEmail)) {
+        next.set(r.viewerEmail, viewerLabel(r));
+        changed = true;
       }
-      return changed ? next : prev;
-    });
-    setSeenCoaches((prev) => {
-      let changed = false;
-      const next = new Set(prev);
-      for (const r of rows) {
-        const name = byAccount(r)?.name;
-        if (name && !next.has(name)) {
-          next.add(name);
-          changed = true;
-        }
+    }
+    if (changed) setSeenViewers(next);
+  }
+  {
+    let changed = false;
+    const next = new Set(seenCoaches);
+    for (const r of rows) {
+      const name = byAccount(r)?.name;
+      if (name && !next.has(name)) {
+        next.add(name);
+        changed = true;
       }
-      return changed ? next : prev;
-    });
-  }, [rows]);
+    }
+    if (changed) setSeenCoaches(next);
+  }
   const viewers = useMemo(
     () =>
       [...seenViewers.entries()]
