@@ -16,7 +16,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { errorMessage, notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
-import { computeAge, STROKE_LABEL, type Course, type Stroke } from "@/lib/swim";
+import { computeAge, STROKE_LABEL, TIER_FULL, type Course, type Stroke } from "@/lib/swim";
 import { galaForDate } from "@/lib/galaCalendar";
 import { parseDigits, TimeField } from "./TimeField";
 import { EventSelectors, isValidEventTriple } from "./EventSelectors";
@@ -31,12 +31,6 @@ type SavedEntry = {
   swimType: SwimType;
   time: string;
   newPb: boolean;
-};
-
-const TIER_SHORT: Record<"LEVEL_2" | "LEVEL_3" | "SANJ", string> = {
-  LEVEL_2: "Level 2",
-  LEVEL_3: "Level 3",
-  SANJ: "SANJ",
 };
 
 export function LogScreen({
@@ -178,7 +172,7 @@ export function LogScreen({
       const eventName = `${distance} ${STROKE_LABEL[stroke]}`;
       notify.success(
         saved.newlyMetTier
-          ? `Meets the ${TIER_SHORT[saved.newlyMetTier]} cut — ${firstName}'s new ${eventName} PB`
+          ? `Meets the ${TIER_FULL[saved.newlyMetTier]} cut — ${firstName}'s new ${eventName} PB`
           : saved.newPb
             ? `New ${eventName} PB for ${firstName}`
             : "Time saved",

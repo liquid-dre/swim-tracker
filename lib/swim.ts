@@ -802,6 +802,13 @@ export function pickApplicableStandards(
   return out;
 }
 
+/** Full display names for the tiers — the one copy every screen shares. */
+export const TIER_FULL: Record<Tier, string> = {
+  SANJ: "SANJ",
+  LEVEL_3: "Level 3",
+  LEVEL_2: "Level 2",
+};
+
 /** Tour dates by tier (ISO YYYY-MM-DD). Absent tier = no tour date set. */
 export type TourDateByTier = Partial<Record<Tier, string>>;
 

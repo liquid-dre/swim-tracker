@@ -13,7 +13,7 @@ import { TierBadge } from "@/components/ui/TierBadge";
 import { notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
 import { formatShortDate } from "@/lib/format";
-import { TIER_ORDER, type Tier } from "@/lib/swim";
+import { TIER_FULL, TIER_ORDER, type Tier } from "@/lib/swim";
 
 /*
   Tour dates (super-user only; docs/access-control.md). One date per tier.
@@ -23,12 +23,6 @@ import { TIER_ORDER, type Tier } from "@/lib/swim";
   are gated server-side by requireSuperUser — this screen is reachable only
   by the super-user via the /admin route boundary.
 */
-
-const TIER_FULL: Record<Tier, string> = {
-  SANJ: "SANJ",
-  LEVEL_3: "Level 3",
-  LEVEL_2: "Level 2",
-};
 
 type Tour = { tier: Tier; date: string; name: string | null };
 
@@ -44,7 +38,7 @@ export function AdminToursScreen() {
       <PageHeader
         title="Tour dates"
         breadcrumb={trailForHref("/admin/tours")}
-        description="The date of each tier's tour. With a date set, every qualifying screen judges swimmers against the cut for the age they'll be on tour day. Clear a date and that tier reverts to judging at the age each time was swum."
+        description="The date of each tier's tour. With a date set, the qualifying screens judge swimmers against the cut for their age on that day (the progression chart's historical overlay keeps showing what applied when each swim happened). Clear a date and that tier reverts to judging at the age each time was swum."
       />
 
       <div className="grid gap-4 lg:grid-cols-3">

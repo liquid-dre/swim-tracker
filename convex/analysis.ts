@@ -974,6 +974,9 @@ export const getStrokeProfile = query({
       hasStandards: v.boolean(),
       // See getRoadToQualify — birthday within the last 30 days, else null.
       agedUpAt: v.union(v.string(), v.null()),
+      // Which tiers are pinned to a tour day, so the age-up note can say
+      // which cuts a birthday does NOT move.
+      tourDates: tourDatesValidator,
     }),
   ),
   handler: async (ctx, { swimmerId }) => {
@@ -1103,6 +1106,7 @@ export const getStrokeProfile = query({
         tourDates.SANJ !== undefined
           ? null
           : recentBirthday(swimmer.dob, today),
+      tourDates,
     };
   },
 });

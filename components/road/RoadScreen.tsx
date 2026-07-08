@@ -16,7 +16,7 @@ import { StandardsMissing } from "@/components/ui/StandardsMissing";
 import { trailForHref } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { usePickerSwimmers } from "@/lib/usePickerSwimmers";
-import { formatTime, type Tier } from "@/lib/swim";
+import { formatTime, TIER_FULL, type Tier } from "@/lib/swim";
 import { formatSeconds, formatShortDate } from "@/lib/format";
 import {
   SingleTierLegend,
@@ -43,12 +43,6 @@ import { AllTierResults } from "./RoadAllResults";
   query only returns events the tier covers at the swimmer's EXACT age, so the
   toggle reshapes the whole screen without any client-side event list.
 */
-
-const TIER_FULL: Record<Tier, string> = {
-  LEVEL_2: "Level 2",
-  LEVEL_3: "Level 3",
-  SANJ: "SANJ",
-};
 
 // The Road target selector — the three tiers plus an All view. The three real
 // tiers stay in the shared/persisted store (so the choice carries to other
@@ -187,6 +181,9 @@ export function RoadScreen() {
                 name={allData.swimmer.name}
                 age={allData.swimmer.age}
                 date={allData.agedUpAt}
+                pinnedTiers={(["SANJ", "LEVEL_3", "LEVEL_2"] as const)
+                  .filter((t) => allData.tourDates[t] !== undefined)
+                  .map((t) => TIER_FULL[t])}
               />
             )}
             <AllTierResults data={allData} />

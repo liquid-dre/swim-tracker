@@ -17,7 +17,8 @@ import { TierBadge } from "@/components/ui/TierBadge";
 import { trailForHref } from "@/lib/nav";
 import { swimmerProfileBase } from "@/lib/swimmerHref";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
-import { DEFAULT_AGE_BANDS, formatTime, type Tier } from "@/lib/swim";
+import { DEFAULT_AGE_BANDS, formatTime, TIER_FULL, type Tier } from "@/lib/swim";
+import { formatShortDate } from "@/lib/format";
 
 /*
   Qualification status matrix (Step 11, BRD §5.7) — the "who's ready for what"
@@ -149,17 +150,27 @@ export function StatusMatrixScreen() {
       )}
 
       {/* Resolution context: with tour dates set, those tiers judge at each
-          swimmer's age ON TOUR DAY rather than the age a time was swum. */}
+          swimmer's age ON TOUR DAY rather than the age a time was swum. Named,
+          so the coach knows exactly which columns follow which rule. */}
       {data !== undefined &&
         data.hasStandards &&
-        (data.tourDates.LEVEL_2 !== undefined ||
-          data.tourDates.LEVEL_3 !== undefined ||
-          data.tourDates.SANJ !== undefined) && (
-          <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
-            Tiers with a tour date are judged at each swimmer&rsquo;s age on
-            tour day; the rest at the age each time was swum.
-          </p>
-        )}
+        (() => {
+          const pinned = (["SANJ", "LEVEL_3", "LEVEL_2"] as const).filter(
+            (t) => data.tourDates[t] !== undefined,
+          );
+          if (pinned.length === 0) return null;
+          return (
+            <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
+              {pinned
+                .map((t) => `${TIER_FULL[t]} (${formatShortDate(data.tourDates[t]!)})`)
+                .join(" and ")}{" "}
+              {pinned.length === 1 ? "is" : "are"} judged at each
+              swimmer&rsquo;s age on tour day
+              {pinned.length < 3 && "; other tiers at the age each time was swum"}
+              .
+            </p>
+          );
+        })()}
 
       {data === undefined ? (
         <MatrixSkeleton />

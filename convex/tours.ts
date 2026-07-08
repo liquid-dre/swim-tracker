@@ -41,6 +41,11 @@ function cleanTourDate(value: string): string {
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== trimmed) {
     throw new ConvexError("That is not a real date.");
   }
+  // A typo'd year (0206, 20260) silently pins cuts to a nonsense age — bound it.
+  const year = date.getUTCFullYear();
+  if (year < 2000 || year > 2100) {
+    throw new ConvexError("Tour date must be between 2000 and 2100.");
+  }
   return trimmed;
 }
 

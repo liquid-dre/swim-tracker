@@ -14,7 +14,7 @@ import { swimmerProfileBase } from "@/lib/swimmerHref";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { formatShortDate } from "@/lib/format";
 import { formatSeconds } from "@/lib/format";
-import { formatTime, type Tier } from "@/lib/swim";
+import { formatTime, TIER_FULL } from "@/lib/swim";
 
 /*
   Tour qualification — who is going to which tour. Each swimmer appears once,
@@ -24,12 +24,6 @@ import { formatTime, type Tier } from "@/lib/swim";
   tier without one judges each PB at the age it was swum (§4.9). Coach-only —
   this is a cross-roster planning surface.
 */
-
-const TIER_FULL: Record<Tier, string> = {
-  SANJ: "SANJ",
-  LEVEL_3: "Level 3",
-  LEVEL_2: "Level 2",
-};
 
 export function QualificationScreen() {
   const pathname = usePathname();
@@ -102,7 +96,12 @@ export function QualificationScreen() {
             {swimmers.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-8 text-center shadow-theme-sm">
                 <p className="text-sm text-ink-muted">
-                  No one has met a {TIER_FULL[tier]} cut yet.
+                  {/* "Highest tour only": someone may well meet this tier's
+                      cuts but be listed above — never claim nobody has. */}
+                  No one&rsquo;s highest tour is {TIER_FULL[tier]} yet
+                  {tier !== "SANJ" &&
+                    " — swimmers who qualify higher are listed under that tour"}
+                  .
                 </p>
               </div>
             ) : (
@@ -145,14 +144,20 @@ export function QualificationScreen() {
                                 <li
                                   key={e.label}
                                   className="inline-flex items-baseline gap-1.5 rounded-md bg-surface-2 px-2 py-1 text-sm"
-                                  title={`Cut ${formatTime(e.cutMs)} · inside by ${formatSeconds(e.marginMs)}`}
                                 >
                                   <span className="text-ink">{e.label}</span>
                                   <span className="time tnum font-medium text-ink">
                                     {formatTime(e.pbMs)}
                                   </span>
+                                  {/* The cut is visible (not hover-only) and the
+                                      margin speaks the app's delta vocabulary. */}
                                   <span className="tnum text-xs text-success-ink">
-                                    −{formatSeconds(e.marginMs)}
+                                    {e.marginMs === 0
+                                      ? "on the cut"
+                                      : `${formatSeconds(e.marginMs)}s under`}
+                                  </span>
+                                  <span className="time tnum text-xs text-ink-faint">
+                                    cut {formatTime(e.cutMs)}
                                   </span>
                                 </li>
                               ))}

@@ -394,7 +394,19 @@ export function ProgressionChart({
       )}
 
       {projection && projectionTier && (
-        <ProjectionNote projection={projection} tier={projectionTier} color={projColor} />
+        <ProjectionNote
+          projection={projection}
+          tier={projectionTier}
+          color={projColor}
+          tourTarget={
+            tourDates[projectionTier] !== undefined && series[0]?.dob
+              ? {
+                  date: tourDates[projectionTier]!,
+                  age: computeAge(series[0].dob, tourDates[projectionTier]!),
+                }
+              : null
+          }
+        />
       )}
 
       <Legend series={data} single={single} />
@@ -507,10 +519,15 @@ function ProjectionNote({
   projection,
   tier,
   color,
+  tourTarget,
 }: {
   projection: QualifyProjection;
   tier: Tier;
   color: string;
+  // Set when this tier has a tour date: the cut being targeted is the one for
+  // the swimmer's age ON TOUR DAY, which can differ from today's — the chart's
+  // stepped overlay shows today's, so the retarget must be said, not implied.
+  tourTarget: { date: string; age: number } | null;
 }) {
   const label = TIER_LABEL[tier];
 
@@ -550,6 +567,8 @@ function ProjectionNote({
         </div>
         <p className="text-xs italic text-ink-muted">
           Estimate only: assumes the recent rate continues. Not a guaranteed date.
+          {tourTarget &&
+            ` Targets the ${label} cut at age ${tourTarget.age} — their age on tour day (${formatShortDate(tourTarget.date)}).`}
         </p>
       </div>
     );
