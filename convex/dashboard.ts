@@ -87,7 +87,11 @@ const rosterRow = v.object({
 const TIER_RANK: Record<Tier, number> = { SANJ: 3, LEVEL_3: 2, LEVEL_2: 1 };
 
 export const getCoachDashboard = query({
-  args: {},
+  args: {
+    // The coach's PREVIOUS visit (from profiles.beginSession) — anchors the
+    // "since you were last here" digest. Omitted = no digest (first visit).
+    digestSince: v.optional(v.number()),
+  },
   returns: v.object({
     counts: v.object({
       swimmers: v.number(), // active swimmers
@@ -101,9 +105,18 @@ export const getCoachDashboard = query({
       hasStandards: v.boolean(),
       hasResults: v.boolean(),
     }),
+    // What changed since the coach's previous visit; null without an anchor.
+    digest: v.union(
+      v.null(),
+      v.object({
+        // Swimmers whose CURRENT headline PB was logged since the last visit.
+        newPbSwimmers: v.array(v.string()),
+        swimsLogged: v.number(),
+      }),
+    ),
     roster: v.array(rosterRow),
   }),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     await requireCoach(ctx);
 
     const today = new Date().toISOString().slice(0, 10);
@@ -143,6 +156,8 @@ export const getCoachDashboard = query({
     let cutsQualified = 0;
     let closeToCut = 0;
     let hasResults = false;
+    let digestSwims = 0;
+    const digestPbSwimmers: string[] = [];
     const roster = [];
 
     for (const swimmer of swimmers) {
@@ -153,6 +168,27 @@ export const getCoachDashboard = query({
       const pbs = computePersonalBests(results as ResultForPB[]);
       const age = computeAge(swimmer.dob, today); // display age (as of today)
       if (results.length > 0) hasResults = true;
+
+      // Digest: swims logged since the last visit, and whether any CURRENT
+      // headline PB is among them (i.e. a lifetime best set while away).
+      if (args.digestSince !== undefined) {
+        let newPb = false;
+        for (const r of results) {
+          if (r.createdAt <= args.digestSince) continue;
+          digestSwims += 1;
+          if (r.swimType !== "MEET" || newPb) continue;
+          newPb = pbs.some(
+            (pb) =>
+              pb.headline !== null &&
+              pb.distance === r.distance &&
+              pb.stroke === r.stroke &&
+              pb.course === r.course &&
+              pb.headline.timeMs === r.timeMs &&
+              pb.headline.swimDate === r.swimDate,
+          );
+        }
+        if (newPb) digestPbSwimmers.push(swimmer.name);
+      }
 
       // "PBs this week": any headline (fastest-ever MEET) whose date is inside the
       // window — i.e. the swimmer set a new lifetime best this week (any course).
@@ -240,6 +276,10 @@ export const getCoachDashboard = query({
         hasStandards: allStandards.length > 0,
         hasResults,
       },
+      digest:
+        args.digestSince === undefined
+          ? null
+          : { newPbSwimmers: digestPbSwimmers, swimsLogged: digestSwims },
       roster,
     };
   },

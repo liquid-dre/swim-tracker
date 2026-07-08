@@ -62,6 +62,9 @@ export default defineSchema({
     ),
     // The club a COACH manages (their edit scope). Unset for SUPER_USER/VIEWER.
     clubId: v.optional(v.id("clubs")),
+    // Last dashboard visit (epoch ms) — anchors the "since you were last
+    // here" digest. Unset until the first visit.
+    lastSeenAt: v.optional(v.number()),
   })
     .index("by_authId", ["authId"])
     .index("by_club", ["clubId"])
