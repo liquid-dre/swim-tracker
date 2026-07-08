@@ -5,6 +5,7 @@ import {
   clockFromDigits,
   computeAge,
   computeAgeGroup,
+  recentBirthday,
   isValidEvent,
   computePersonalBests,
   eventLabel,
@@ -168,6 +169,32 @@ describe("computeAge", () => {
   it("throws on invalid dates", () => {
     expect(() => computeAge("not-a-date", "2020-01-01")).toThrow();
     expect(() => computeAge("2010-01-01", "nope")).toThrow();
+  });
+});
+
+describe("recentBirthday", () => {
+  it("returns the birthday when it fell within the window", () => {
+    expect(recentBirthday("2010-06-15", "2020-06-15")).toBe("2020-06-15"); // today
+    expect(recentBirthday("2010-06-15", "2020-07-10")).toBe("2020-06-15"); // 25 days
+    expect(recentBirthday("2010-06-15", "2020-07-15")).toBe("2020-06-15"); // 30 days exactly
+  });
+
+  it("returns null outside the window or before the birthday", () => {
+    expect(recentBirthday("2010-06-15", "2020-07-16")).toBeNull(); // 31 days
+    expect(recentBirthday("2010-06-15", "2020-06-14")).toBeNull(); // day before (last year's is far)
+  });
+
+  it("crosses the year boundary", () => {
+    expect(recentBirthday("2010-12-28", "2021-01-05")).toBe("2020-12-28");
+  });
+
+  it("never reports the birth date itself", () => {
+    expect(recentBirthday("2020-06-15", "2020-06-20")).toBeNull();
+  });
+
+  it("respects a custom window", () => {
+    expect(recentBirthday("2010-06-15", "2020-06-25", 7)).toBeNull();
+    expect(recentBirthday("2010-06-15", "2020-06-20", 7)).toBe("2020-06-15");
   });
 });
 

@@ -8,6 +8,7 @@ import {
 } from "./authz";
 import {
   computeAge,
+  recentBirthday,
   computeAgeGroup,
   computeCalibratedRadius,
   computeMatrixCell,
@@ -731,6 +732,10 @@ export const getRoadToQualify = query({
       // False when no cuts exist for this swimmer's gender at all — the screen
       // explains the empty road instead of looking broken.
       hasStandards: v.boolean(),
+      // ISO date of the swimmer's birthday when it fell in the last 30 days —
+      // the screen notes that every cut now resolves to the new age. Never the
+      // raw dob (only its month/day, which the note states anyway).
+      agedUpAt: v.union(v.string(), v.null()),
     }),
   ),
   handler: async (ctx, { swimmerId, tier: targetTier }) => {
@@ -851,6 +856,7 @@ export const getRoadToQualify = query({
       tier: targetTier,
       events: [...withTime, ...noTime],
       hasStandards: allStandards.length > 0,
+      agedUpAt: recentBirthday(swimmer.dob, today),
     };
   },
 });
@@ -916,6 +922,8 @@ export const getStrokeProfile = query({
       // False when no cuts exist for this swimmer's gender — callers show the
       // standards-missing guidance instead of a shrugging empty state.
       hasStandards: v.boolean(),
+      // See getRoadToQualify — birthday within the last 30 days, else null.
+      agedUpAt: v.union(v.string(), v.null()),
     }),
   ),
   handler: async (ctx, { swimmerId }) => {
@@ -1035,6 +1043,7 @@ export const getStrokeProfile = query({
       },
       events,
       hasStandards: allStandards.length > 0,
+      agedUpAt: recentBirthday(swimmer.dob, today),
     };
   },
 });

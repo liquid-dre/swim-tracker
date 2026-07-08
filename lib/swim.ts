@@ -194,6 +194,41 @@ export function computeAge(dob: string | Date, asOfDate: string | Date): number 
   return age;
 }
 
+/**
+ * The swimmer's most recent birthday as an ISO date, when it falls within the
+ * last `windowDays` days of `asOfDate` (inclusive) — else null. Standards
+ * resolve to the exact single-year age (§4.9), so a birthday silently moves
+ * every cut; callers use this to say so instead of leaving the swimmer to
+ * wonder why the gaps changed. Never exposes the birth YEAR (callers already
+ * know the age). A 29 Feb birthday reads as 1 Mar in non-leap years, matching
+ * how `computeAge` ticks over.
+ */
+export function recentBirthday(
+  dob: string | Date,
+  asOfDate: string | Date,
+  windowDays = 30,
+): string | null {
+  const birth = toUTCDate(dob, "recentBirthday(dob)");
+  const asOf = toUTCDate(asOfDate, "recentBirthday(asOfDate)");
+
+  // Candidate birthday in the asOf year; Date.UTC rolls 29 Feb → 1 Mar in
+  // non-leap years, which is exactly when computeAge increments.
+  let candidate = new Date(
+    Date.UTC(asOf.getUTCFullYear(), birth.getUTCMonth(), birth.getUTCDate()),
+  );
+  if (candidate.getTime() > asOf.getTime()) {
+    candidate = new Date(
+      Date.UTC(asOf.getUTCFullYear() - 1, birth.getUTCMonth(), birth.getUTCDate()),
+    );
+  }
+  // Their actual birth date isn't an age-up.
+  if (candidate.getTime() <= birth.getTime()) return null;
+
+  const days = (asOf.getTime() - candidate.getTime()) / 86_400_000;
+  if (days > windowDays) return null;
+  return candidate.toISOString().slice(0, 10);
+}
+
 // ---------------------------------------------------------------------------
 // 4. computeAgeGroup — map an age to a display band (BRD §4.7, configurable)
 // ---------------------------------------------------------------------------

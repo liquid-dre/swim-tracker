@@ -16,7 +16,7 @@ import { trailForHref } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { usePickerSwimmers } from "@/lib/usePickerSwimmers";
 import { formatTime, type Tier } from "@/lib/swim";
-import { formatSeconds } from "@/lib/format";
+import { formatSeconds, formatShortDate } from "@/lib/format";
 import {
   SingleTierLegend,
   SingleTierProgress,
@@ -180,7 +180,16 @@ export function RoadScreen() {
             body={`${allData.swimmer.name} has no long-course qualifying cuts at their exact age yet. This may be an age no tier covers.`}
           />
         ) : (
-          <AllTierResults data={allData} />
+          <>
+            {allData.agedUpAt && (
+              <AgeUpNote
+                name={allData.swimmer.name}
+                age={allData.swimmer.age}
+                date={allData.agedUpAt}
+              />
+            )}
+            <AllTierResults data={allData} />
+          </>
         )
       ) : data === undefined ? (
         <RoadSkeleton />
@@ -201,9 +210,38 @@ export function RoadScreen() {
           body={`${data.swimmer.name} has no ${TIER_FULL[tier]} events at their exact age. This tier may not cover their age group. Try another target tier.`}
         />
       ) : (
-        <RoadResults data={data} tier={tier} />
+        <>
+          {data.agedUpAt && (
+            <AgeUpNote
+              name={data.swimmer.name}
+              age={data.swimmer.age}
+              date={data.agedUpAt}
+            />
+          )}
+          <RoadResults data={data} tier={tier} />
+        </>
       )}
     </div>
+  );
+}
+
+// Standards resolve to the exact single-year age, so a birthday silently moves
+// every cut — say so for a month rather than leave the swimmer wondering why
+// the gaps changed overnight. Quiet by design: context, not a warning.
+function AgeUpNote({
+  name,
+  age,
+  date,
+}: {
+  name: string;
+  age: number;
+  date: string;
+}) {
+  return (
+    <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
+      {name} turned {age} on {formatShortDate(date)} — every cut here now
+      resolves to age {age}.
+    </p>
   );
 }
 
