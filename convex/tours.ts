@@ -253,7 +253,12 @@ export const getTourQualification = query({
             swimmerId: swimmer._id,
             name: swimmer.name,
             age: tourAge ?? ageToday,
-            events: qualifying.map(({ sortKey: _sortKey, ...e }) => e),
+            events: qualifying.map((e) => ({
+              label: e.label,
+              pbMs: e.pbMs,
+              cutMs: e.cutMs,
+              marginMs: e.marginMs,
+            })),
           });
           break; // highest tour only
         }
