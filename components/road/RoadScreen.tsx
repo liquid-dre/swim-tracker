@@ -11,10 +11,13 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
 import { Segmented } from "@/components/ui/Segmented";
 import { FilterBar } from "@/components/ui/FilterBar";
+import { AgeUpNote } from "@/components/qualifying/AgeUpNote";
+import { StandardsMissing } from "@/components/ui/StandardsMissing";
 import { trailForHref } from "@/lib/nav";
+import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { usePickerSwimmers } from "@/lib/usePickerSwimmers";
-import { formatTime, type Tier } from "@/lib/swim";
-import { formatSeconds } from "@/lib/format";
+import { formatTime, TIER_FULL, type Tier } from "@/lib/swim";
+import { formatSeconds, formatShortDate } from "@/lib/format";
 import {
   SingleTierLegend,
   SingleTierProgress,
@@ -40,12 +43,6 @@ import { AllTierResults } from "./RoadAllResults";
   query only returns events the tier covers at the swimmer's EXACT age, so the
   toggle reshapes the whole screen without any client-side event list.
 */
-
-const TIER_FULL: Record<Tier, string> = {
-  LEVEL_2: "Level 2",
-  LEVEL_3: "Level 3",
-  SANJ: "SANJ",
-};
 
 // The Road target selector — the three tiers plus an All view. The three real
 // tiers stay in the shared/persisted store (so the choice carries to other
@@ -105,6 +102,14 @@ export function RoadScreen() {
   const loadingSwimmers = swimmers === undefined;
   const swimmerChosen = swimmerId !== "";
 
+  // Staff get the "import standards" pointer; a viewer can't reach that screen.
+  // While the profile is in flight, hold the skeleton rather than flashing the
+  // viewer copy at a coach.
+  const profile = useCurrentProfile();
+  const profileLoading = profile === undefined;
+  const isStaff =
+    profile !== undefined && profile !== null && profile.role !== "VIEWER";
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -158,13 +163,31 @@ export function RoadScreen() {
             title="Swimmer not found"
             body="That swimmer may have been removed. Pick another from the list above."
           />
+        ) : !allData.hasStandards ? (
+          profileLoading ? (
+            <RoadSkeleton />
+          ) : (
+            <StandardsMissing isStaff={isStaff} />
+          )
         ) : allData.events.length === 0 ? (
           <EmptyState
             title={`No qualifying cuts at age ${allData.swimmer.age}`}
-            body={`${allData.swimmer.name} has no long-course qualifying cuts at their exact age yet. This may be an age no tier covers, or the cuts aren’t loaded.`}
+            body={`${allData.swimmer.name} has no long-course qualifying cuts at their exact age yet. This may be an age no tier covers.`}
           />
         ) : (
-          <AllTierResults data={allData} />
+          <>
+            {allData.agedUpAt && (
+              <AgeUpNote
+                name={allData.swimmer.name}
+                age={allData.swimmer.age}
+                date={allData.agedUpAt}
+                pinnedTiers={(["SANJ", "LEVEL_3", "LEVEL_2"] as const)
+                  .filter((t) => allData.tourDates[t] !== undefined)
+                  .map((t) => TIER_FULL[t])}
+              />
+            )}
+            <AllTierResults data={allData} />
+          </>
         )
       ) : data === undefined ? (
         <RoadSkeleton />
@@ -173,17 +196,41 @@ export function RoadScreen() {
           title="Swimmer not found"
           body="That swimmer may have been removed. Pick another from the list above."
         />
+      ) : !data.hasStandards ? (
+        profileLoading ? (
+          <RoadSkeleton />
+        ) : (
+          <StandardsMissing isStaff={isStaff} />
+        )
       ) : data.events.length === 0 ? (
         <EmptyState
           title={`No ${TIER_FULL[tier]} cuts at age ${data.swimmer.age}`}
-          body={`${data.swimmer.name} has no ${TIER_FULL[tier]} events at their exact age. This tier may not cover their age group, or the cuts aren’t loaded. Try another target tier.`}
+          body={`${data.swimmer.name} has no ${TIER_FULL[tier]} events at their exact age. This tier may not cover their age group. Try another target tier.`}
         />
       ) : (
-        <RoadResults data={data} tier={tier} />
+        <>
+          {data.tour && (
+            <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
+              {data.tour.name ?? `${TIER_FULL[tier]} tour`} ·{" "}
+              {formatShortDate(data.tour.date)} — every cut here is the one{" "}
+              {data.swimmer.name} must meet at age {data.tour.ageAtTour}, their
+              age on tour day.
+            </p>
+          )}
+          {data.agedUpAt && (
+            <AgeUpNote
+              name={data.swimmer.name}
+              age={data.swimmer.age}
+              date={data.agedUpAt}
+            />
+          )}
+          <RoadResults data={data} tier={tier} />
+        </>
       )}
     </div>
   );
 }
+
 
 // ---------------------------------------------------------------------------
 // Results — presentational (fed by the query, or by the preview harness)

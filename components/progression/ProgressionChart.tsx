@@ -23,9 +23,11 @@ import {
   type StandardCut,
   type Stroke,
   type Tier,
+  type TourDateByTier,
 } from "@/lib/swim";
 import { formatMonthYear, formatSeconds, formatShortDate } from "@/lib/format";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import {
   CHART,
   CHART_ANIM_MS,
@@ -111,6 +113,7 @@ export function ProgressionChart({
   standards,
   projectionTier = null,
   noteMarkers,
+  tourDates = {},
 }: {
   series: ProgressionSeries[];
   single: boolean;
@@ -125,8 +128,13 @@ export function ProgressionChart({
   projectionTier?: Tier | null;
   // Training-note markers (§R16) — single-swimmer only; undefined/empty hides them.
   noteMarkers?: NoteMarker[];
+  // Tour dates by tier — the projection targets the age-on-tour-day cut.
+  tourDates?: TourDateByTier;
 }) {
   const reduced = usePrefersReducedMotion();
+  // Phone-width: a slightly shorter plot and slimmer time gutter keep the
+  // chart plus its summary strip inside one viewport without squeezing the data.
+  const narrow = useMediaQuery("(max-width: 639px)");
 
   const data: Array<{ color: string; name: string; points: ChartPoint[] }> = series.map(
     (s, i) => ({
@@ -144,7 +152,14 @@ export function ProgressionChart({
   const tMax = Math.max(...allT);
 
   // Time-to-qualify projection (§5.6) — single swimmer + LCM + a chosen tier.
-  const projection = buildProjection(series, standards, single, course, projectionTier);
+  const projection = buildProjection(
+    series,
+    standards,
+    single,
+    course,
+    projectionTier,
+    tourDates,
+  );
   const projected = projection?.status === "projected" ? projection : null;
 
   // The projection crosses in the FUTURE, past the last real swim, so the x-axis
@@ -213,7 +228,7 @@ export function ProgressionChart({
   return (
     <div className="flex flex-col gap-4">
       <div
-        style={{ width: "100%", height: 360 }}
+        style={{ width: "100%", height: narrow ? 300 : 360 }}
         role="img"
         aria-label={`Progression chart, time over date with a faster time plotted lower; the axis floor sits just under the world record. ${summary}`}
       >
@@ -238,7 +253,7 @@ export function ProgressionChart({
               tick={{ fill: CHART.tick, fontSize: 11 }}
               tickLine={false}
               axisLine={{ stroke: CHART.axis }}
-              width={64}
+              width={narrow ? 54 : 64}
             />
             <Tooltip
               cursor={{ stroke: CHART.axis, strokeDasharray: "3 3" }}
@@ -349,27 +364,49 @@ export function ProgressionChart({
       )}
 
       {markers.length > 0 && (
-        <div className="flex items-center gap-1.5 px-1 text-xs text-ink-muted">
-          <svg aria-hidden width="14" height="12" viewBox="0 0 14 12">
-            <line
-              x1="2"
-              y1="0"
-              x2="2"
-              y2="12"
-              stroke="var(--color-gray-400)"
-              strokeWidth="1"
-              strokeDasharray="2 2"
-            />
-            <path d="M2 1 L9 3 L2 5 Z" fill="var(--color-gray-400)" />
-          </svg>
-          <span>
-            Training-note markers — hover a flag for the focus of that phase.
-          </span>
+        // The flags' content, readable without a pointer: hover works on
+        // desktop (the SVG <title>), but touch and keyboard users get the same
+        // phases as plain text. One row per flag, chart order.
+        <div className="flex flex-col gap-1 px-1 text-xs text-ink-muted">
+          <div className="flex items-center gap-1.5">
+            <svg aria-hidden width="14" height="12" viewBox="0 0 14 12">
+              <line
+                x1="2"
+                y1="0"
+                x2="2"
+                y2="12"
+                stroke="var(--color-gray-400)"
+                strokeWidth="1"
+                strokeDasharray="2 2"
+              />
+              <path d="M2 1 L9 3 L2 5 Z" fill="var(--color-gray-400)" />
+            </svg>
+            <span>Training phases marked on the chart:</span>
+          </div>
+          <ul className="flex flex-col gap-0.5 pl-5">
+            {markers.map((m) => (
+              <li key={m.t} className="text-ink-muted">
+                {m.title}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
       {projection && projectionTier && (
-        <ProjectionNote projection={projection} tier={projectionTier} color={projColor} />
+        <ProjectionNote
+          projection={projection}
+          tier={projectionTier}
+          color={projColor}
+          tourTarget={
+            tourDates[projectionTier] !== undefined && series[0]?.dob
+              ? {
+                  date: tourDates[projectionTier]!,
+                  age: computeAge(series[0].dob, tourDates[projectionTier]!),
+                }
+              : null
+          }
+        />
       )}
 
       <Legend series={data} single={single} />
@@ -443,6 +480,7 @@ function buildProjection(
   single: boolean,
   course: "SCM" | "LCM",
   tier: Tier | null,
+  tourDates: TourDateByTier,
 ): QualifyProjection | null {
   if (!single || course !== "LCM" || tier === null || series.length === 0) {
     return null;
@@ -453,7 +491,11 @@ function buildProjection(
   const dob = s.dob;
   const today = todayIso();
   const rows = standards.filter((r) => r.gender === s.gender);
-  const cuts = pickApplicableStandards(rows, computeAge(dob, today));
+  // The projection aims at a FUTURE swim, so with a tour date it targets the
+  // cut for the age the swimmer will be on tour day; else today's exact age.
+  const tourDate = tourDates[tier];
+  const cutAge = computeAge(dob, tourDate ?? today);
+  const cuts = pickApplicableStandards(rows, cutAge);
   const cutMs = cuts[tier] ?? null;
   const meets = s.points
     .filter((p) => p.isMeet)
@@ -477,10 +519,15 @@ function ProjectionNote({
   projection,
   tier,
   color,
+  tourTarget,
 }: {
   projection: QualifyProjection;
   tier: Tier;
   color: string;
+  // Set when this tier has a tour date: the cut being targeted is the one for
+  // the swimmer's age ON TOUR DAY, which can differ from today's — the chart's
+  // stepped overlay shows today's, so the retarget must be said, not implied.
+  tourTarget: { date: string; age: number } | null;
 }) {
   const label = TIER_LABEL[tier];
 
@@ -520,6 +567,8 @@ function ProjectionNote({
         </div>
         <p className="text-xs italic text-ink-muted">
           Estimate only: assumes the recent rate continues. Not a guaranteed date.
+          {tourTarget &&
+            ` Targets the ${label} cut at age ${tourTarget.age} — their age on tour day (${formatShortDate(tourTarget.date)}).`}
         </p>
       </div>
     );

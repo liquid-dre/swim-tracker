@@ -1,9 +1,18 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { assertMayWriteResult, requireSignedIn } from "./authz";
-import { computeAge, isValidEvent, parseTime } from "../lib/swim";
+import {
+  computeAge,
+  highestTierMet,
+  isValidEvent,
+  parseTime,
+  pickApplicableStandardsPerTier,
+  tierResolutionAges,
+  type Tier,
+} from "../lib/swim";
+import { loadTourDates } from "./tours";
 
 // Result logging (BRD §6, Step 5) — the core data-entry flow. Every write goes
 // through the same domain gates: whitelisted event + valid course, a bulletproof-
@@ -52,7 +61,7 @@ const MAX_TIME_MS = 3_600_000;
 function parseTimeBounded(input: string): number {
   const ms = parseTime(input); // throws on anything ambiguous / out of range
   if (ms > MAX_TIME_MS) {
-    throw new Error("That time looks too long — check the minutes.");
+    throw new ConvexError("That time looks too long — check the minutes.");
   }
   return ms;
 }
@@ -61,18 +70,18 @@ function parseTimeBounded(input: string): number {
 function cleanSwimDate(input: string, dob: string): string {
   const trimmed = input.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    throw new Error("Swim date must be YYYY-MM-DD.");
+    throw new ConvexError("Swim date must be YYYY-MM-DD.");
   }
   const date = new Date(`${trimmed}T00:00:00Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== trimmed) {
-    throw new Error("That is not a real date.");
+    throw new ConvexError("That is not a real date.");
   }
   const today = new Date().toISOString().slice(0, 10);
   if (trimmed > today) {
-    throw new Error("Swim date cannot be in the future.");
+    throw new ConvexError("Swim date cannot be in the future.");
   }
   if (computeAge(dob, trimmed) < 0) {
-    throw new Error("Swim date is before the swimmer's date of birth.");
+    throw new ConvexError("Swim date is before the swimmer's date of birth.");
   }
   return trimmed;
 }
@@ -93,7 +102,7 @@ async function assertValidEvent(
 ): Promise<void> {
   const events = await ctx.db.query("events").take(200);
   if (!isValidEvent(d, s, c, events)) {
-    throw new Error(`${d} ${s} is not a valid ${c} event.`);
+    throw new ConvexError(`${d} ${s} is not a valid ${c} event.`);
   }
 }
 
@@ -114,12 +123,25 @@ export const logResult = mutation({
     venue: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
-  returns: v.id("results"),
+  returns: v.object({
+    resultId: v.id("results"),
+    // What this swim MEANT, so the save feedback can say so (§4.6: a new
+    // headline = fastest MEET time on this event+course).
+    newPb: v.boolean(),
+    // The hardest tier this time meets that the previous best didn't (LCM
+    // meets only; cuts resolved per the tour rule). Null when nothing changed.
+    newlyMetTier: v.union(
+      v.literal("LEVEL_2"),
+      v.literal("LEVEL_3"),
+      v.literal("SANJ"),
+      v.null(),
+    ),
+  }),
   handler: async (ctx, args) => {
     const profile = await requireSignedIn(ctx);
 
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     // Coaches log anything for their club; a viewer only a SCHOOL_GALA time for
     // a linked swimmer. Everything else is rejected before we touch the data.
     await assertMayWriteResult(ctx, profile, swimmer, args.swimType);
@@ -130,7 +152,52 @@ export const logResult = mutation({
     const timeMs = parseTimeBounded(args.timeInput);
     const ageAtSwim = computeAge(swimmer.dob, swimDate);
 
-    return await ctx.db.insert("results", {
+    // The previous headline on this event+course (fastest MEET, §4.6) — read
+    // BEFORE inserting so we can say whether this swim beat it.
+    let prevBestMs: number | null = null;
+    if (args.swimType === "MEET") {
+      const siblings = await ctx.db
+        .query("results")
+        .withIndex("by_event", (q) =>
+          q
+            .eq("swimmerId", args.swimmerId)
+            .eq("distance", args.distance)
+            .eq("stroke", args.stroke)
+            .eq("course", args.course),
+        )
+        .take(1000);
+      for (const r of siblings) {
+        if (r.swimType !== "MEET") continue;
+        if (prevBestMs === null || r.timeMs < prevBestMs) prevBestMs = r.timeMs;
+      }
+    }
+    const newPb =
+      args.swimType === "MEET" && (prevBestMs === null || timeMs < prevBestMs);
+
+    // A new LCM PB may also be the first time a qualifying cut is met — the
+    // one moment worth naming over "Time saved". Judged under the same cuts
+    // for both times (tour rule; fallback age = this swim's age).
+    let newlyMetTier: Tier | null = null;
+    if (newPb && args.course === "LCM") {
+      const rows = await ctx.db
+        .query("standards")
+        .withIndex("by_event", (q) =>
+          q
+            .eq("gender", swimmer.gender)
+            .eq("distance", args.distance)
+            .eq("stroke", args.stroke),
+        )
+        .take(500);
+      const cuts = pickApplicableStandardsPerTier(
+        rows,
+        tierResolutionAges(swimmer.dob, ageAtSwim, await loadTourDates(ctx)),
+      );
+      const tierNow = highestTierMet(timeMs, cuts);
+      const tierBefore = prevBestMs === null ? null : highestTierMet(prevBestMs, cuts);
+      if (tierNow !== null && tierNow !== tierBefore) newlyMetTier = tierNow;
+    }
+
+    const resultId = await ctx.db.insert("results", {
       swimmerId: args.swimmerId,
       distance: args.distance,
       stroke: args.stroke,
@@ -145,6 +212,8 @@ export const logResult = mutation({
       enteredBy: profile._id,
       createdAt: Date.now(),
     });
+
+    return { resultId, newPb, newlyMetTier };
   },
 });
 
@@ -170,9 +239,9 @@ export const updateResult = mutation({
     const profile = await requireSignedIn(ctx);
 
     const existing = await ctx.db.get(args.resultId);
-    if (!existing) throw new Error("Result not found.");
+    if (!existing) throw new ConvexError("Result not found.");
     const swimmer = await ctx.db.get(existing.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     // The resulting type is the new one if the edit changes it, else the row's
     // current type. A viewer may only ever touch a SCHOOL_GALA row and only keep
     // it SCHOOL_GALA — `assertMayWriteResult` enforces both from these facts.
@@ -244,9 +313,9 @@ export const deleteResult = mutation({
   handler: async (ctx, args) => {
     const profile = await requireSignedIn(ctx);
     const existing = await ctx.db.get(args.resultId);
-    if (!existing) throw new Error("Result not found.");
+    if (!existing) throw new ConvexError("Result not found.");
     const swimmer = await ctx.db.get(existing.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     // A delete doesn't change the type, so target = the row's own type: a viewer
     // may delete a SCHOOL_GALA row they're linked to, nothing else.
     await assertMayWriteResult(

@@ -3,9 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowRight, Users } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Circle,
+  ListChecks,
+  Timer,
+  Users,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import type { api } from "@/convex/_generated/api";
+import { buttonClasses } from "@/components/ui/Button";
 import { TierBadge } from "@/components/ui/TierBadge";
 import { formatTime } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
@@ -47,9 +56,34 @@ export function SquadStats({ data }: { data: DashboardData | undefined }) {
     );
   }
 
-  const { counts } = data;
+  const { counts, setup } = data;
+
+  // A brand-new coach (empty roster) gets the guided setup thread instead of a
+  // wall of zeros. Once real data exists, the live stats stay — remaining setup
+  // steps become a slim banner rather than a gate, so a standards re-import
+  // wobble never hides a working dashboard behind onboarding.
+  if (counts.swimmers === 0) {
+    return (
+      <FirstRunChecklist
+        hasSwimmers={false}
+        hasStandards={setup.hasStandards}
+        hasResults={setup.hasResults}
+      />
+    );
+  }
+
+  const remaining = [
+    !setup.hasStandards && {
+      href: "/standards",
+      label: "Import the qualifying standards",
+    },
+    !setup.hasResults && { href: "/log", label: "Log your first time" },
+  ].filter(Boolean) as Array<{ href: string; label: string }>;
+
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="flex flex-col gap-4">
+      {remaining.length > 0 && <SetupBanner remaining={remaining} />}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
       <StatCard label="Swimmers" value={counts.swimmers} sub="on the active roster" />
       <StatCard
         label="PBs this week"
@@ -68,7 +102,159 @@ export function SquadStats({ data }: { data: DashboardData | undefined }) {
         sub="within 1.0s of a cut"
         tone={counts.closeToCut > 0 ? "warn" : "muted"}
       />
+      </div>
     </div>
+  );
+}
+
+// One quiet line above the live stats while setup steps remain — guidance,
+// not a warning, and never a gate once real data exists.
+function SetupBanner({
+  remaining,
+}: {
+  remaining: Array<{ href: string; label: string }>;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-theme-sm">
+      <span className="flex items-center gap-2 text-sm text-ink-muted">
+        <ListChecks aria-hidden className="size-4 text-ink-faint" strokeWidth={1.75} />
+        Finish setting up:
+      </span>
+      {remaining.map((step, i) => (
+        // The separator sits with the PRECEDING item so a wrapped line never
+        // starts with a floating dot; links get ≥44px tap height below lg.
+        <span key={step.href} className="flex items-center gap-3 text-sm">
+          <Link
+            href={step.href}
+            className="inline-flex min-h-11 items-center gap-1 rounded-sm font-medium text-brand-500 outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0"
+          >
+            {step.label}
+            <ArrowRight aria-hidden className="size-3.5" />
+          </Link>
+          {i < remaining.length - 1 && (
+            <span aria-hidden className="text-ink-faint">
+              ·
+            </span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function FirstRunChecklist({
+  hasSwimmers,
+  hasStandards,
+  hasResults,
+}: {
+  hasSwimmers: boolean;
+  hasStandards: boolean;
+  hasResults: boolean;
+}) {
+  const steps: Array<{
+    done: boolean;
+    href: string;
+    label: string;
+    desc: string;
+    icon: LucideIcon;
+  }> = [
+    {
+      done: hasSwimmers,
+      href: "/swimmers",
+      label: "Add your swimmers",
+      desc: "Name, date of birth and gender — ages drive every cut lookup.",
+      icon: Users,
+    },
+    {
+      done: hasStandards,
+      href: "/standards",
+      label: "Import the qualifying standards",
+      desc: "One CSV import fills in every tier, gap and status across the app.",
+      icon: ListChecks,
+    },
+    {
+      done: hasResults,
+      href: "/log",
+      label: "Log your first time",
+      desc: "Meet times set PBs; trials and practice are tracked but never count.",
+      icon: Timer,
+    },
+  ];
+
+  const doneCount = steps.filter((s) => s.done).length;
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm sm:p-6">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-md font-semibold text-ink">Set up your squad</h2>
+        <span className="text-xs font-medium tabular-nums text-ink-faint">
+          {doneCount} of {steps.length} done
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-ink-muted">
+        Three steps, in order — then this space becomes your live squad overview.
+      </p>
+      <ol className="mt-4 flex flex-col divide-y divide-gray-100">
+        {steps.map((s) => {
+          const rowBody = (
+            <>
+              {s.done ? (
+                <CheckCircle2
+                  aria-hidden
+                  className="size-5 shrink-0 text-success-ink"
+                  strokeWidth={1.75}
+                />
+              ) : (
+                <Circle
+                  aria-hidden
+                  className="size-5 shrink-0 text-ink-faint"
+                  strokeWidth={1.75}
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <span
+                  className={cn(
+                    "text-sm font-medium",
+                    s.done ? "text-ink-muted" : "text-ink",
+                  )}
+                >
+                  {s.label}
+                  {s.done && (
+                    <span className="ml-2 text-xs font-medium text-success-ink">
+                      Done
+                    </span>
+                  )}
+                </span>
+                <p className="mt-0.5 text-xs text-ink-muted">{s.desc}</p>
+              </div>
+              {!s.done && (
+                <ArrowRight
+                  aria-hidden
+                  className="size-4 shrink-0 text-ink-faint transition-transform [transition-duration:var(--dur-1)] group-hover:translate-x-0.5 group-hover:text-brand-500"
+                />
+              )}
+            </>
+          );
+          return (
+            <li key={s.href}>
+              {/* Completed steps drop the link: only what still needs doing
+                  reads (and acts) as tappable — a done-row mis-tap on a phone
+                  would navigate away from the remaining steps. */}
+              {s.done ? (
+                <div className="flex items-center gap-3 px-1 py-3">{rowBody}</div>
+              ) : (
+                <Link
+                  href={s.href}
+                  className="group flex items-center gap-3 rounded-lg px-1 py-3 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {rowBody}
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 
@@ -165,10 +351,7 @@ export function RosterOverview({ data }: { data: DashboardData | undefined }) {
                 appear here.
               </p>
             </div>
-            <Link
-              href="/swimmers"
-              className="mt-1 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 text-base font-medium text-white shadow-theme-xs outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
-            >
+            <Link href="/swimmers" className={cn("mt-1", buttonClasses("primary", "md"))}>
               Go to roster
             </Link>
           </div>

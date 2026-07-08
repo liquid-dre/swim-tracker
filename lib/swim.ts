@@ -194,6 +194,41 @@ export function computeAge(dob: string | Date, asOfDate: string | Date): number 
   return age;
 }
 
+/**
+ * The swimmer's most recent birthday as an ISO date, when it falls within the
+ * last `windowDays` days of `asOfDate` (inclusive) — else null. Standards
+ * resolve to the exact single-year age (§4.9), so a birthday silently moves
+ * every cut; callers use this to say so instead of leaving the swimmer to
+ * wonder why the gaps changed. Never exposes the birth YEAR (callers already
+ * know the age). A 29 Feb birthday reads as 1 Mar in non-leap years, matching
+ * how `computeAge` ticks over.
+ */
+export function recentBirthday(
+  dob: string | Date,
+  asOfDate: string | Date,
+  windowDays = 30,
+): string | null {
+  const birth = toUTCDate(dob, "recentBirthday(dob)");
+  const asOf = toUTCDate(asOfDate, "recentBirthday(asOfDate)");
+
+  // Candidate birthday in the asOf year; Date.UTC rolls 29 Feb → 1 Mar in
+  // non-leap years, which is exactly when computeAge increments.
+  let candidate = new Date(
+    Date.UTC(asOf.getUTCFullYear(), birth.getUTCMonth(), birth.getUTCDate()),
+  );
+  if (candidate.getTime() > asOf.getTime()) {
+    candidate = new Date(
+      Date.UTC(asOf.getUTCFullYear() - 1, birth.getUTCMonth(), birth.getUTCDate()),
+    );
+  }
+  // Their actual birth date isn't an age-up.
+  if (candidate.getTime() <= birth.getTime()) return null;
+
+  const days = (asOf.getTime() - candidate.getTime()) / 86_400_000;
+  if (days > windowDays) return null;
+  return candidate.toISOString().slice(0, 10);
+}
+
 // ---------------------------------------------------------------------------
 // 4. computeAgeGroup — map an age to a display band (BRD §4.7, configurable)
 // ---------------------------------------------------------------------------
@@ -761,6 +796,58 @@ export function pickApplicableStandards(
     const ms = resolveStandardTime(
       rows.filter((r) => r.tier === tier),
       exactAge,
+    );
+    if (ms !== null) out[tier] = ms;
+  }
+  return out;
+}
+
+/** Full display names for the tiers — the one copy every screen shares. */
+export const TIER_FULL: Record<Tier, string> = {
+  SANJ: "SANJ",
+  LEVEL_3: "Level 3",
+  LEVEL_2: "Level 2",
+};
+
+/** Tour dates by tier (ISO YYYY-MM-DD). Absent tier = no tour date set. */
+export type TourDateByTier = Partial<Record<Tier, string>>;
+
+/**
+ * The exact age each tier's cut resolves at for one swimmer (the birthday
+ * rule, per tour): a tier WITH a tour date judges the swimmer at the age they
+ * will be ON TOUR DAY; a tier without one keeps `fallbackAge` (the age the PB
+ * was swum, or today's age — current behaviour, §4.9). With no tour dates at
+ * all this is `fallbackAge` across the board, i.e. exactly today's rule.
+ */
+export function tierResolutionAges(
+  dob: string,
+  fallbackAge: number,
+  tours: TourDateByTier,
+): Record<Tier, number> {
+  const out = {} as Record<Tier, number>;
+  for (const tier of TIER_ORDER) {
+    const tourDate = tours[tier];
+    out[tier] = tourDate !== undefined ? computeAge(dob, tourDate) : fallbackAge;
+  }
+  return out;
+}
+
+/**
+ * `pickApplicableStandards`, but each tier resolves at ITS OWN exact age —
+ * needed once tour dates exist, because different tours fall on different
+ * dates and the swimmer may age up between them. Same output shape, so
+ * `computeMatrixCell` / `highestTierMet` work unchanged; coverage holes are
+ * still omitted, never interpolated.
+ */
+export function pickApplicableStandardsPerTier(
+  rows: ReadonlyArray<StandardCut & { tier: Tier }>,
+  ages: Record<Tier, number>,
+): ApplicableStandards {
+  const out: ApplicableStandards = {};
+  for (const tier of TIER_ORDER) {
+    const ms = resolveStandardTime(
+      rows.filter((r) => r.tier === tier),
+      ages[tier],
     );
     if (ms !== null) out[tier] = ms;
   }

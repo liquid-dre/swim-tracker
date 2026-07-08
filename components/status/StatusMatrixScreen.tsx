@@ -10,13 +10,15 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { StandardsMissing } from "@/components/ui/StandardsMissing";
 import { Select } from "@/components/ui/Select";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { TierBadge } from "@/components/ui/TierBadge";
 import { trailForHref } from "@/lib/nav";
 import { swimmerProfileBase } from "@/lib/swimmerHref";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
-import { DEFAULT_AGE_BANDS, formatTime, type Tier } from "@/lib/swim";
+import { DEFAULT_AGE_BANDS, formatTime, TIER_FULL, type Tier } from "@/lib/swim";
+import { formatShortDate } from "@/lib/format";
 
 /*
   Qualification status matrix (Step 11, BRD §5.7) — the "who's ready for what"
@@ -90,7 +92,9 @@ export function StatusMatrixScreen() {
       />
 
       {/* Slim toolbar: all three cross-cutting filters behind the popover so the
-          matrix itself is the hero. */}
+          matrix itself is the hero. Hidden while the standards-missing guidance
+          shows — three working filters above an unfillable grid only confuse. */}
+      {data !== undefined && !data.hasStandards ? null : (
       <FilterBar
         filters={
           <>
@@ -143,9 +147,41 @@ export function StatusMatrixScreen() {
           setSquad("ALL");
         }}
       />
+      )}
+
+      {/* Resolution context: with tour dates set, those tiers judge at each
+          swimmer's age ON TOUR DAY rather than the age a time was swum. Named,
+          so the coach knows exactly which columns follow which rule. */}
+      {data !== undefined &&
+        data.hasStandards &&
+        (() => {
+          const pinned = (["SANJ", "LEVEL_3", "LEVEL_2"] as const).filter(
+            (t) => data.tourDates[t] !== undefined,
+          );
+          if (pinned.length === 0) return null;
+          return (
+            <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
+              {pinned
+                .map((t) => `${TIER_FULL[t]} (${formatShortDate(data.tourDates[t]!)})`)
+                .join(" and ")}{" "}
+              {pinned.length === 1 ? "is" : "are"} judged at each
+              swimmer&rsquo;s age on tour day
+              {pinned.length < 3 && "; other tiers at the age each time was swum"}
+              .
+            </p>
+          );
+        })()}
 
       {data === undefined ? (
         <MatrixSkeleton />
+      ) : !data.hasStandards ? (
+        // Hold the skeleton until the role is known — never flash viewer copy
+        // at a coach.
+        profile === undefined ? (
+          <MatrixSkeleton />
+        ) : (
+          <StandardsMissing isStaff={showSquad} />
+        )
       ) : rows.length === 0 ? (
         <EmptyState
           title="No swimmers match these filters"

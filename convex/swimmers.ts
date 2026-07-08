@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import {
@@ -22,8 +22,8 @@ const gender = v.union(v.literal("M"), v.literal("F"));
 
 function cleanName(name: string): string {
   const trimmed = name.trim();
-  if (trimmed === "") throw new Error("Name is required.");
-  if (trimmed.length > 120) throw new Error("Name is too long.");
+  if (trimmed === "") throw new ConvexError("Name is required.");
+  if (trimmed.length > 120) throw new ConvexError("Name is too long.");
   return trimmed;
 }
 
@@ -32,16 +32,16 @@ function cleanName(name: string): string {
 function cleanDob(dob: string): string {
   const trimmed = dob.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    throw new Error("Date of birth must be YYYY-MM-DD.");
+    throw new ConvexError("Date of birth must be YYYY-MM-DD.");
   }
   const date = new Date(`${trimmed}T00:00:00Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== trimmed) {
-    throw new Error("That is not a real date.");
+    throw new ConvexError("That is not a real date.");
   }
   const today = new Date().toISOString().slice(0, 10);
   const age = computeAge(trimmed, today);
-  if (age < 0) throw new Error("Date of birth cannot be in the future.");
-  if (age > 120) throw new Error("Please check the date of birth.");
+  if (age < 0) throw new ConvexError("Date of birth cannot be in the future.");
+  if (age > 120) throw new ConvexError("Please check the date of birth.");
   return trimmed;
 }
 
@@ -80,15 +80,15 @@ export const addSwimmer = mutation({
     let clubId: Id<"clubs">;
     if (profile.role === "COACH") {
       if (!profile.clubId) {
-        throw new Error(
+        throw new ConvexError(
           "You aren't assigned to a club yet. Ask an admin to add you to one.",
         );
       }
       clubId = profile.clubId;
     } else {
-      if (!args.clubId) throw new Error("Pick a club for this swimmer.");
+      if (!args.clubId) throw new ConvexError("Pick a club for this swimmer.");
       const club = await ctx.db.get(args.clubId);
-      if (!club) throw new Error("That club no longer exists.");
+      if (!club) throw new ConvexError("That club no longer exists.");
       clubId = args.clubId;
     }
 
@@ -106,7 +106,7 @@ export const addSwimmer = mutation({
       if (existing) {
         const club = existing.clubId ? await ctx.db.get(existing.clubId) : null;
         const where = club ? `in ${club.name}` : "in another club";
-        throw new Error(
+        throw new ConvexError(
           `A swimmer named "${name}" with that date of birth already exists ${where}. Add anyway?`,
         );
       }
@@ -145,7 +145,7 @@ export const updateSwimmer = mutation({
   handler: async (ctx, args) => {
     const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     assertCoachManagesSwimmer(profile, swimmer);
 
     const patch: Partial<{
@@ -170,7 +170,7 @@ export const setSwimmerActive = mutation({
   handler: async (ctx, args) => {
     const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     assertCoachManagesSwimmer(profile, swimmer);
     await ctx.db.patch(args.swimmerId, { active: args.active });
     return null;
@@ -189,9 +189,9 @@ export const reassignSwimmerClub = mutation({
   handler: async (ctx, { swimmerId, clubId }) => {
     await requireSuperUser(ctx);
     const swimmer = await ctx.db.get(swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     const club = await ctx.db.get(clubId);
-    if (!club) throw new Error("That club no longer exists.");
+    if (!club) throw new ConvexError("That club no longer exists.");
     await ctx.db.patch(swimmerId, { clubId });
     return null;
   },

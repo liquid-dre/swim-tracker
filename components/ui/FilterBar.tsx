@@ -17,8 +17,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 
 // The shared trigger-button style so bespoke toolbar popovers (e.g. the
 // Progression group builder) match the built-in Filters button exactly.
+// ≥44px on touch viewports (PRODUCT.md); h-9 from lg up for toolbar density.
 export const toolbarButtonClass =
-  "inline-flex h-9 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
+  "inline-flex h-11 lg:h-9 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
 export function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null;

@@ -2,10 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { ShieldCheck } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
@@ -60,41 +62,95 @@ function viewerLabel(row: AccessRow): string {
 
 export function AccessLogScreen() {
   const pathname = usePathname();
-  const data = useQuery(api.audit.listAccessLog, {});
-  const rows = useMemo<AccessRow[]>(() => data?.rows ?? [], [data]);
 
-  const [swimmer, setSwimmer] = useState("ALL");
-  const [viewer, setViewer] = useState("ALL");
+  const [swimmer, setSwimmer] = useState<"ALL" | Id<"swimmers">>("ALL");
+  const [viewer, setViewer] = useState("ALL"); // "ALL" | viewerEmail
   const [coach, setCoach] = useState("ALL");
   const [status, setStatus] = useState<"ALL" | LinkStatus>("ALL");
   const [type, setType] = useState<"ALL" | AccessEventType>("ALL");
 
-  // Distinct filter options, derived from the log itself.
-  const swimmers = useMemo(
-    () => distinct(rows.map((r) => r.swimmerName)),
-    [rows],
-  );
-  const viewers = useMemo(() => distinct(rows.map(viewerLabel)), [rows]);
-  const coaches = useMemo(
-    () => distinct(rows.map((r) => byAccount(r)?.name ?? "")),
-    [rows],
+  // Swimmer / viewer / event-type filter SERVER-SIDE (full-history search);
+  // changing one restarts pagination from the newest match. Status and the
+  // responsible-coach column are computed per-row, so those two still filter
+  // client-side over the loaded window — the footer says so when they're on.
+  const {
+    results: rows,
+    status: pageStatus,
+    loadMore,
+  } = usePaginatedQuery(
+    api.audit.listAccessLog,
+    {
+      swimmerId: swimmer === "ALL" ? undefined : swimmer,
+      viewerEmail: viewer === "ALL" ? undefined : viewer,
+      type: type === "ALL" ? undefined : type,
+    },
+    { initialNumItems: PAGE },
   );
 
+  // Swimmers get a full option list; viewers are free-text emails, so their
+  // options accumulate from every row seen this session (matching still runs
+  // server-side). Accumulating — never re-derived from the current page —
+  // means picking viewer A can't collapse the list to just A, and narrowing
+  // another filter can't strand the selection as a blank trigger.
+  const swimmerOptions = useQuery(api.swimmers.listSwimmers, {});
+  const [seenViewers, setSeenViewers] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  const [seenCoaches, setSeenCoaches] = useState<Set<string>>(() => new Set());
+  // Merge new rows in with guarded setState DURING render — React's sanctioned
+  // "derive state from props" pattern (same as the matrix snapshot), no effect.
+  {
+    let changed = false;
+    const next = new Map(seenViewers);
+    for (const r of rows) {
+      if (!next.has(r.viewerEmail)) {
+        next.set(r.viewerEmail, viewerLabel(r));
+        changed = true;
+      }
+    }
+    if (changed) setSeenViewers(next);
+  }
+  {
+    let changed = false;
+    const next = new Set(seenCoaches);
+    for (const r of rows) {
+      const name = byAccount(r)?.name;
+      if (name && !next.has(name)) {
+        next.add(name);
+        changed = true;
+      }
+    }
+    if (changed) setSeenCoaches(next);
+  }
+  const viewers = useMemo(
+    () =>
+      [...seenViewers.entries()]
+        .map(([email, label]) => ({ email, label }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [seenViewers],
+  );
+  const coaches = useMemo(
+    () => [...seenCoaches].sort((a, b) => a.localeCompare(b)),
+    [seenCoaches],
+  );
+
+  // The two client-side-only filters.
   const filtered = useMemo(
     () =>
       rows.filter(
         (r) =>
-          (swimmer === "ALL" || r.swimmerName === swimmer) &&
-          (viewer === "ALL" || viewerLabel(r) === viewer) &&
           (coach === "ALL" || byAccount(r)?.name === coach) &&
-          (status === "ALL" || r.status === status) &&
-          (type === "ALL" || r.type === type),
+          (status === "ALL" || r.status === status),
       ),
-    [rows, swimmer, viewer, coach, status, type],
+    [rows, coach, status],
   );
 
   const secondaryCount = (status !== "ALL" ? 1 : 0) + (type !== "ALL" ? 1 : 0);
-  const loading = data === undefined;
+  const filtering =
+    swimmer !== "ALL" || viewer !== "ALL" || coach !== "ALL" || secondaryCount > 0;
+  // Only these two can under-report while older pages remain un-loaded.
+  const clientFiltering = coach !== "ALL" || status !== "ALL";
+  const loading = pageStatus === "LoadingFirstPage";
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -111,10 +167,13 @@ export function AccessLogScreen() {
               <Select
                 aria-label="Filter by swimmer"
                 value={swimmer}
-                onValueChange={setSwimmer}
+                onValueChange={(v) => setSwimmer(v as "ALL" | Id<"swimmers">)}
                 options={[
                   { value: "ALL", label: "All swimmers" },
-                  ...swimmers.map((s) => ({ value: s, label: s })),
+                  ...(swimmerOptions ?? []).map((s) => ({
+                    value: s._id,
+                    label: s.name,
+                  })),
                 ]}
               />
             </div>
@@ -125,7 +184,7 @@ export function AccessLogScreen() {
                 onValueChange={setViewer}
                 options={[
                   { value: "ALL", label: "All viewers" },
-                  ...viewers.map((v) => ({ value: v, label: v })),
+                  ...viewers.map((v) => ({ value: v.email, label: v.label })),
                 ]}
               />
             </div>
@@ -183,10 +242,24 @@ export function AccessLogScreen() {
       {loading ? (
         <TableSkeleton />
       ) : rows.length === 0 ? (
-        <EmptyState
-          title="No access events yet"
-          body="When you invite a viewer, or someone claims or loses access, it will be recorded here."
-        />
+        pageStatus !== "Exhausted" ? (
+          // A page can come back empty while older history remains — never
+          // claim the search is done while Load-older can still find matches.
+          <EmptyState
+            title="No matches in the newest events yet"
+            body="Older history hasn't been searched — use “Load older events” below to keep looking."
+          />
+        ) : filtering ? (
+          <EmptyState
+            title="No events match these filters"
+            body="The whole history was searched. Clear a filter to see more of the access record."
+          />
+        ) : (
+          <EmptyState
+            title="No access events yet"
+            body="When you invite a viewer, or someone claims or loses access, it will be recorded here."
+          />
+        )
       ) : (
         <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
           <div className="relative overflow-x-auto custom-scrollbar">
@@ -259,28 +332,50 @@ export function AccessLogScreen() {
                 No events match these filters
               </p>
               <p className="mx-auto mt-1 max-w-[40ch] text-sm text-ink-muted">
-                Clear a filter to see more of the access history.
+                Clear a filter to see more of the access record.
               </p>
             </div>
           )}
         </div>
       )}
 
-      {!loading && rows.length > 0 && (
-        <p className="px-1 text-xs text-ink-faint">
-          {filtered.length} of {rows.length}{" "}
-          {rows.length === 1 ? "event" : "events"}
-        </p>
+      {!loading && (rows.length > 0 || pageStatus !== "Exhausted") && (
+        <div className="flex items-center justify-between gap-4 px-1">
+          <p className="text-xs text-ink-faint">
+            {/* Status / coach filter client-side over the loaded window — say
+                so (naming only the active one) while older rows remain, or a
+                filtered read looks complete when it isn't. The other filters
+                search the full history. */}
+            {clientFiltering && pageStatus !== "Exhausted"
+              ? `${filtered.length} matching — the ${[
+                  status !== "ALL" && "status",
+                  coach !== "ALL" && "coach",
+                ]
+                  .filter(Boolean)
+                  .join(" and ")} filter only searched the ${rows.length} loaded events`
+              : `${filtered.length}${filtered.length !== rows.length ? ` of ${rows.length}` : ""} ${
+                  filtering ? "matching " : ""
+                }${rows.length === 1 ? "event" : "events"}${pageStatus !== "Exhausted" ? " loaded" : ""}`}
+            {" · newest first"}
+          </p>
+          {pageStatus !== "Exhausted" && (
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={pageStatus === "LoadingMore"}
+              onClick={() => loadMore(PAGE)}
+            >
+              Load older events
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-function distinct(values: string[]): string[] {
-  return [...new Set(values.filter((v) => v.trim() !== ""))].sort((a, b) =>
-    a.localeCompare(b),
-  );
-}
+// Page size: a meaningful first window of history, small enough to stay snappy.
+const PAGE = 300;
 
 function Th({
   children,

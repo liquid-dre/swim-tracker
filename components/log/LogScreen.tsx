@@ -1,12 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
-import { Timer, Trash2 } from "lucide-react";
+import { Check, Timer, Trash2 } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
 import { DateField } from "@/components/ui/DateField";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -14,7 +16,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { errorMessage, notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
-import { computeAge, STROKE_LABEL, type Course, type Stroke } from "@/lib/swim";
+import { computeAge, STROKE_LABEL, TIER_FULL, type Course, type Stroke } from "@/lib/swim";
 import { galaForDate } from "@/lib/galaCalendar";
 import { parseDigits, TimeField } from "./TimeField";
 import { EventSelectors, isValidEventTriple } from "./EventSelectors";
@@ -28,6 +30,7 @@ type SavedEntry = {
   course: Course;
   swimType: SwimType;
   time: string;
+  newPb: boolean;
 };
 
 export function LogScreen({
@@ -92,6 +95,17 @@ export function LogScreen({
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [recent, setRecent] = useState<SavedEntry[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState<SavedEntry | null>(null);
+  // Brief post-save check on the button itself (the toast can be off-glance
+  // poolside); cleared on unmount so the timeout never fires into a dead tree.
+  const [justSaved, setJustSaved] = useState(false);
+  const savedTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (savedTimer.current !== null) window.clearTimeout(savedTimer.current);
+    },
+    [],
+  );
 
   const timeRef = useRef<HTMLInputElement>(null);
 
@@ -125,7 +139,7 @@ export function LogScreen({
     setSaving(true);
     setServerError(null);
     try {
-      const id = await logResult({
+      const saved = await logResult({
         swimmerId,
         distance: distance as 25 | 50 | 100 | 200 | 400 | 800 | 1500,
         stroke,
@@ -140,18 +154,33 @@ export function LogScreen({
       setRecent((prev) =>
         [
           {
-            id,
+            id: saved.resultId,
             swimmer: selectedSwimmer?.name ?? "Swimmer",
             event: `${distance} ${STROKE_LABEL[stroke]}`,
             course,
             swimType,
             time: parsedTime.text!,
+            newPb: saved.newPb,
           },
           ...prev,
         ].slice(0, 6),
       );
 
-      notify.success("Time saved");
+      // Say what the swim MEANT when it meant something — plain and specific,
+      // never a generic cheer (PRODUCT.md).
+      const firstName = (selectedSwimmer?.name ?? "Swimmer").split(" ")[0];
+      const eventName = `${distance} ${STROKE_LABEL[stroke]}`;
+      notify.success(
+        saved.newlyMetTier
+          ? `Meets the ${TIER_FULL[saved.newlyMetTier]} cut — ${firstName}'s new ${eventName} PB`
+          : saved.newPb
+            ? `New ${eventName} PB for ${firstName}`
+            : "Time saved",
+      );
+      // A brief on-button confirmation at the point of action.
+      setJustSaved(true);
+      if (savedTimer.current !== null) window.clearTimeout(savedTimer.current);
+      savedTimer.current = window.setTimeout(() => setJustSaved(false), 1200);
       // Stay on the form for the next swim: keep swimmer, event, type, meet and
       // date; clear only the per-swim time and notes and re-focus the anchor, so
       // logging the next swimmer at the same meet is just swimmer + time.
@@ -165,14 +194,12 @@ export function LogScreen({
     }
   }
 
+  // Deleting a result is irreversible, so it confirms like every other delete
+  // in the app; ConfirmDialog owns the pending/error state.
   async function onDeleteRecent(entry: SavedEntry) {
-    try {
-      await deleteResult({ resultId: entry.id });
-      setRecent((prev) => prev.filter((r) => r.id !== entry.id));
-      notify.success("Entry removed");
-    } catch (err) {
-      notify.error(err);
-    }
+    await deleteResult({ resultId: entry.id });
+    setRecent((prev) => prev.filter((r) => r.id !== entry.id));
+    notify.success("Entry removed");
   }
 
   const loading = swimmers === undefined || events === undefined;
@@ -243,7 +270,15 @@ export function LogScreen({
             {/* Desktop submit; the sticky bar below covers mobile. */}
             <div className="hidden lg:block">
               <Button type="submit" size="md" disabled={!canSave} loading={saving}>
-                <Timer className="size-4" /> Save time
+                {justSaved ? (
+                  <>
+                    <Check className="size-4" /> Saved
+                  </>
+                ) : (
+                  <>
+                    <Timer className="size-4" /> Save time
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -306,13 +341,39 @@ export function LogScreen({
           {/* Mobile sticky save bar — always in thumb reach. */}
           <div className="sticky bottom-0 -mx-4 border-t border-border bg-bg/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-bg/80 lg:hidden">
             <Button type="submit" size="md" className="w-full" disabled={!canSave} loading={saving}>
-              <Timer className="size-4" /> Save time
+              {justSaved ? (
+                <>
+                  <Check className="size-4" /> Saved
+                </>
+              ) : (
+                <>
+                  <Timer className="size-4" /> Save time
+                </>
+              )}
             </Button>
           </div>
         </form>
       )}
 
-      {recent.length > 0 && <RecentList entries={recent} onDelete={onDeleteRecent} />}
+      {recent.length > 0 && (
+        <RecentList entries={recent} onDelete={setConfirmDelete} />
+      )}
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirmDelete(null);
+        }}
+        title="Delete this time?"
+        description={
+          confirmDelete
+            ? `${confirmDelete.swimmer} — ${confirmDelete.event} (${confirmDelete.course}), ${confirmDelete.time}. This can't be undone.`
+            : ""
+        }
+        onConfirm={async () => {
+          if (confirmDelete) await onDeleteRecent(confirmDelete);
+        }}
+      />
     </div>
   );
 }
@@ -381,6 +442,14 @@ function RecentList({
                   )}
                 </p>
               </div>
+              {r.newPb && (
+                <span
+                  className="animate-pb-pop rounded-md bg-brand-50 px-1.5 py-0.5 text-xs font-semibold text-brand-500"
+                  title="New personal best — fastest meet time on this event"
+                >
+                  PB
+                </span>
+              )}
               <span className="time text-md font-medium tabular-nums text-ink">
                 {r.time}
               </span>
@@ -388,7 +457,7 @@ function RecentList({
                 type="button"
                 aria-label={`Remove ${r.swimmer} ${r.event}`}
                 onClick={() => onDelete(r)}
-                className="inline-flex size-8 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-danger-ink focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex size-11 lg:size-8 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-danger-ink focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Trash2 className="size-4" />
               </button>
@@ -410,9 +479,9 @@ function EmptyRoster() {
           Add a swimmer on the Roster screen first, then come back to log their times.
         </p>
       </div>
-      <Button variant="secondary" size="sm" onClick={() => (window.location.href = "/swimmers")}>
+      <Link href="/swimmers" className={buttonClasses("secondary", "sm")}>
         Go to roster
-      </Button>
+      </Link>
     </div>
   );
 }

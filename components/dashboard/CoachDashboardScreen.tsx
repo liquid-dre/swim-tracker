@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
   BarChart3,
@@ -55,8 +56,25 @@ export function CoachDashboardScreen() {
   // (where you are); the h1 greets by first name at the coach's local time.
   const greeting = useGreeting(profile?.name);
 
+  // Stamp this visit ONCE and hold the previous visit in state — the anchor
+  // for "since you were last here". State (not the live profile field) keeps
+  // the window stable while the reactive query refreshes; the ref guards
+  // strict-mode's double effect from stamping twice and zeroing the window.
+  const beginSession = useMutation(api.profiles.beginSession);
+  const [digestSince, setDigestSince] = useState<number | null | undefined>(
+    undefined,
+  );
+  const stamped = useRef(false);
+  useEffect(() => {
+    if (stamped.current) return;
+    stamped.current = true;
+    void beginSession({}).then(setDigestSince).catch(() => setDigestSince(null));
+  }, [beginSession]);
+
   // The squad overview — one derived read, coach-scoped server-side.
-  const dashboard = useQuery(api.dashboard.getCoachDashboard, {});
+  const dashboard = useQuery(api.dashboard.getCoachDashboard, {
+    digestSince: digestSince ?? undefined,
+  });
 
   return (
     <div className="flex flex-col gap-8">
@@ -66,6 +84,32 @@ export function CoachDashboardScreen() {
         breadcrumb={trailForHref("/dashboard")}
         description="Log a swim and jump into your squad's readiness. Times you log flow straight into progression, the status matrix and the road to every cut."
       />
+
+      {/* What changed while the coach was away — one calm, specific line.
+          Silent when nothing happened; never a placeholder. */}
+      {dashboard?.digest &&
+        (dashboard.digest.swimsLogged > 0 ||
+          dashboard.digest.newPbSwimmers.length > 0) && (
+          <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
+            Since your last visit:{" "}
+            {[
+              dashboard.digest.newPbSwimmers.length > 0 &&
+                `${dashboard.digest.newPbSwimmers.length} new lifetime ${
+                  dashboard.digest.newPbSwimmers.length === 1 ? "best" : "bests"
+                } (${dashboard.digest.newPbSwimmers.slice(0, 3).join(", ")}${
+                  dashboard.digest.newPbSwimmers.length > 3
+                    ? ` +${dashboard.digest.newPbSwimmers.length - 3} more`
+                    : ""
+                })`,
+              `${dashboard.digest.swimsLogged} ${
+                dashboard.digest.swimsLogged === 1 ? "swim" : "swims"
+              } logged`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+            .
+          </p>
+        )}
 
       {/* Squad at a glance — headline counts across the roster. */}
       <SquadStats data={dashboard} />

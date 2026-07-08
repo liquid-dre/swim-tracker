@@ -1,6 +1,6 @@
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { computeAge, parseTime } from "../lib/swim";
 
@@ -212,14 +212,14 @@ export const setupRuvarashe = internalMutation({
       s.name.toLowerCase().includes("ruvarashe"),
     );
     if (matches.length === 0) {
-      throw new Error(
+      throw new ConvexError(
         `No swimmer whose name contains "Ruvarashe" was found. Existing swimmers: ${allSwimmers
           .map((s) => s.name)
           .join(", ")}`,
       );
     }
     if (matches.length > 1) {
-      throw new Error(
+      throw new ConvexError(
         `More than one swimmer matches "Ruvarashe": ${matches
           .map((s) => s.name)
           .join(", ")}. Rename so exactly one matches, then re-run.`,
@@ -235,7 +235,7 @@ export const setupRuvarashe = internalMutation({
       profiles.find((p) => p.role === "COACH")?._id ??
       profiles[0]?._id;
     if (!enteredBy) {
-      throw new Error("No profile exists to attribute the results to.");
+      throw new ConvexError("No profile exists to attribute the results to.");
     }
 
     // 3. Replace Ruvarashe's results (clear first → idempotent re-runs).

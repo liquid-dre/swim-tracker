@@ -3,11 +3,13 @@ import {
   Award,
   BarChart3,
   Building2,
+  CalendarDays,
   ClipboardList,
   Gauge,
   Grid3x3,
   LayoutDashboard,
   LineChart,
+  Plane,
   Radar,
   Ruler,
   ScrollText,
@@ -134,6 +136,7 @@ export const NAV: NavNode[] = [
     items: [
       { label: "Status matrix", href: "/status", icon: Grid3x3 },
       { label: "Road to qualify", href: "/road", icon: Target },
+      { label: "Tour qualification", href: "/qualification", icon: Plane },
       { label: "Standards", href: "/standards", icon: Ruler },
     ],
   },
@@ -157,7 +160,10 @@ export const NAV: NavNode[] = [
     label: "Admin",
     icon: Shield,
     roles: ["SUPER_USER"],
-    items: [{ label: "Clubs & coaches", href: "/admin/clubs", icon: Building2 }],
+    items: [
+      { label: "Clubs & coaches", href: "/admin/clubs", icon: Building2 },
+      { label: "Tour dates", href: "/admin/tours", icon: CalendarDays },
+    ],
   },
 ];
 

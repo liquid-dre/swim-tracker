@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { assertCoachManagesSwimmer, requireCoach } from "./authz";
 
@@ -7,8 +7,8 @@ import { assertCoachManagesSwimmer, requireCoach } from "./authz";
 
 function cleanName(name: string): string {
   const trimmed = name.trim();
-  if (trimmed === "") throw new Error("Squad name is required.");
-  if (trimmed.length > 80) throw new Error("Squad name is too long.");
+  if (trimmed === "") throw new ConvexError("Squad name is required.");
+  if (trimmed.length > 80) throw new ConvexError("Squad name is too long.");
   return trimmed;
 }
 
@@ -44,7 +44,7 @@ export const updateSquad = mutation({
   handler: async (ctx, args) => {
     await requireCoach(ctx);
     const squad = await ctx.db.get(args.squadId);
-    if (!squad) throw new Error("Squad not found.");
+    if (!squad) throw new ConvexError("Squad not found.");
     const patch: Partial<{ name: string; description: string | undefined }> = {};
     if (args.name !== undefined) patch.name = cleanName(args.name);
     if (args.description !== undefined)
@@ -76,10 +76,10 @@ export const addToSquad = mutation({
   handler: async (ctx, args) => {
     const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     assertCoachManagesSwimmer(profile, swimmer);
     const squad = await ctx.db.get(args.squadId);
-    if (!squad) throw new Error("Squad not found.");
+    if (!squad) throw new ConvexError("Squad not found.");
 
     // Idempotent: don't create a duplicate membership.
     const existing = await ctx.db
@@ -102,7 +102,7 @@ export const removeFromSquad = mutation({
   handler: async (ctx, args) => {
     const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     assertCoachManagesSwimmer(profile, swimmer);
     const memberships = await ctx.db
       .query("squadMemberships")

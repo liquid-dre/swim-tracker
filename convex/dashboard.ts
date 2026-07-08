@@ -6,13 +6,15 @@ import {
   computeMatrixCell,
   computePersonalBests,
   eventSortKey,
-  pickApplicableStandards,
+  pickApplicableStandardsPerTier,
+  tierResolutionAges,
   type Distance,
   type ResultForPB,
   type StandardCut,
   type Stroke,
   type Tier,
 } from "../lib/swim";
+import { loadTourDates } from "./tours";
 
 /*
   Coach dashboard squad overview (the "punchy home" — the vibrance revamp). One
@@ -85,7 +87,11 @@ const rosterRow = v.object({
 const TIER_RANK: Record<Tier, number> = { SANJ: 3, LEVEL_3: 2, LEVEL_2: 1 };
 
 export const getCoachDashboard = query({
-  args: {},
+  args: {
+    // The coach's PREVIOUS visit (from profiles.beginSession) — anchors the
+    // "since you were last here" digest. Omitted = no digest (first visit).
+    digestSince: v.optional(v.number()),
+  },
   returns: v.object({
     counts: v.object({
       swimmers: v.number(), // active swimmers
@@ -93,9 +99,24 @@ export const getCoachDashboard = query({
       cutsQualified: v.number(), // swimmer×event cells with a tier met (LCM)
       closeToCut: v.number(), // swimmers within 1.00s of a next cut
     }),
+    // First-run signals: which setup steps (swimmers → standards → results)
+    // still need doing. Drives the dashboard checklist for a new coach.
+    setup: v.object({
+      hasStandards: v.boolean(),
+      hasResults: v.boolean(),
+    }),
+    // What changed since the coach's previous visit; null without an anchor.
+    digest: v.union(
+      v.null(),
+      v.object({
+        // Swimmers whose CURRENT headline PB was logged since the last visit.
+        newPbSwimmers: v.array(v.string()),
+        swimsLogged: v.number(),
+      }),
+    ),
     roster: v.array(rosterRow),
   }),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     await requireCoach(ctx);
 
     const today = new Date().toISOString().slice(0, 10);
@@ -105,6 +126,7 @@ export const getCoachDashboard = query({
 
     // Cuts, loaded once and grouped by (gender|distance|stroke); each swimmer
     // resolves to their exact age. Small table at club scale.
+    const tourDates = await loadTourDates(ctx);
     const allStandards = await ctx.db
       .query("standards")
       .take(DASH_STANDARDS_LIMIT);
@@ -133,6 +155,9 @@ export const getCoachDashboard = query({
     let pbsThisWeek = 0;
     let cutsQualified = 0;
     let closeToCut = 0;
+    let hasResults = false;
+    let digestSwims = 0;
+    const digestPbSwimmers: string[] = [];
     const roster = [];
 
     for (const swimmer of swimmers) {
@@ -142,6 +167,28 @@ export const getCoachDashboard = query({
         .take(SWIMMER_RESULTS_LIMIT);
       const pbs = computePersonalBests(results as ResultForPB[]);
       const age = computeAge(swimmer.dob, today); // display age (as of today)
+      if (results.length > 0) hasResults = true;
+
+      // Digest: swims logged since the last visit, and whether any CURRENT
+      // headline PB is among them (i.e. a lifetime best set while away).
+      if (args.digestSince !== undefined) {
+        let newPb = false;
+        for (const r of results) {
+          if (r.createdAt <= args.digestSince) continue;
+          digestSwims += 1;
+          if (r.swimType !== "MEET" || newPb) continue;
+          newPb = pbs.some(
+            (pb) =>
+              pb.headline !== null &&
+              pb.distance === r.distance &&
+              pb.stroke === r.stroke &&
+              pb.course === r.course &&
+              pb.headline.timeMs === r.timeMs &&
+              pb.headline.swimDate === r.swimDate,
+          );
+        }
+        if (newPb) digestPbSwimmers.push(swimmer.name);
+      }
 
       // "PBs this week": any headline (fastest-ever MEET) whose date is inside the
       // window — i.e. the swimmer set a new lifetime best this week (any course).
@@ -164,11 +211,12 @@ export const getCoachDashboard = query({
 
       for (const pb of pbs) {
         if (pb.course !== "LCM" || !pb.headline) continue;
-        // Judge each PB against the cut for the swimmer's age AT THE GALA where it
-        // was swum (§4.9), not their age today.
-        const applicable = pickApplicableStandards(
+        // Same rule as the status matrix: tiers WITH a tour date judge at the
+        // swimmer's age on tour day; the rest at the age the PB was swum
+        // (§4.9) — never their age today.
+        const applicable = pickApplicableStandardsPerTier(
           cutsByEvent.get(`${swimmer.gender}|${pb.distance}|${pb.stroke}`) ?? [],
-          pb.headline.ageAtSwim ?? age,
+          tierResolutionAges(swimmer.dob, pb.headline.ageAtSwim ?? age, tourDates),
         );
         const cell = computeMatrixCell(pb.headline.timeMs, applicable);
         if (cell.tier !== null) cutsQualified += 1;
@@ -224,6 +272,14 @@ export const getCoachDashboard = query({
         cutsQualified,
         closeToCut,
       },
+      setup: {
+        hasStandards: allStandards.length > 0,
+        hasResults,
+      },
+      digest:
+        args.digestSince === undefined
+          ? null
+          : { newPbSwimmers: digestPbSwimmers, swimsLogged: digestSwims },
       roster,
     };
   },

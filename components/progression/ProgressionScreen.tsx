@@ -276,7 +276,7 @@ export function ProgressionScreen() {
                   onClick={() => setShowNotes((v) => !v)}
                   aria-pressed={showNotes}
                   className={
-                    "inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
+                    "inline-flex h-11 lg:h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
                     (showNotes
                       ? "border-brand-200 bg-brand-50 text-brand-600"
                       : "border-gray-200 bg-white text-ink-muted hover:bg-surface-2")
@@ -346,6 +346,7 @@ export function ProgressionScreen() {
                 : null
             }
             noteMarkers={single && showNotes ? noteMarkers : undefined}
+            tourDates={data.tourDates}
           />
         </section>
       )}
@@ -459,7 +460,7 @@ function GroupPicker({
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Search swimmers"
-          className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
+          className="h-11 lg:h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-sm text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
         />
       </div>
 

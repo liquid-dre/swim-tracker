@@ -59,7 +59,9 @@ export function Select({
         data-slot="select-trigger"
         className={cn(
           "group inline-flex w-full items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-ink-faint",
-          size === "sm" ? "h-9 px-3 text-sm" : "h-11 px-3 text-base",
+          // "sm" is still ≥44px on touch viewports (PRODUCT.md), compacting
+          // to h-9 only in the dense lg+ toolbars.
+          size === "sm" ? "h-11 px-3 text-sm lg:h-9" : "h-11 px-3 text-base",
           className,
         )}
       >

@@ -62,9 +62,29 @@ export default defineSchema({
     ),
     // The club a COACH manages (their edit scope). Unset for SUPER_USER/VIEWER.
     clubId: v.optional(v.id("clubs")),
+    // Last dashboard visit (epoch ms) — anchors the "since you were last
+    // here" digest. Unset until the first visit.
+    lastSeenAt: v.optional(v.number()),
   })
     .index("by_authId", ["authId"])
-    .index("by_club", ["clubId"]),
+    .index("by_club", ["clubId"])
+    // Email is normalised (trimmed, lowercased) at write time; lookups rely on that.
+    .index("by_email", ["email"]),
+
+  // Tour dates (docs/access-control.md: super-user writes, every role reads).
+  // One row per tier: the date of that tier's tour/meet. When set, every
+  // qualifying surface judges swimmers against the cut for the age they will
+  // be ON TOUR DAY (the birthday rule); with no row, resolution stays at the
+  // age the PB was swum (§4.9). `name` is display-only ("SANJ Nationals").
+  tours: defineTable({
+    tier: v.union(
+      v.literal("LEVEL_2"),
+      v.literal("LEVEL_3"),
+      v.literal("SANJ"),
+    ),
+    date: v.string(), // ISO YYYY-MM-DD
+    name: v.optional(v.string()),
+  }).index("by_tier", ["tier"]),
 
   swimmers: defineTable({
     name: v.string(),

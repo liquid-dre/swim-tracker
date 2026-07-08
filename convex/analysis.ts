@@ -8,6 +8,7 @@ import {
 } from "./authz";
 import {
   computeAge,
+  recentBirthday,
   computeAgeGroup,
   computeCalibratedRadius,
   computeMatrixCell,
@@ -17,15 +18,24 @@ import {
   eventLabel,
   eventSortKey,
   highestTierMet,
-  pickApplicableStandards,
+  pickApplicableStandardsPerTier,
   resolveStandardTime,
   rollingSeasonStart,
   tierCoversEvent,
+  tierResolutionAges,
   type ResultForPB,
   type SeasonSwim,
   type StandardCut,
   type Tier,
 } from "../lib/swim";
+import { loadTourDates } from "./tours";
+
+// Tour dates by tier, as returned to screens that explain their resolution.
+const tourDatesValidator = v.object({
+  LEVEL_2: v.optional(v.string()),
+  LEVEL_3: v.optional(v.string()),
+  SANJ: v.optional(v.string()),
+});
 
 // Base analysis reads (BRD §5.5–5.6, Step 7). Two derived views over `results`:
 //   • getEventComparison — a leaderboard of headline MEET PBs for one event.
@@ -124,6 +134,9 @@ export const getEventComparison = query({
   returns: v.object({
     event: eventSummary,
     rows: v.array(comparisonRow),
+    // True when the event's result scan hit its cap — some swimmers' older
+    // results were not considered, so the leaderboard may be incomplete.
+    truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
     // Role-scoped. A coach / super-user sees the full cross-roster leaderboard;
@@ -132,6 +145,7 @@ export const getEventComparison = query({
     // returns "ALL" for staff, so their leaderboard is unchanged.
     const { swimmerIds } = await accessibleSwimmerIds(ctx);
     const accessible = swimmerIds === "ALL" ? null : new Set(swimmerIds);
+    const tourDates = await loadTourDates(ctx);
 
     const results = await ctx.db
       .query("results")
@@ -213,13 +227,15 @@ export const getEventComparison = query({
       if (args.ageGroup && band !== args.ageGroup) continue;
 
       const age = computeAge(swimmer.dob, today); // display age (as of today)
-      // Match the cut to the swimmer's age AT THE GALA where the PB was swum
-      // (§4.9) — a time set at 13 is judged against the 13-year-old cut, and that
-      // qualification stands even once the swimmer has turned 14. Applied on both
-      // courses (SCM reuses the long-course cut when no SCM-specific cut exists).
-      const cuts = pickApplicableStandards(
+      // Tiers WITH a tour date judge at the age the swimmer will be on tour
+      // day; the rest match the cut to the swimmer's age AT THE GALA where the
+      // PB was swum (§4.9) — a time set at 13 is judged against the
+      // 13-year-old cut, and that qualification stands even once the swimmer
+      // has turned 14. Applied on both courses (SCM reuses the long-course cut
+      // when no SCM-specific cut exists).
+      const cuts = pickApplicableStandardsPerTier(
         await loadCuts(swimmer.gender),
-        best.ageAtSwim,
+        tierResolutionAges(swimmer.dob, best.ageAtSwim, tourDates),
       );
       const highestTier: Tier | null = highestTierMet(best.timeMs, cuts);
 
@@ -253,6 +269,7 @@ export const getEventComparison = query({
         label: eventLabel(args.distance, args.stroke),
       },
       rows,
+      truncated: results.length === EVENT_RESULTS_LIMIT,
     };
   },
 });
@@ -322,6 +339,10 @@ export const getProgression = query({
     // Projections are coach-only (docs/access-control.md) — the client shows the
     // time-to-qualify control only when this is true.
     canSeeProjections: v.boolean(),
+    // Tour dates by tier: the projection targets the cut for the swimmer's
+    // age on tour day where one is set. (The historical stepped overlay
+    // deliberately stays age-as-of-each-date — it describes the past.)
+    tourDates: tourDatesValidator,
   }),
   handler: async (ctx, args) => {
     // De-dupe and cap so a squad with repeats or a huge selection stays bounded.
@@ -467,6 +488,7 @@ export const getProgression = query({
       // Projections are staff-only (docs/access-control.md): coaches and the
       // super-user, never a viewer — not even for their own swimmer.
       canSeeProjections: staff,
+      tourDates: await loadTourDates(ctx),
     };
   },
 });
@@ -523,11 +545,17 @@ export const getQualificationMatrix = query({
   returns: v.object({
     events: v.array(matrixEvent), // LCM columns, canonical 50→1500 order
     rows: v.array(matrixRow),
+    // False until any cuts are imported — the screen explains the blank matrix
+    // and points a coach at Standards instead of looking broken.
+    hasStandards: v.boolean(),
+    // Which tiers are judged at age-on-tour-day (the screen says so).
+    tourDates: tourDatesValidator,
   }),
   handler: async (ctx, args) => {
     // Role-scoped. Staff get the full roster (optionally squad-filtered); a
     // viewer gets a matrix of only their linked swimmer(s).
     const { swimmerIds } = await accessibleSwimmerIds(ctx);
+    const tourDates = await loadTourDates(ctx);
 
     // Columns: the active LCM events (standards are LCM-only), canonical order.
     const allEvents = await ctx.db.query("events").take(200);
@@ -621,13 +649,14 @@ export const getQualificationMatrix = query({
       const cells = lcmEvents.map((e) => {
         const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
         const pbMs = pb ? pb.timeMs : null;
-        // Judge the PB against the cut for the swimmer's age AT THAT GALA (§4.9);
-        // with no PB yet, fall back to today's age so an aspirational target still
-        // resolves for the (blank) cell.
-        const cutAge = pb?.ageAtSwim ?? age;
-        const applicable = pickApplicableStandards(
+        // Tiers WITH a tour date judge at the swimmer's age ON TOUR DAY; the
+        // rest judge the PB against the cut for the age AT THAT GALA (§4.9),
+        // falling back to today's age with no PB so an aspirational target
+        // still resolves for the (blank) cell.
+        const fallbackAge = pb?.ageAtSwim ?? age;
+        const applicable = pickApplicableStandardsPerTier(
           cutsByEvent.get(`${swimmer.gender}|${e.distance}|${e.stroke}`) ?? [],
-          cutAge,
+          tierResolutionAges(swimmer.dob, fallbackAge, tourDates),
         );
         const cell = computeMatrixCell(pbMs, applicable);
         return {
@@ -660,6 +689,8 @@ export const getQualificationMatrix = query({
         label: e.label,
       })),
       rows,
+      hasStandards: allStandards.length > 0,
+      tourDates,
     };
   },
 });
@@ -720,6 +751,24 @@ export const getRoadToQualify = query({
       }),
       tier,
       events: v.array(roadEvent),
+      // False when no cuts exist for this swimmer's gender at all — the screen
+      // explains the empty road instead of looking broken.
+      hasStandards: v.boolean(),
+      // ISO date of the swimmer's birthday when it fell in the last 30 days —
+      // the screen notes which cuts moved. Null (suppressed) when this tier
+      // has a tour date: cuts are pinned to age-on-tour-day, so a birthday
+      // changes nothing here. Never the raw dob.
+      agedUpAt: v.union(v.string(), v.null()),
+      // This tier's tour, when the super-user has set one — the screen says
+      // "judged at age on tour day" with the name/date.
+      tour: v.union(
+        v.null(),
+        v.object({
+          name: v.union(v.string(), v.null()),
+          date: v.string(),
+          ageAtTour: v.number(),
+        }),
+      ),
     }),
   ),
   handler: async (ctx, { swimmerId, tier: targetTier }) => {
@@ -782,15 +831,28 @@ export const getRoadToQualify = query({
       }
     }
 
+    // With a tour date for this tier, EVERY cut resolves at the age the
+    // swimmer will be on tour day — the question this screen answers becomes
+    // "can they go?". Without one, judge each PB at the age it was swum
+    // (§4.9), today's age when no PB yet.
+    const tourDates = await loadTourDates(ctx);
+    const tourDate = tourDates[targetTier];
+    const tourAge = tourDate !== undefined ? computeAge(swimmer.dob, tourDate) : null;
+    const tourRow =
+      tourDate !== undefined
+        ? await ctx.db
+            .query("tours")
+            .withIndex("by_tier", (q) => q.eq("tier", targetTier))
+            .unique()
+        : null;
+
     const events = [];
     for (const e of lcmEvents) {
       // Coverage is a HARD rule (§4.9): only render where the tier covers this
       // event AND a cut actually resolves for the applicable age.
       if (!tierCoversEvent(targetTier, e.distance, e.stroke)) continue;
       const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
-      // Judge the PB against the cut for the swimmer's age AT THE GALA where it
-      // was swum (§4.9); with no PB yet, use today's age so the target still shows.
-      const cutAge = pb?.ageAtSwim ?? age;
+      const cutAge = tourAge ?? pb?.ageAtSwim ?? age;
       const cutMs = resolveStandardTime(
         cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [],
         cutAge,
@@ -839,6 +901,12 @@ export const getRoadToQualify = query({
       },
       tier: targetTier,
       events: [...withTime, ...noTime],
+      hasStandards: allStandards.length > 0,
+      agedUpAt: tourAge !== null ? null : recentBirthday(swimmer.dob, today),
+      tour:
+        tourAge !== null && tourDate !== undefined
+          ? { name: tourRow?.name ?? null, date: tourDate, ageAtTour: tourAge }
+          : null,
     };
   },
 });
@@ -901,6 +969,14 @@ export const getStrokeProfile = query({
         active: v.boolean(),
       }),
       events: v.array(strokeProfileEvent),
+      // False when no cuts exist for this swimmer's gender — callers show the
+      // standards-missing guidance instead of a shrugging empty state.
+      hasStandards: v.boolean(),
+      // See getRoadToQualify — birthday within the last 30 days, else null.
+      agedUpAt: v.union(v.string(), v.null()),
+      // Which tiers are pinned to a tour day, so the age-up note can say
+      // which cuts a birthday does NOT move.
+      tourDates: tourDatesValidator,
     }),
   ),
   handler: async (ctx, { swimmerId }) => {
@@ -962,16 +1038,18 @@ export const getStrokeProfile = query({
       }
     }
 
+    const tourDates = await loadTourDates(ctx);
+
     const events = [];
     for (const e of lcmEvents) {
       const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
-      // Rings are calibrated to the cut for the swimmer's age AT THE GALA where
-      // the PB was swum (§4.9); with no PB, use today's age so an event with a cut
-      // still shows its (empty) rings.
-      const cutAge = pb?.ageAtSwim ?? age;
-      const applicable = pickApplicableStandards(
+      // Tiers WITH a tour date calibrate to the cut for the age the swimmer
+      // will be on tour day; the rest calibrate to the cut for the age AT THE
+      // GALA where the PB was swum (§4.9) — today's age with no PB, so an
+      // event with a cut still shows its (empty) rings.
+      const applicable = pickApplicableStandardsPerTier(
         cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [],
-        cutAge,
+        tierResolutionAges(swimmer.dob, pb?.ageAtSwim ?? age, tourDates),
       );
       const l2Ms = applicable.LEVEL_2 ?? null;
       const l3Ms = applicable.LEVEL_3 ?? null;
@@ -1019,6 +1097,16 @@ export const getStrokeProfile = query({
         active: swimmer.active,
       },
       events,
+      hasStandards: allStandards.length > 0,
+      // Suppressed once every tier is pinned to a tour date — a birthday
+      // changes nothing then.
+      agedUpAt:
+        tourDates.LEVEL_2 !== undefined &&
+        tourDates.LEVEL_3 !== undefined &&
+        tourDates.SANJ !== undefined
+          ? null
+          : recentBirthday(swimmer.dob, today),
+      tourDates,
     };
   },
 });

@@ -5,6 +5,7 @@ import {
   clockFromDigits,
   computeAge,
   computeAgeGroup,
+  recentBirthday,
   isValidEvent,
   computePersonalBests,
   eventLabel,
@@ -14,6 +15,8 @@ import {
   tierCoversEvent,
   resolveStandardTime,
   pickApplicableStandards,
+  pickApplicableStandardsPerTier,
+  tierResolutionAges,
   highestTierMet,
   computeMatrixCell,
   prepareStandardImport,
@@ -168,6 +171,32 @@ describe("computeAge", () => {
   it("throws on invalid dates", () => {
     expect(() => computeAge("not-a-date", "2020-01-01")).toThrow();
     expect(() => computeAge("2010-01-01", "nope")).toThrow();
+  });
+});
+
+describe("recentBirthday", () => {
+  it("returns the birthday when it fell within the window", () => {
+    expect(recentBirthday("2010-06-15", "2020-06-15")).toBe("2020-06-15"); // today
+    expect(recentBirthday("2010-06-15", "2020-07-10")).toBe("2020-06-15"); // 25 days
+    expect(recentBirthday("2010-06-15", "2020-07-15")).toBe("2020-06-15"); // 30 days exactly
+  });
+
+  it("returns null outside the window or before the birthday", () => {
+    expect(recentBirthday("2010-06-15", "2020-07-16")).toBeNull(); // 31 days
+    expect(recentBirthday("2010-06-15", "2020-06-14")).toBeNull(); // day before (last year's is far)
+  });
+
+  it("crosses the year boundary", () => {
+    expect(recentBirthday("2010-12-28", "2021-01-05")).toBe("2020-12-28");
+  });
+
+  it("never reports the birth date itself", () => {
+    expect(recentBirthday("2020-06-15", "2020-06-20")).toBeNull();
+  });
+
+  it("respects a custom window", () => {
+    expect(recentBirthday("2010-06-15", "2020-06-25", 7)).toBeNull();
+    expect(recentBirthday("2010-06-15", "2020-06-20", 7)).toBe("2020-06-15");
   });
 });
 
@@ -586,6 +615,64 @@ describe("pickApplicableStandards (§4.9) — omits tiers with no cut", () => {
       { tier: "SANJ", age: 12, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
     ];
     expect(pickApplicableStandards(rows, 15)).toEqual({});
+  });
+});
+
+describe("tierResolutionAges (the birthday rule, per tour)", () => {
+  // Born 15 June 2012: 13 today (1 May 2026), turns 14 on 15 June 2026.
+  const dob = "2012-06-15";
+
+  it("uses the fallback age everywhere when no tour dates exist", () => {
+    expect(tierResolutionAges(dob, 13, {})).toEqual({
+      SANJ: 13,
+      LEVEL_3: 13,
+      LEVEL_2: 13,
+    });
+  });
+
+  it("judges a tier with a tour date at the age ON TOUR DAY", () => {
+    // The SANJ tour falls after the birthday; the others have no date.
+    expect(tierResolutionAges(dob, 13, { SANJ: "2026-07-01" })).toEqual({
+      SANJ: 14,
+      LEVEL_3: 13,
+      LEVEL_2: 13,
+    });
+  });
+
+  it("handles different tours on either side of the birthday", () => {
+    expect(
+      tierResolutionAges(dob, 13, { SANJ: "2026-07-01", LEVEL_2: "2026-06-01" }),
+    ).toEqual({ SANJ: 14, LEVEL_2: 13, LEVEL_3: 13 });
+  });
+});
+
+describe("pickApplicableStandardsPerTier — each tier at its own age", () => {
+  const rows: Array<StandardCut & { tier: Tier }> = [
+    { tier: "SANJ", age: 13, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
+    { tier: "SANJ", age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 59000 },
+    { tier: "LEVEL_2", age: 13, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 66000 },
+  ];
+
+  it("resolves each tier at its own age", () => {
+    const out = pickApplicableStandardsPerTier(rows, {
+      SANJ: 14, // aged up by SANJ tour day → the harder 14 cut
+      LEVEL_3: 13,
+      LEVEL_2: 13,
+    });
+    expect(out).toEqual({ SANJ: 59000, LEVEL_2: 66000 }); // no L3 rows → omitted
+  });
+
+  it("matches pickApplicableStandards when every tier shares one age", () => {
+    expect(
+      pickApplicableStandardsPerTier(rows, { SANJ: 13, LEVEL_3: 13, LEVEL_2: 13 }),
+    ).toEqual(pickApplicableStandards(rows, 13));
+  });
+
+  it("omits a tier whose own age has no cut", () => {
+    // SANJ has no 15 cut → absent even though 13/14 rows exist.
+    expect(
+      pickApplicableStandardsPerTier(rows, { SANJ: 15, LEVEL_3: 15, LEVEL_2: 13 }),
+    ).toEqual({ LEVEL_2: 66000 });
   });
 });
 

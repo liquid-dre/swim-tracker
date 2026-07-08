@@ -12,7 +12,15 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { FilterBar } from "@/components/ui/FilterBar";
 import { useContainerWidth } from "@/hooks/use-container-width";
+import { formatShortDate } from "@/lib/format";
+import { TIER_FULL, type TourDateByTier } from "@/lib/swim";
 import { trailForHref } from "@/lib/nav";
+
+function pinnedTierNames(tourDates: TourDateByTier): string[] {
+  return (["SANJ", "LEVEL_3", "LEVEL_2"] as const)
+    .filter((t) => tourDates[t] !== undefined)
+    .map((t) => TIER_FULL[t]);
+}
 import { StrokeWheel } from "./StrokeWheel";
 import { STROKE_META, WHEEL_STROKE_ORDER, type ProfileEvent } from "./strokeProfile";
 
@@ -237,6 +245,21 @@ function WheelPanel({
               {!data.swimmer.active && " · inactive"}
             </span>
           </header>
+
+          {/* Same age-up context the Road screen gives, sized for this card.
+              Tiers pinned to a tour day are named — a birthday doesn't move
+              those cuts, and the note must never claim otherwise. */}
+          {data.agedUpAt && (
+            <p className="w-full rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+              Turned {data.swimmer.age} on {formatShortDate(data.agedUpAt)} —
+              no-time events now target the age-{data.swimmer.age} cuts;
+              existing bests count at the age they were swum.
+              {pinnedTierNames(data.tourDates).length > 0 &&
+                ` ${pinnedTierNames(data.tourDates).join(" and ")} ${
+                  pinnedTierNames(data.tourDates).length === 1 ? "is" : "are"
+                } judged at age on tour day.`}
+            </p>
+          )}
 
           {events.length === 0 ? (
             <div className="flex flex-col items-center gap-1 py-12 text-center">

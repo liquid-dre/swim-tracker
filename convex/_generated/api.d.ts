@@ -28,6 +28,7 @@ import type * as standards from "../standards.js";
 import type * as standardsSampleData from "../standardsSampleData.js";
 import type * as swimmerAccess from "../swimmerAccess.js";
 import type * as swimmers from "../swimmers.js";
+import type * as tours from "../tours.js";
 import type * as trainingNotes from "../trainingNotes.js";
 
 import type {
@@ -57,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   standardsSampleData: typeof standardsSampleData;
   swimmerAccess: typeof swimmerAccess;
   swimmers: typeof swimmers;
+  tours: typeof tours;
   trainingNotes: typeof trainingNotes;
 }>;
 

@@ -1,14 +1,19 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
-import { requireSwimmerAccess } from "./authz";
+import { accessibleSwimmerIds, requireSwimmerAccess } from "./authz";
 import {
+  computeMatrixCell,
   computePersonalBests,
   computeAge,
   eventLabel,
+  pickApplicableStandardsPerTier,
+  tierResolutionAges,
   type ResultForPB,
+  type Tier,
 } from "../lib/swim";
+import { loadTourDates } from "./tours";
 
 // Personal bests + swimmer profile (BRD §4.6, §5.4, Step 6). PBs are DERIVED —
 // there is NO personalBests table. Every read recomputes from `results` over the
@@ -159,7 +164,7 @@ export const getPersonalBests = query({
     // server-side, so a direct function call can't read an unlinked swimmer.
     await requireSwimmerAccess(ctx, args.swimmerId);
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
 
     const results = await loadResults(ctx, args.swimmerId);
     return computePersonalBests(results as ResultForPB[]);
@@ -186,7 +191,7 @@ export const getSwimmerProfile = query({
     const profile = await requireSwimmerAccess(ctx, args.swimmerId);
 
     const swimmer = await ctx.db.get(args.swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
 
     const editable =
       profile.role === "SUPER_USER" ||
@@ -281,5 +286,115 @@ export const getSwimmerProfile = query({
       history,
       editable,
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// getViewerHighlights — the viewer home's one-line story per linked swimmer
+// ---------------------------------------------------------------------------
+//
+// For each swimmer this viewer follows: their most recent lifetime best (any
+// course) and the closest outstanding cut (LCM, tour-rule resolved — the same
+// judgement every other surface uses). Empty for staff (their home is the
+// dashboard) and for viewers with no links yet.
+
+export const getViewerHighlights = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      swimmerId: v.id("swimmers"),
+      name: v.string(),
+      latestPb: v.union(
+        v.null(),
+        v.object({
+          label: v.string(),
+          course,
+          timeMs: v.number(),
+          swimDate: v.string(),
+        }),
+      ),
+      closestCut: v.union(
+        v.null(),
+        v.object({
+          label: v.string(),
+          tier: v.union(
+            v.literal("LEVEL_2"),
+            v.literal("LEVEL_3"),
+            v.literal("SANJ"),
+          ),
+          gapMs: v.number(),
+        }),
+      ),
+    }),
+  ),
+  handler: async (ctx) => {
+    const { swimmerIds } = await accessibleSwimmerIds(ctx);
+    if (swimmerIds === "ALL") return [];
+
+    const tourDates = await loadTourDates(ctx);
+    const today = new Date().toISOString().slice(0, 10);
+    const out = [];
+
+    for (const swimmerId of swimmerIds) {
+      const swimmer = await ctx.db.get(swimmerId);
+      if (!swimmer) continue;
+
+      const results = await ctx.db
+        .query("results")
+        .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
+        .take(RESULTS_LIMIT);
+      const pbs = computePersonalBests(results as ResultForPB[]);
+
+      // Most recently SET lifetime best, any course.
+      let latestPb: {
+        label: string;
+        course: "SCM" | "LCM";
+        timeMs: number;
+        swimDate: string;
+      } | null = null;
+      for (const pb of pbs) {
+        if (!pb.headline) continue;
+        if (latestPb === null || pb.headline.swimDate > latestPb.swimDate) {
+          latestPb = {
+            label: eventLabel(pb.distance, pb.stroke),
+            course: pb.course,
+            timeMs: pb.headline.timeMs,
+            swimDate: pb.headline.swimDate,
+          };
+        }
+      }
+
+      // Closest outstanding cut across LCM events — same resolution rule as
+      // the matrix/road (tour day where set, else age as swum).
+      const cutRows = await ctx.db
+        .query("standards")
+        .withIndex("by_lookup", (q) => q.eq("gender", swimmer.gender))
+        .take(2000);
+      const age = computeAge(swimmer.dob, today);
+      let closestCut: { label: string; tier: Tier; gapMs: number } | null = null;
+      for (const pb of pbs) {
+        if (pb.course !== "LCM" || !pb.headline) continue;
+        const cuts = pickApplicableStandardsPerTier(
+          cutRows.filter(
+            (r) => r.distance === pb.distance && r.stroke === pb.stroke,
+          ),
+          tierResolutionAges(swimmer.dob, pb.headline.ageAtSwim ?? age, tourDates),
+        );
+        const cell = computeMatrixCell(pb.headline.timeMs, cuts);
+        if (cell.gapMs === null || cell.gapMs <= 0 || cell.nextTier === null) {
+          continue;
+        }
+        if (closestCut === null || cell.gapMs < closestCut.gapMs) {
+          closestCut = {
+            label: eventLabel(pb.distance, pb.stroke),
+            tier: cell.nextTier,
+            gapMs: cell.gapMs,
+          };
+        }
+      }
+
+      out.push({ swimmerId, name: swimmer.name, latestPb, closestCut });
+    }
+    return out;
   },
 });

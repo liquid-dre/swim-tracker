@@ -7,6 +7,7 @@ const base =
   "inline-flex items-center justify-center gap-2 rounded-lg font-medium whitespace-nowrap " +
   "transition-[background-color,border-color,color,transform] [transition-duration:var(--dur-1)] " +
   "[transition-timing-function:var(--ease-standard)] " +
+  "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
   "active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50";
 
 const variants: Record<Variant, string> = {
@@ -17,10 +18,17 @@ const variants: Record<Variant, string> = {
   danger: "bg-error-500 text-white shadow-theme-xs hover:bg-error-600",
 };
 
+// ≥44px targets on touch viewports (PRODUCT.md); compact from lg up so the
+// dense coach toolbars keep their density.
 const sizes: Record<Size, string> = {
-  sm: "h-8 px-3 text-sm",
-  md: "h-9 px-4 text-base",
+  sm: "h-11 px-3 text-sm lg:h-8",
+  md: "h-11 px-4 text-base lg:h-9",
 };
+
+/** The full Button class string, for link elements styled as buttons. */
+export function buttonClasses(variant: Variant = "primary", size: Size = "md") {
+  return `${base} ${variants[variant]} ${sizes[size]}`;
+}
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;

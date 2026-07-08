@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { requireSignedIn, requireSuperUser } from "./authz";
@@ -31,18 +31,18 @@ function cleanSeasonDate(
 ): string {
   const trimmed = value.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    throw new Error(`${opts.label} must be a date in YYYY-MM-DD form.`);
+    throw new ConvexError(`${opts.label} must be a date in YYYY-MM-DD form.`);
   }
   const date = new Date(`${trimmed}T00:00:00Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== trimmed) {
-    throw new Error("That is not a real date.");
+    throw new ConvexError("That is not a real date.");
   }
   // A season START can't be in the future (you can't rank an unstarted season);
   // a season END legitimately can (the season runs until a date still to come).
   if (!opts.allowFuture) {
     const today = new Date().toISOString().slice(0, 10);
     if (trimmed > today) {
-      throw new Error(`${opts.label} cannot be in the future.`);
+      throw new ConvexError(`${opts.label} cannot be in the future.`);
     }
   }
   return trimmed;
@@ -126,7 +126,7 @@ export const setSeasonEnd = mutation({
         : cleanSeasonDate(seasonEnd, { allowFuture: true, label: "Season end" });
     const row = await readSettings(ctx);
     if (cleaned !== undefined && row?.seasonStart && cleaned < row.seasonStart) {
-      throw new Error("Season end can't be before the season start.");
+      throw new ConvexError("Season end can't be before the season start.");
     }
     if (row) {
       await ctx.db.patch(row._id, { seasonEnd: cleaned });

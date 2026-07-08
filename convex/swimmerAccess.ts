@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
@@ -46,7 +46,7 @@ export async function grantSwimmerAccess(
 
   const profile = await ctx.db
     .query("profiles")
-    .filter((q) => q.eq(q.field("email"), email))
+    .withIndex("by_email", (q) => q.eq("email", email))
     .unique();
 
   if (profile) {
@@ -121,11 +121,11 @@ export const grantViewerAccess = mutation({
   handler: async (ctx, { viewerEmail, swimmerId }) => {
     const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     assertCoachManagesSwimmer(profile, swimmer);
 
     const email = viewerEmail.trim().toLowerCase();
-    if (email === "") throw new Error("Enter the viewer's email.");
+    if (email === "") throw new ConvexError("Enter the viewer's email.");
 
     const status = await grantSwimmerAccess(
       ctx,
@@ -135,11 +135,11 @@ export const grantViewerAccess = mutation({
       profile,
     );
     if (status === "coach") {
-      throw new Error(
+      throw new ConvexError(
         "That account is a coach or admin and already sees every swimmer.",
       );
     }
-    if (status === "skipped") throw new Error("Enter the viewer's email.");
+    if (status === "skipped") throw new ConvexError("Enter the viewer's email.");
     const simple: "pending" | "linked" =
       status === "pending" || status === "already_pending" ? "pending" : "linked";
     return { status: simple, email };
@@ -156,7 +156,7 @@ export const unlinkViewer = mutation({
   handler: async (ctx, { profileId, swimmerId }) => {
     const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     assertCoachManagesSwimmer(profile, swimmer);
 
     const link = await ctx.db
@@ -192,7 +192,7 @@ export const cancelPendingViewer = mutation({
   handler: async (ctx, { email, swimmerId }) => {
     const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     assertCoachManagesSwimmer(profile, swimmer);
 
     const normalized = email.trim().toLowerCase();
@@ -291,10 +291,10 @@ export const requestSwimmerAccess = mutation({
     const profile = await requireSignedIn(ctx);
     // Coaches / super-users already see every swimmer — a request is meaningless.
     if (profile.role !== "VIEWER") {
-      throw new Error("Coaches and admins already see every swimmer.");
+      throw new ConvexError("Coaches and admins already see every swimmer.");
     }
     const swimmer = await ctx.db.get(swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
 
     const linked = await ctx.db
       .query("swimmerAccess")
@@ -357,7 +357,7 @@ export const listAccessRequestsForSwimmer = query({
   handler: async (ctx, { swimmerId }) => {
     const profile = await requireCoach(ctx);
     const swimmer = await ctx.db.get(swimmerId);
-    if (!swimmer) throw new Error("Swimmer not found.");
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
     assertCoachManagesSwimmer(profile, swimmer);
 
     const rows = await ctx.db

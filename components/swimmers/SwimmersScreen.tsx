@@ -17,6 +17,9 @@ import { SwimmerForm } from "./SwimmerForm";
 type Scope = "active" | "all";
 type EditTarget = RosterRow | "new" | null;
 
+// Server-side LIMIT in convex/swimmers.ts listSwimmers.
+const ROSTER_CAP = 500;
+
 export function SwimmersScreen({
   today,
   myClubOnly = false,
@@ -72,7 +75,7 @@ export function SwimmersScreen({
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search swimmers"
             aria-label="Search swimmers"
-            className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-base text-ink placeholder:text-ink-muted outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
+            className="h-11 lg:h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-base text-ink placeholder:text-ink-muted outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
           />
         </div>
         <div className="ml-auto">
@@ -96,6 +99,17 @@ export function SwimmersScreen({
         onEdit={(row) => setEditing(row)}
         onToggleActive={(row) => toggleActive(row._id, !row.active)}
       />
+
+      {/* Mirrors the server's defensive read cap so hitting it is never silent. */}
+      {swimmers !== undefined && swimmers.length === ROSTER_CAP && (
+        <p
+          role="status"
+          className="rounded-lg border border-warning-500/30 bg-warning-50 px-4 py-2.5 text-sm text-gray-700"
+        >
+          Showing the first {ROSTER_CAP} swimmers — use search to find anyone
+          not listed.
+        </p>
+      )}
 
       <SwimmerForm
         key={editing === null ? "closed" : editing === "new" ? "new" : editing._id}

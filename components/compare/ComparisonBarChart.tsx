@@ -16,6 +16,7 @@ import {
 import { formatTime, type Tier } from "@/lib/swim";
 import { formatShortDate } from "@/lib/format";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import {
   CHART,
   CHART_ANIM_MS,
@@ -67,6 +68,9 @@ export function ComparisonBarChart({
   overlay: boolean;
 }) {
   const reduced = usePrefersReducedMotion();
+  // Phone-width: shrink the label gutters so the bars keep most of the plot.
+  // Decorative-only trade-off — the leaderboard table carries the full names.
+  const narrow = useMediaQuery("(max-width: 639px)");
 
   // Fastest first in the leaderboard = top of the chart. Recharts plots the
   // first category at the bottom by default, so reverse the axis to match.
@@ -76,7 +80,10 @@ export function ComparisonBarChart({
 
   // Longest name drives the label gutter so names never clip or over-reserve.
   const longestName = data.reduce((m, r) => Math.max(m, r.name.length), 0);
-  const yWidth = Math.min(180, Math.max(72, longestName * 7.5));
+  const yWidth = narrow
+    ? Math.min(92, Math.max(64, longestName * 7.5))
+    : Math.min(180, Math.max(72, longestName * 7.5));
+  const nameChars = Math.floor(yWidth / 7.5);
 
   // Keep the fastest cut on-scale so a bar can visibly sit left of it.
   const maxCut = cuts.reduce((m, c) => Math.max(m, c.timeMs), 0);
@@ -90,7 +97,12 @@ export function ComparisonBarChart({
           data={data}
           layout="vertical"
           // Reserve headroom for the tier-line labels sitting above the plot.
-          margin={{ top: cuts.length > 0 ? 22 : 4, right: 72, bottom: 4, left: 4 }}
+          margin={{
+            top: cuts.length > 0 ? 22 : 4,
+            right: narrow ? 52 : 72,
+            bottom: 4,
+            left: 4,
+          }}
           barCategoryGap={12}
         >
           <CartesianGrid
@@ -115,6 +127,9 @@ export function ComparisonBarChart({
             tick={{ fill: CHART.ink, fontSize: 12 }}
             tickLine={false}
             axisLine={{ stroke: CHART.axis }}
+            tickFormatter={(name: string) =>
+              name.length > nameChars ? `${name.slice(0, nameChars - 1)}…` : name
+            }
           />
           <Tooltip
             cursor={{ fill: CHART.cursor }}

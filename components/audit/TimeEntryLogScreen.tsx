@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { ClipboardList } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
 import { DateField } from "@/components/ui/DateField";
@@ -13,7 +15,7 @@ import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { SchoolGalaBadge } from "@/components/ui/SchoolGalaBadge";
 import { trailForHref } from "@/lib/nav";
 import type { Role } from "@/lib/nav";
-import { formatTime, type Course, type SwimType } from "@/lib/swim";
+import { formatTime, type SwimType } from "@/lib/swim";
 import { formatDateTime } from "@/lib/format";
 import { RoleChip } from "./shared";
 
@@ -26,20 +28,6 @@ import { RoleChip } from "./shared";
 */
 
 type Person = { name: string; role: Role };
-type TimeRow = {
-  _id: string;
-  swimmerId: string;
-  swimmerName: string;
-  label: string;
-  course: Course;
-  timeMs: number;
-  swimType: SwimType;
-  swimDate: string;
-  enteredBy: Person | null;
-  createdAt: number;
-  editedBy: Person | null;
-  updatedAt: number | null;
-};
 
 const TYPE_LABEL: Record<SwimType, string> = {
   MEET: "Meet",
@@ -48,56 +36,58 @@ const TYPE_LABEL: Record<SwimType, string> = {
   SCHOOL_GALA: "School gala",
 };
 
-// The entry date in the viewer's local timezone (matches the "When" column), so a
-// date-range filter lines up with what the coach reads on screen.
-function localDay(ms: number): string {
-  const d = new Date(ms);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+// The date pickers speak local days (matching the "When" column); the server
+// filters on createdAt epoch ms, so convert at the local-midnight boundaries.
+function dayStartMs(day: string): number {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+}
+function dayEndMs(day: string): number {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
 }
 
 export function TimeEntryLogScreen() {
   const pathname = usePathname();
-  const data = useQuery(api.audit.listTimeEntryLog, {});
-  const rows = useMemo<TimeRow[]>(() => data?.rows ?? [], [data]);
 
-  const [swimmer, setSwimmer] = useState("ALL");
-  const [enterer, setEnterer] = useState("ALL");
+  const [swimmer, setSwimmer] = useState<"ALL" | Id<"swimmers">>("ALL");
+  const [enterer, setEnterer] = useState<"ALL" | Id<"profiles">>("ALL");
   const [role, setRole] = useState<"ALL" | Role>("ALL");
   const [type, setType] = useState<"ALL" | SwimType>("ALL");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
-  const swimmers = useMemo(
-    () => distinct(rows.map((r) => r.swimmerName)),
-    [rows],
-  );
-  const enterers = useMemo(
-    () => distinct(rows.map((r) => r.enteredBy?.name ?? "")),
-    [rows],
+  // Every filter applies server-side, so a filtered read searches the FULL
+  // history; changing a filter restarts pagination from the newest match.
+  const {
+    results: rows,
+    status: pageStatus,
+    loadMore,
+  } = usePaginatedQuery(
+    api.audit.listTimeEntryLog,
+    {
+      swimmerId: swimmer === "ALL" ? undefined : swimmer,
+      enteredBy: enterer === "ALL" ? undefined : enterer,
+      swimType: type === "ALL" ? undefined : type,
+      role: role === "ALL" ? undefined : role,
+      enteredFrom: from === "" ? undefined : dayStartMs(from),
+      enteredTo: to === "" ? undefined : dayEndMs(to),
+    },
+    { initialNumItems: PAGE },
   );
 
-  const filtered = useMemo(
-    () =>
-      rows.filter((r) => {
-        const day = localDay(r.createdAt);
-        return (
-          (swimmer === "ALL" || r.swimmerName === swimmer) &&
-          (enterer === "ALL" || r.enteredBy?.name === enterer) &&
-          (role === "ALL" || r.enteredBy?.role === role) &&
-          (type === "ALL" || r.swimType === type) &&
-          (from === "" || day >= from) &&
-          (to === "" || day <= to)
-        );
-      }),
-    [rows, swimmer, enterer, role, type, from, to],
-  );
+  // Full option lists (not derived from loaded rows, which would hide anyone
+  // whose entries aren't paged in yet). Both queries are coach-gated.
+  const swimmerOptions = useQuery(api.swimmers.listSwimmers, {});
+  const entererOptions = useQuery(api.audit.listEnterers, {});
 
   const secondaryCount =
     (role !== "ALL" ? 1 : 0) +
     (type !== "ALL" ? 1 : 0) +
     (from !== "" || to !== "" ? 1 : 0);
-  const loading = data === undefined;
+  const filtering =
+    swimmer !== "ALL" || enterer !== "ALL" || secondaryCount > 0;
+  const loading = pageStatus === "LoadingFirstPage";
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -114,10 +104,13 @@ export function TimeEntryLogScreen() {
               <Select
                 aria-label="Filter by swimmer"
                 value={swimmer}
-                onValueChange={setSwimmer}
+                onValueChange={(v) => setSwimmer(v as "ALL" | Id<"swimmers">)}
                 options={[
                   { value: "ALL", label: "All swimmers" },
-                  ...swimmers.map((s) => ({ value: s, label: s })),
+                  ...(swimmerOptions ?? []).map((s) => ({
+                    value: s._id,
+                    label: s.name,
+                  })),
                 ]}
               />
             </div>
@@ -125,10 +118,13 @@ export function TimeEntryLogScreen() {
               <Select
                 aria-label="Filter by who entered it"
                 value={enterer}
-                onValueChange={setEnterer}
+                onValueChange={(v) => setEnterer(v as "ALL" | Id<"profiles">)}
                 options={[
                   { value: "ALL", label: "Anyone" },
-                  ...enterers.map((e) => ({ value: e, label: e })),
+                  ...(entererOptions ?? []).map((e) => ({
+                    value: e._id,
+                    label: e.name,
+                  })),
                 ]}
               />
             </div>
@@ -191,10 +187,25 @@ export function TimeEntryLogScreen() {
       {loading ? (
         <TableSkeleton />
       ) : rows.length === 0 ? (
-        <EmptyState
-          title="No times logged yet"
-          body="Once times are captured, every entry and edit will be recorded here with who did it and when."
-        />
+        pageStatus !== "Exhausted" ? (
+          // The role filter runs after the page loads, so a page can come back
+          // empty while older history remains — never claim the search is done
+          // while the Load-older control below can still find matches.
+          <EmptyState
+            title="No matches in the newest entries yet"
+            body="Older history hasn't been searched — use “Load older entries” below to keep looking."
+          />
+        ) : filtering ? (
+          <EmptyState
+            title="No entries match these filters"
+            body="The whole history was searched. Clear a filter to see more of the entry log."
+          />
+        ) : (
+          <EmptyState
+            title="No times logged yet"
+            body="Once times are captured, every entry and edit will be recorded here with who did it and when."
+          />
+        )
       ) : (
         <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
           <div className="relative overflow-x-auto custom-scrollbar">
@@ -211,7 +222,7 @@ export function TimeEntryLogScreen() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => (
+                {rows.map((r) => (
                   <tr
                     key={r._id}
                     className="border-t border-border align-top transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2"
@@ -259,32 +270,34 @@ export function TimeEntryLogScreen() {
             </table>
           </div>
 
-          {filtered.length === 0 && (
-            <div className="px-6 py-12 text-center">
-              <p className="text-sm font-medium text-ink">
-                No entries match these filters
-              </p>
-              <p className="mx-auto mt-1 max-w-[40ch] text-sm text-ink-muted">
-                Clear a filter to see more of the entry history.
-              </p>
-            </div>
-          )}
         </div>
       )}
 
-      {!loading && rows.length > 0 && (
-        <p className="px-1 text-xs text-ink-faint">
-          {filtered.length} of {rows.length}{" "}
-          {rows.length === 1 ? "entry" : "entries"}
-          {rows.length === TIME_LOG_CAP && " · showing the most recent"}
-        </p>
+      {!loading && (rows.length > 0 || pageStatus !== "Exhausted") && (
+        <div className="flex items-center justify-between gap-4 px-1">
+          <p className="text-xs text-ink-faint">
+            {`${rows.length} ${filtering ? "matching " : ""}${
+              rows.length === 1 ? "entry" : "entries"
+            }${pageStatus !== "Exhausted" ? " loaded" : ""} · newest first`}
+          </p>
+          {pageStatus !== "Exhausted" && (
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={pageStatus === "LoadingMore"}
+              onClick={() => loadMore(PAGE)}
+            >
+              Load older entries
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-// Mirrors the server's TIME_LOG_LIMIT so the footnote is honest when capped.
-const TIME_LOG_CAP = 1500;
+// Page size: a meaningful first window of history, small enough to stay snappy.
+const PAGE = 300;
 
 function PersonCell({ person }: { person: Person | null }) {
   if (!person) return <span className="text-ink-faint">—</span>;
@@ -293,12 +306,6 @@ function PersonCell({ person }: { person: Person | null }) {
       <span className="text-ink">{person.name}</span>
       <RoleChip role={person.role} />
     </span>
-  );
-}
-
-function distinct(values: string[]): string[] {
-  return [...new Set(values.filter((v) => v.trim() !== ""))].sort((a, b) =>
-    a.localeCompare(b),
   );
 }
 

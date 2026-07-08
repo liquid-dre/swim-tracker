@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, query } from "./_generated/server";
@@ -20,23 +21,8 @@ import { eventLabel } from "../lib/swim";
   bounded (club scale, BRD §11.1).
 */
 
-const role = v.union(
-  v.literal("SUPER_USER"),
-  v.literal("COACH"),
-  v.literal("VIEWER"),
-);
 type Role = "SUPER_USER" | "COACH" | "VIEWER";
 
-const accessEventType = v.union(
-  v.literal("INVITED"),
-  v.literal("CLAIMED"),
-  v.literal("REVOKED"),
-  v.literal("UNLINKED"),
-  v.literal("EXPIRED"),
-  v.literal("REQUESTED"),
-  v.literal("APPROVED"),
-  v.literal("DENIED"),
-);
 type AccessEventType =
   | "INVITED"
   | "CLAIMED"
@@ -147,30 +133,7 @@ function swimmerNameResolver(ctx: QueryCtx) {
 // listAccessLog — Part A: chronological viewer-access events (coach-only)
 // ---------------------------------------------------------------------------
 
-const ACCESS_LOG_LIMIT = 1000;
 const LINK_SCAN_LIMIT = 5000;
-
-const linkStatus = v.union(
-  v.literal("active"),
-  v.literal("pending"),
-  v.literal("revoked"),
-  v.literal("expired"),
-);
-
-const accessLogRow = v.object({
-  _id: v.id("accessEvents"),
-  type: accessEventType,
-  at: v.number(),
-  swimmerId: v.id("swimmers"),
-  swimmerName: v.string(),
-  viewerEmail: v.string(),
-  viewerName: v.union(v.string(), v.null()),
-  actorName: v.union(v.string(), v.null()),
-  actorRole: v.union(role, v.null()),
-  approverName: v.union(v.string(), v.null()),
-  // Current status of THIS viewer↔swimmer link (same across its events).
-  status: linkStatus,
-});
 
 const TERMINAL: ReadonlySet<AccessEventType> = new Set([
   "REVOKED",
@@ -179,18 +142,58 @@ const TERMINAL: ReadonlySet<AccessEventType> = new Set([
   "EXPIRED",
 ]);
 
+const accessEventTypeValidator = v.union(
+  v.literal("INVITED"),
+  v.literal("CLAIMED"),
+  v.literal("REVOKED"),
+  v.literal("UNLINKED"),
+  v.literal("EXPIRED"),
+  v.literal("REQUESTED"),
+  v.literal("APPROVED"),
+  v.literal("DENIED"),
+);
+
 export const listAccessLog = query({
-  args: {},
-  returns: v.object({ rows: v.array(accessLogRow) }),
-  handler: async (ctx) => {
+  // Cursor-paginated (newest first) so the trail is complete — the old fixed
+  // .take() cap silently dropped history past it, which an audit log must not do.
+  // Swimmer / viewer / event-type filters apply SERVER-SIDE so a filtered read
+  // searches the full history, not just the loaded window.
+  args: {
+    paginationOpts: paginationOptsValidator,
+    swimmerId: v.optional(v.id("swimmers")),
+    viewerEmail: v.optional(v.string()),
+    type: v.optional(accessEventTypeValidator),
+  },
+  handler: async (ctx, args) => {
     await requireCoach(ctx);
 
-    // Newest-first over the append-only log.
-    const events = await ctx.db
-      .query("accessEvents")
-      .withIndex("by_at")
+    // Newest-first over the append-only log; the most selective filter picks
+    // the index, the rest refine it. Every index here ends on creation order,
+    // so pages stay newest-first in every mode.
+    const base =
+      args.swimmerId !== undefined
+        ? ctx.db
+            .query("accessEvents")
+            .withIndex("by_swimmer", (q) => q.eq("swimmerId", args.swimmerId!))
+        : args.viewerEmail !== undefined
+          ? ctx.db
+              .query("accessEvents")
+              .withIndex("by_viewerEmail", (q) =>
+                q.eq("viewerEmail", args.viewerEmail!),
+              )
+          : ctx.db.query("accessEvents").withIndex("by_at");
+    const paged = await base
       .order("desc")
-      .take(ACCESS_LOG_LIMIT);
+      .filter((q) =>
+        q.and(
+          args.type !== undefined ? q.eq(q.field("type"), args.type) : true,
+          args.swimmerId !== undefined && args.viewerEmail !== undefined
+            ? q.eq(q.field("viewerEmail"), args.viewerEmail)
+            : true,
+        ),
+      )
+      .paginate(args.paginationOpts);
+    const events = paged.page;
 
     // Current status per (viewerEmail|swimmerId) link. active > pending > the
     // latest terminal event → revoked/expired. Live links/pendings win over any
@@ -225,8 +228,11 @@ export const listAccessLog = query({
       if (p?.email) pendingSet.add(key(p.email, r.swimmerId));
     }
 
-    // Latest terminal event per key (events already newest-first, so the first
-    // terminal seen for a key is the most recent one).
+    // Latest terminal event per key, within THIS page (newest-first, so the first
+    // terminal seen for a key is its most recent one here). Live links/pendings
+    // above are page-independent; the only cross-page imprecision is a terminated
+    // link whose newest terminal sits on an older page reading "revoked" rather
+    // than "expired" — acceptable for a convenience label on an append-only log.
     const latestTerminal = new Map<string, AccessEventType>();
     for (const ev of events) {
       if (!TERMINAL.has(ev.type)) continue;
@@ -260,7 +266,7 @@ export const listAccessLog = query({
       })),
     );
 
-    return { rows };
+    return { ...paged, page: rows };
   },
 });
 
@@ -268,41 +274,64 @@ export const listAccessLog = query({
 // listTimeEntryLog — Part B: result entry + edit provenance (coach-only)
 // ---------------------------------------------------------------------------
 
-const TIME_LOG_LIMIT = 1500;
-
-const swimType = v.union(
+const swimTypeValidator = v.union(
   v.literal("MEET"),
   v.literal("TIME_TRIAL"),
   v.literal("PRACTICE"),
   v.literal("SCHOOL_GALA"),
 );
 
-const person = v.object({ name: v.string(), role });
-
-const timeLogRow = v.object({
-  _id: v.id("results"),
-  swimmerId: v.id("swimmers"),
-  swimmerName: v.string(),
-  label: v.string(),
-  course: v.union(v.literal("SCM"), v.literal("LCM")),
-  timeMs: v.number(),
-  swimType,
-  swimDate: v.string(),
-  enteredBy: v.union(person, v.null()),
-  createdAt: v.number(),
-  editedBy: v.union(person, v.null()),
-  updatedAt: v.union(v.number(), v.null()),
-});
+const roleValidator = v.union(
+  v.literal("SUPER_USER"),
+  v.literal("COACH"),
+  v.literal("VIEWER"),
+);
 
 export const listTimeEntryLog = query({
-  args: {},
-  returns: v.object({ rows: v.array(timeLogRow) }),
-  handler: async (ctx) => {
+  // Cursor-paginated (newest-entered first) — see listAccessLog on why the audit
+  // trails never hard-cap. All the screen's filters apply SERVER-SIDE so a
+  // filtered read searches the full history, not just the loaded window.
+  args: {
+    paginationOpts: paginationOptsValidator,
+    swimmerId: v.optional(v.id("swimmers")),
+    enteredBy: v.optional(v.id("profiles")),
+    swimType: v.optional(swimTypeValidator),
+    role: v.optional(roleValidator),
+    // Entry-time window in epoch ms (the client converts its local-day pickers).
+    enteredFrom: v.optional(v.number()),
+    enteredTo: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
     await requireCoach(ctx);
 
-    // Newest-entered first (createdAt ≈ _creationTime; there's no createdAt index,
-    // and the default index orders by creation time).
-    const results = await ctx.db.query("results").order("desc").take(TIME_LOG_LIMIT);
+    // Newest-entered first (createdAt ≈ _creationTime; there's no createdAt
+    // index, and both the default index and by_swimmer end on creation order).
+    const base =
+      args.swimmerId !== undefined
+        ? ctx.db
+            .query("results")
+            .withIndex("by_swimmer", (q) => q.eq("swimmerId", args.swimmerId!))
+        : ctx.db.query("results");
+    const paged = await base
+      .order("desc")
+      .filter((q) =>
+        q.and(
+          args.enteredBy !== undefined
+            ? q.eq(q.field("enteredBy"), args.enteredBy)
+            : true,
+          args.swimType !== undefined
+            ? q.eq(q.field("swimType"), args.swimType)
+            : true,
+          args.enteredFrom !== undefined
+            ? q.gte(q.field("createdAt"), args.enteredFrom)
+            : true,
+          args.enteredTo !== undefined
+            ? q.lte(q.field("createdAt"), args.enteredTo)
+            : true,
+        ),
+      )
+      .paginate(args.paginationOpts);
+    const results = paged.page;
 
     const getProfile = profileResolver(ctx);
     const swimmerName = swimmerNameResolver(ctx);
@@ -333,6 +362,39 @@ export const listTimeEntryLog = query({
       })),
     );
 
-    return { rows };
+    // Role needs the profile join above, so it filters after the page loads —
+    // a short page is fine, pagination carries on from the real cursor.
+    const page =
+      args.role !== undefined
+        ? rows.filter((r) => r.enteredBy?.role === args.role)
+        : rows;
+
+    return { ...paged, page };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// listEnterers — the accounts a coach can filter the time-entry log by
+// ---------------------------------------------------------------------------
+//
+// Full option list for the "entered by" dropdown (deriving options from loaded
+// rows hid anyone whose entries weren't paged in yet). Includes viewers —
+// parents enter school-gala times. Small table; bounded read.
+
+export const listEnterers = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("profiles"),
+      name: v.string(),
+      role: roleValidator,
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireCoach(ctx);
+    const profiles = await ctx.db.query("profiles").take(500);
+    return profiles
+      .map((p) => ({ _id: p._id, name: p.name, role: p.role }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
 });
