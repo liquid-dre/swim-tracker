@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
+import { ConvexError } from "convex/values";
 import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -82,9 +83,14 @@ export default function SignUpPage() {
           try {
             await signIn("password", formData);
             router.push("/");
-          } catch {
+          } catch (err) {
+            // A ConvexError carries a message written for the user (e.g. the
+            // password requirements) — show it verbatim. Anything else is
+            // redacted by production, so fall back to the likeliest cause.
             setError(
-              "Could not create the account. The email may already be in use.",
+              err instanceof ConvexError && typeof err.data === "string"
+                ? err.data
+                : "Could not create the account. The email may already be in use.",
             );
             setSubmitting(false);
           }
@@ -112,7 +118,11 @@ export default function SignUpPage() {
           type="password"
           autoComplete="new-password"
           required
+          // Matches the server rule (convex/auth.ts) so most short passwords
+          // never leave the browser.
+          minLength={8}
           placeholder="••••••••"
+          hint="At least 8 characters."
         />
         {error && (
           <p role="alert" className="text-sm text-error-600">

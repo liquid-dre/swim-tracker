@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
+import { ConvexError } from "convex/values";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -50,8 +51,14 @@ export default function LoginPage() {
           try {
             await signIn("password", formData);
             router.push("/");
-          } catch {
-            setError("Invalid email or password.");
+          } catch (err) {
+            // Credential failures stay deliberately generic; a ConvexError is
+            // a message written for the user — show it verbatim.
+            setError(
+              err instanceof ConvexError && typeof err.data === "string"
+                ? err.data
+                : "Invalid email or password.",
+            );
             setSubmitting(false);
           }
         }}
