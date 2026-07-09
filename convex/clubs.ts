@@ -82,6 +82,52 @@ export const listClubs = query({
 });
 
 // ---------------------------------------------------------------------------
+// listAssignableAccounts — every account the super-user could make a coach
+// ---------------------------------------------------------------------------
+//
+// Feeds the assign-coach picker: existing accounts (viewers and coaches, never
+// super-users — they already see every club), with the current club named for
+// coaches so "assign" visibly reads as "move". The picker filters client-side
+// as the super-user types; account counts are small (bounded read).
+
+export const listAssignableAccounts = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      profileId: v.id("profiles"),
+      name: v.string(),
+      email: v.string(),
+      role: v.union(v.literal("COACH"), v.literal("VIEWER")),
+      clubName: v.union(v.string(), v.null()),
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireSuperUser(ctx);
+    const profiles = await ctx.db.query("profiles").take(500);
+    const clubNames = new Map<Id<"clubs">, string | null>();
+    const out = [];
+    for (const p of profiles) {
+      if (p.role === "SUPER_USER") continue;
+      let clubName: string | null = null;
+      if (p.role === "COACH" && p.clubId) {
+        if (!clubNames.has(p.clubId)) {
+          clubNames.set(p.clubId, (await ctx.db.get(p.clubId))?.name ?? null);
+        }
+        clubName = clubNames.get(p.clubId) ?? null;
+      }
+      out.push({
+        profileId: p._id,
+        name: p.name,
+        email: p.email,
+        role: p.role,
+        clubName,
+      });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+// ---------------------------------------------------------------------------
 // listCoaches — coaches and their club assignment (super-user admin)
 // ---------------------------------------------------------------------------
 
