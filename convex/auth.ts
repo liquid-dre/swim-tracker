@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { convexAuth } from "@convex-dev/auth/server";
 import { Password } from "@convex-dev/auth/providers/Password";
 
@@ -12,6 +13,16 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         const email = (params.email as string).trim().toLowerCase();
         const name = ((params.name as string | undefined) ?? "").trim();
         return { email, name };
+      },
+      // The provider's default throws a PLAIN Error for a short password, which
+      // production redacts — the sign-up form then had nothing to show but its
+      // "email may already be in use" fallback, misleading every user whose
+      // password was simply too short. A ConvexError's message survives to the
+      // client verbatim.
+      validatePasswordRequirements(password) {
+        if (!password || password.length < 8) {
+          throw new ConvexError("Password must be at least 8 characters.");
+        }
       },
     }),
   ],
