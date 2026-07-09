@@ -1,7 +1,11 @@
 import { ConvexError, v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
-import { requireCoach, requireSignedIn, requireSuperUser } from "./authz";
+import {
+  accessibleSwimmerIds,
+  requireSignedIn,
+  requireSuperUser,
+} from "./authz";
 import {
   computeAge,
   computePersonalBests,
@@ -121,7 +125,7 @@ export const clearTour = mutation({
 });
 
 // ---------------------------------------------------------------------------
-// getTourQualification — who is going to which tour (coach-only)
+// getTourQualification — who is going to which tour (role-scoped)
 // ---------------------------------------------------------------------------
 //
 // The forward-looking counterpart to the status matrix: for each tier
@@ -129,6 +133,9 @@ export const clearTour = mutation({
 // of that tier's cuts, each listed ONLY under the highest tour they qualify
 // for. Cuts resolve per the tour rule: age ON TOUR DAY when the tier has a
 // date, else the age each PB was swum (§4.9). Meet times only; LCM only.
+// Role-scoped like the status matrix: staff see the active roster, a viewer
+// sees ONLY their linked swimmer(s) — enforced server-side, never trusted to
+// the client.
 
 const QUAL_SWIMMERS_LIMIT = 500;
 const QUAL_STANDARDS_LIMIT = 5000;
@@ -166,7 +173,8 @@ export const getTourQualification = query({
     ),
   }),
   handler: async (ctx) => {
-    await requireCoach(ctx);
+    // Staff → the active roster; a viewer → only their linked swimmer(s).
+    const { swimmerIds } = await accessibleSwimmerIds(ctx);
 
     const tourRows = await ctx.db.query("tours").take(10);
     const tourByTier = new Map(tourRows.map((t) => [t.tier as Tier, t]));
@@ -190,11 +198,19 @@ export const getTourQualification = query({
       else cutsByEvent.set(key, [cut]);
     }
 
-    // The active roster — "who's going" is a question about current swimmers.
-    const swimmers = await ctx.db
-      .query("swimmers")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .take(QUAL_SWIMMERS_LIMIT);
+    // Staff: the active roster — "who's going" is a question about current
+    // swimmers. Viewer: their linked swimmer(s), matching the status matrix
+    // (active or not — a parent should still see their own child).
+    let swimmers;
+    if (swimmerIds === "ALL") {
+      swimmers = await ctx.db
+        .query("swimmers")
+        .withIndex("by_active", (q) => q.eq("active", true))
+        .take(QUAL_SWIMMERS_LIMIT);
+    } else {
+      const loaded = await Promise.all(swimmerIds.map((id) => ctx.db.get(id)));
+      swimmers = loaded.filter((s): s is NonNullable<typeof s> => s !== null);
+    }
     swimmers.sort((a, b) => a.name.localeCompare(b.name));
 
     const today = new Date().toISOString().slice(0, 10);

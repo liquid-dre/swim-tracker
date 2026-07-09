@@ -28,6 +28,7 @@ describe("navForRole — role decides which nav renders", () => {
       "/me/season",
       "/me/status",
       "/me/road",
+      "/me/qualification",
       "/me/standards",
     ]);
   });

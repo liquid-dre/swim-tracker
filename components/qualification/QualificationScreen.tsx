@@ -35,6 +35,10 @@ export function QualificationScreen() {
   // for them and stays plain text for a coach.
   const profile = useCurrentProfile();
   const isSuperUser = profile != null && profile.role === "SUPER_USER";
+  // The same screen serves /qualification (coach: whole roster) and
+  // /me/qualification (viewer: only their linked swimmer(s), scoped
+  // server-side) — copy adapts, judgement never does.
+  const isViewer = profile != null && profile.role === "VIEWER";
 
   // Convex pushes changes live: a swimmer who qualifies while this screen is
   // open appears with a one-shot background fade so the change is seen, not
@@ -51,18 +55,29 @@ export function QualificationScreen() {
       <PageHeader
         title="Tour qualification"
         breadcrumb={trailForHref(pathname)}
-        description="Who is going where. Each swimmer appears under the highest tour they qualify for, with the long-course meet times that got them there. Trials and practice never count."
+        description={
+          isViewer
+            ? "Which tour your swimmer(s) currently qualify for — the highest tier their long-course meet times meet. Trials and practice never count."
+            : "Who is going where. Each swimmer appears under the highest tour they qualify for, with the long-course meet times that got them there. Trials and practice never count."
+        }
       />
 
       {data === undefined ? (
         <QualSkeleton />
       ) : !data.hasStandards ? (
-        <StandardsMissing isStaff />
+        <StandardsMissing isStaff={!isViewer} />
       ) : !data.hasSwimmers ? (
-        <EmptyState
-          title="No active swimmers yet"
-          body="Add swimmers to the roster and log their meet times — qualification fills in from there."
-        />
+        isViewer ? (
+          <EmptyState
+            title="No swimmer linked yet"
+            body="Once a coach links you to your swimmer (or approves your request), their tour qualification appears here."
+          />
+        ) : (
+          <EmptyState
+            title="No active swimmers yet"
+            body="Add swimmers to the roster and log their meet times — qualification fills in from there."
+          />
+        )
       ) : (
         data.tiers.map(({ tier, tour, swimmers }) => (
           <section key={tier} className="flex flex-col gap-3">
@@ -109,10 +124,21 @@ export function QualificationScreen() {
                 <p className="text-sm text-ink-muted">
                   {/* "Highest tour only": someone may well meet this tier's
                       cuts but be listed above — never claim nobody has. */}
-                  No one&rsquo;s highest tour is {TIER_FULL[tier]} yet
-                  {tier !== "SANJ" &&
-                    " — swimmers who qualify higher are listed under that tour"}
-                  .
+                  {isViewer ? (
+                    <>
+                      No {TIER_FULL[tier]} qualification yet
+                      {tier !== "SANJ" &&
+                        " — a swimmer qualifying higher is listed under that tour"}
+                      .
+                    </>
+                  ) : (
+                    <>
+                      No one&rsquo;s highest tour is {TIER_FULL[tier]} yet
+                      {tier !== "SANJ" &&
+                        " — swimmers who qualify higher are listed under that tour"}
+                      .
+                    </>
+                  )}
                 </p>
               </div>
             ) : (
