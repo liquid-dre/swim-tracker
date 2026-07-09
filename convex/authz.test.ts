@@ -222,7 +222,7 @@ describe("super-user role", () => {
   });
 });
 
-describe("tours (dates are super-user reference data; qualification is coach-only)", () => {
+describe("tours (dates are super-user reference data; qualification is role-scoped)", () => {
   test("coaches and viewers cannot write tour dates", async () => {
     const { asCoach, asViewer } = await setup();
     await expect(
@@ -233,11 +233,58 @@ describe("tours (dates are super-user reference data; qualification is coach-onl
     ).rejects.toThrow(/super-user/i);
   });
 
-  test("viewers cannot read the cross-roster qualification", async () => {
-    const { asViewer } = await setup();
-    await expect(
-      asViewer.query(api.tours.getTourQualification, {}),
-    ).rejects.toThrow(/only coaches/i);
+  test("qualification is scoped: a viewer sees ONLY their linked swimmer", async () => {
+    const { t, asViewer, asCoach, ids } = await setup();
+
+    // Both swimmers qualify for SANJ 100 Free — Ava (F, linked to the viewer)
+    // and Ben (M, unlinked).
+    await t.run(async (ctx) => {
+      const coachProfile = await ctx.db
+        .query("profiles")
+        .withIndex("by_authId", (q) => q.eq("authId", ids.coachA))
+        .unique();
+      for (const [swimmerId, gender] of [
+        [ids.swimmerA, "F"],
+        [ids.swimmerB, "M"],
+      ] as const) {
+        await ctx.db.insert("results", {
+          swimmerId,
+          distance: 100,
+          stroke: "FREE",
+          course: "LCM",
+          timeMs: 69_000,
+          swimType: "MEET",
+          swimDate: "2025-06-01",
+          ageAtSwim: 13,
+          enteredBy: coachProfile!._id,
+          createdAt: 0,
+        });
+        await ctx.db.insert("standards", {
+          tier: "SANJ",
+          gender,
+          distance: 100,
+          stroke: "FREE",
+          age: 13,
+          isCatchAllYoung: false,
+          isCatchAllOld: false,
+          timeMs: 70_000,
+        });
+      }
+    });
+
+    // The coach sees both; the viewer sees only Ava — across EVERY tier.
+    const coachView = await asCoach.query(api.tours.getTourQualification, {});
+    expect(
+      new Set(
+        coachView.tiers.flatMap((x) => x.swimmers.map((s) => s.swimmerId)),
+      ),
+    ).toEqual(new Set([ids.swimmerA, ids.swimmerB]));
+
+    const viewerView = await asViewer.query(api.tours.getTourQualification, {});
+    expect(
+      viewerView.tiers.flatMap((x) => x.swimmers.map((s) => s.swimmerId)),
+    ).toEqual([ids.swimmerA]);
+    expect(viewerView.hasSwimmers).toBe(true);
   });
 
   test("a tour date flips qualification to the age on tour day", async () => {

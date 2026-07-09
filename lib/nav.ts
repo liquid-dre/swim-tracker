@@ -94,6 +94,7 @@ export const NAV: NavNode[] = [
     items: [
       { label: "Status matrix", href: "/me/status", icon: Grid3x3 },
       { label: "Road to qualify", href: "/me/road", icon: Target },
+      { label: "Tour qualification", href: "/me/qualification", icon: Plane },
       { label: "Standards", href: "/me/standards", icon: Ruler },
     ],
   },
