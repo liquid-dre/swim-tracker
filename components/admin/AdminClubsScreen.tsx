@@ -13,6 +13,10 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
+import {
+  AccountCombobox,
+  type AssignableAccount,
+} from "./AccountCombobox";
 
 /*
   Clubs & coaches admin (/admin/clubs, access-control Phase 4c). Super-user only —
@@ -186,7 +190,10 @@ function CoachesSection({
   coaches: CoachRow[] | undefined;
 }) {
   const assignCoach = useMutation(api.clubs.assignCoachToClub);
-  const [email, setEmail] = useState("");
+  // The picker filters existing accounts as the super-user types — no more
+  // typing a full email blind and hoping it matches an account.
+  const accounts = useQuery(api.clubs.listAssignableAccounts, {});
+  const [selected, setSelected] = useState<AssignableAccount | null>(null);
   const [clubId, setClubId] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
@@ -194,14 +201,14 @@ function CoachesSection({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (email.trim() === "" || clubId === "" || saving) return;
+    if (selected === null || clubId === "" || saving) return;
     setSaving(true);
     try {
       await notify.promise(
-        assignCoach({ email, clubId: clubId as Id<"clubs"> }),
+        assignCoach({ email: selected.email, clubId: clubId as Id<"clubs"> }),
         { loading: "Assigning coach…", success: (r) => `${r?.name ?? "Coach"} assigned` },
       );
-      setEmail("");
+      setSelected(null);
     } catch {
       /* notify surfaces the server message */
     } finally {
@@ -217,14 +224,12 @@ function CoachesSection({
         hint="Assign an account that has already signed up to a club to make them its coach. Assigning again moves a coach between clubs. (For someone without an account, use “Invite a coach” above.)"
       />
 
-      <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
+      <form onSubmit={submit} className="flex flex-wrap items-start gap-2">
         <div className="flex-1" style={{ minWidth: "16rem" }}>
-          <Input
-            label="Coach email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="coach@example.com"
+          <AccountCombobox
+            accounts={accounts}
+            selected={selected}
+            onSelect={setSelected}
           />
         </div>
         <div className="flex flex-col gap-1.5" style={{ minWidth: "12rem" }}>
@@ -238,13 +243,15 @@ function CoachesSection({
             options={(clubs ?? []).map((c) => ({ value: c._id, label: c.name }))}
           />
         </div>
-        <Button
-          type="submit"
-          disabled={email.trim() === "" || clubId === "" || !hasClubs}
-          loading={saving}
-        >
-          Assign coach
-        </Button>
+        <div className="pt-7">
+          <Button
+            type="submit"
+            disabled={selected === null || clubId === "" || !hasClubs}
+            loading={saving}
+          >
+            Assign coach
+          </Button>
+        </div>
       </form>
 
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
