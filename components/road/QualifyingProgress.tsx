@@ -7,10 +7,17 @@ import {
   formatTime,
   STROKE_RADIUS_MAX,
   STROKE_RING_POS,
+  TIER_FULL,
   type Tier,
 } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
 import { TierBadge } from "@/components/ui/TierBadge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useContainerWidth } from "@/hooks/use-container-width";
 import { useGrowIn } from "@/hooks/use-grow-in";
 import { cn } from "@/lib/utils";
@@ -283,13 +290,55 @@ export function AllTierProgress({ bars }: { bars: AllBar[] }) {
         <div className="w-20 shrink-0 sm:w-28" />
       </div>
 
-      <ul className="flex flex-col divide-y divide-gray-100">
-        {rows.map((r) => (
-          <AllRowView key={r.key} row={r} />
-        ))}
-      </ul>
+      <TooltipProvider delayDuration={150}>
+        <ul className="flex flex-col divide-y divide-gray-100">
+          {rows.map((r) => (
+            <AllRowView key={r.key} row={r} />
+          ))}
+        </ul>
+      </TooltipProvider>
     </div>
   );
+}
+
+// The hover/focus tooltip for a bar: the qualifying time for the NEXT tier the
+// swimmer is chasing (or the first target when they have no time yet), or —
+// once the hardest available tier is met — that they've topped out. Returns the
+// rendered node plus a matching aria-label so keyboard and screen-reader users
+// get the same information the pointer tooltip carries.
+function barHint(row: AllRow): { node: React.ReactNode; label: string } {
+  const nextCut =
+    row.nextTier !== null ? row.cutsByTier[row.nextTier] : null;
+
+  if (row.nextTier !== null && nextCut !== null) {
+    const tierName = TIER_FULL[row.nextTier];
+    const cutText = formatTime(nextCut);
+    const gapText =
+      row.gapMs !== null ? `${formatSeconds(row.gapMs)}s to go` : null;
+    return {
+      node: (
+        <div className="text-center leading-tight">
+          <div className="opacity-80">{tierName} qualifying time</div>
+          <div className="time tnum font-semibold">{cutText}</div>
+          {gapText ? (
+            <div className="tnum opacity-80">{gapText}</div>
+          ) : (
+            <div className="opacity-80">No time logged yet</div>
+          )}
+        </div>
+      ),
+      label:
+        `${row.label}: ${tierName} qualifying time ${cutText}` +
+        (row.gapMs !== null
+          ? `, ${formatSeconds(row.gapMs)} seconds to go`
+          : ", no time logged yet"),
+    };
+  }
+
+  return {
+    node: <span>Fastest time achieved</span>,
+    label: `${row.label}: fastest time achieved`,
+  };
 }
 
 function AllRowView({ row }: { row: AllRow }) {
@@ -316,6 +365,8 @@ function AllRowView({ row }: { row: AllRow }) {
   }
   bands.push({ from: prev, to: 100, color: "var(--color-gray-50)" });
 
+  const hint = barHint(row);
+
   return (
     <li className="flex items-center gap-3 py-3 sm:gap-4">
       <div className="flex w-20 shrink-0 flex-col gap-1 sm:w-28">
@@ -326,48 +377,58 @@ function AllRowView({ row }: { row: AllRow }) {
         )}
       </div>
 
-      <div
-        ref={trackRef}
-        className="relative h-7 min-w-16 flex-1 overflow-hidden rounded-md bg-gray-100"
-        aria-hidden
-      >
-        {/* zone tints */}
-        {bands.map((band, i) => (
+      <Tooltip>
+        <TooltipTrigger asChild>
           <div
-            key={i}
-            className="absolute inset-y-0"
-            style={{
-              left: `${band.from}%`,
-              width: `${band.to - band.from}%`,
-              background: band.color,
-            }}
-          />
-        ))}
-        {/* PB fill */}
-        {hasPb && (
-          <div
-            className="absolute inset-y-0 left-0 rounded-r-md transition-[width] [transition-duration:var(--dur-3)] [transition-timing-function:var(--ease-out)]"
-            style={{ width: `${grown ? Math.max(2, fillPct) : 0}%`, background: fillColor }}
-          />
-        )}
-        {/* PB time, drawn on (or just past) the fill */}
-        {hasPb && (
-          <BarTime
-            ms={row.pbMs as number}
-            fillPct={fillPct}
-            trackWidth={trackWidth}
-            insideClass={insideClass}
-          />
-        )}
-        {/* tier markers (only where a cut exists) */}
-        {row.present.map((t) => (
-          <div
-            key={t}
-            className="absolute inset-y-0 w-px bg-ink/25"
-            style={{ left: `${posPct(RING_POS[t])}%` }}
-          />
-        ))}
-      </div>
+            ref={trackRef}
+            role="img"
+            tabIndex={0}
+            aria-label={hint.label}
+            className="relative h-7 min-w-16 flex-1 cursor-default overflow-hidden rounded-md bg-gray-100 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {/* zone tints */}
+            {bands.map((band, i) => (
+              <div
+                key={i}
+                aria-hidden
+                className="absolute inset-y-0"
+                style={{
+                  left: `${band.from}%`,
+                  width: `${band.to - band.from}%`,
+                  background: band.color,
+                }}
+              />
+            ))}
+            {/* PB fill */}
+            {hasPb && (
+              <div
+                aria-hidden
+                className="absolute inset-y-0 left-0 rounded-r-md transition-[width] [transition-duration:var(--dur-3)] [transition-timing-function:var(--ease-out)]"
+                style={{ width: `${grown ? Math.max(2, fillPct) : 0}%`, background: fillColor }}
+              />
+            )}
+            {/* PB time, drawn on (or just past) the fill */}
+            {hasPb && (
+              <BarTime
+                ms={row.pbMs as number}
+                fillPct={fillPct}
+                trackWidth={trackWidth}
+                insideClass={insideClass}
+              />
+            )}
+            {/* tier markers (only where a cut exists) */}
+            {row.present.map((t) => (
+              <div
+                key={t}
+                aria-hidden
+                className="absolute inset-y-0 w-px bg-ink/25"
+                style={{ left: `${posPct(RING_POS[t])}%` }}
+              />
+            ))}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>{hint.node}</TooltipContent>
+      </Tooltip>
 
       <div className="w-20 shrink-0 text-right text-xs sm:w-28">
         {!hasPb ? (
