@@ -1060,11 +1060,16 @@ describe("computeCalibratedRadius", () => {
     expect(computeCalibratedRadius(60010, full)!).toBeLessThan(STROKE_RING_POS.SANJ);
   });
 
-  it("interpolates linearly between adjacent rings", () => {
-    // Midway (ms) between L2 and L3 → midway (radius) between rings 1 and 2.
-    expect(computeCalibratedRadius(64500, full)).toBeCloseTo(1.5);
-    // Midway between L3 and SANJ → radius 2.5.
-    expect(computeCalibratedRadius(61500, full)).toBeCloseTo(2.5);
+  it("caps a within-band PB at the ring of the tier actually met", () => {
+    // Bar length reads as "tier achieved", never "tier nearly achieved": a PB
+    // between the L2 and L3 cuts has met L2 only, so it sits exactly on the L2
+    // ring — it does NOT creep toward the (unmet) L3 ring.
+    expect(computeCalibratedRadius(64500, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_2);
+    // Between L3 and SANJ: met L3, not SANJ → parks on the L3 ring, however
+    // close to the SANJ cut it lands (the reported 100 Breast bug).
+    expect(computeCalibratedRadius(61500, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
+    // A hair short of SANJ still caps at L3, never grazing the SANJ ring.
+    expect(computeCalibratedRadius(60010, full)!).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
   });
 
   it("extrapolates past the outer ring when faster than SANJ", () => {
@@ -1082,12 +1087,13 @@ describe("computeCalibratedRadius", () => {
   });
 
   it("handles partial coverage with a gap between anchors (L2 + SANJ only)", () => {
-    // 200 Fly-style: L2 and SANJ exist, no L3. The line still passes through
-    // both rings, so the (absent) middle ring radius falls halfway in time.
+    // 200 Fly-style: L2 and SANJ exist, no L3. At each cut the bar lands on that
+    // ring; a PB between them has met L2 but not SANJ, so it caps on the L2 ring
+    // rather than drifting up into the SANJ gap.
     const cuts = { l2Ms: 66000, l3Ms: null, sanjMs: 60000 };
     expect(computeCalibratedRadius(66000, cuts)).toBeCloseTo(1); // L2 ring
     expect(computeCalibratedRadius(60000, cuts)).toBeCloseTo(3); // SANJ ring
-    expect(computeCalibratedRadius(63000, cuts)).toBeCloseTo(2); // halfway → mid radius
+    expect(computeCalibratedRadius(63000, cuts)).toBeCloseTo(1); // met L2 only → L2 ring
   });
 
   it("places a single-anchor spoke by direction, exact at its own ring", () => {
@@ -1116,6 +1122,17 @@ describe("computeCalibratedRadius", () => {
     const cuts = { l2Ms: 66000, l3Ms: 63000, sanjMs: null };
     expect(computeCalibratedRadius(63000, cuts)).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
     expect(computeCalibratedRadius(50000, cuts)).toBe(STROKE_RING_POS.LEVEL_3);
+  });
+
+  it("never draws an unmet SANJ spoke for a near-SANJ PB (regression: 100 Breast)", () => {
+    // The reported bug: a 15yo 100 Breast PB of 1:14.41 (74410 ms) beats the L3
+    // cut 1:21.58 (81580) but is 0.57s SLOWER than the SANJ cut 1:13.84 (73840).
+    // The old piecewise line put the spoke at ~2.93 — visually grazing the SANJ
+    // ring — which read as "qualified for SANJ". It must cap on the L3 ring.
+    const cuts = { l2Ms: 91250, l3Ms: 81580, sanjMs: 73840 };
+    const r = computeCalibratedRadius(74410, cuts)!;
+    expect(r).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
+    expect(r).toBeLessThan(STROKE_RING_POS.SANJ);
   });
 });
 
