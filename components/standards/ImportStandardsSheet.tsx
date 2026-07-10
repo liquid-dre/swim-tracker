@@ -22,6 +22,7 @@ type ImportResult = {
   inserted: number;
   updated: number;
   unchanged: number;
+  deleted: number;
   rejected: RejectLine[];
 };
 
@@ -44,6 +45,7 @@ export function ImportStandardsSheet({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [text, setText] = useState("");
+  const [replace, setReplace] = useState(false);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
 
@@ -68,7 +70,10 @@ export function ImportStandardsSheet({
     if (parsed.rows.length === 0 || importing) return;
     setImporting(true);
     try {
-      const res = await importStandards({ rows: parsed.rows.map((r) => r.row) });
+      const res = await importStandards({
+        rows: parsed.rows.map((r) => r.row),
+        replaceExisting: replace,
+      });
       // Map the server's row-array indices back to CSV line numbers, then merge
       // with the client-side coercion rejects into one line-ordered report.
       const serverRejects: RejectLine[] = res.rejected.map((r) => ({
@@ -82,12 +87,15 @@ export function ImportStandardsSheet({
         inserted: res.inserted,
         updated: res.updated,
         unchanged: res.unchanged,
+        deleted: res.deleted,
         rejected,
       });
       const changed = res.inserted + res.updated;
       notify.success(
         rejected.length === 0
-          ? `Imported ${res.acceptedCount} cut${res.acceptedCount === 1 ? "" : "s"}`
+          ? `Imported ${res.acceptedCount} cut${res.acceptedCount === 1 ? "" : "s"}${
+              res.deleted > 0 ? ` — replaced the previous ${res.deleted}` : ""
+            }`
           : `Imported ${changed}, rejected ${rejected.length}`,
       );
     } catch (err) {
@@ -156,6 +164,27 @@ export function ImportStandardsSheet({
             />
           </div>
 
+          {/* Replace mode — the import becomes the COMPLETE set. This is how a
+              new season's tables (or the first real import over sample data)
+              retires every stale row instead of leaving it to keep resolving. */}
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-surface-2/60 px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={replace}
+              onChange={(e) => setReplace(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-brand-500"
+            />
+            <span className="text-sm">
+              <span className="font-medium text-ink">Replace all existing cuts</span>
+              <span className="mt-0.5 block text-xs text-ink-muted">
+                Deletes every current cut first, so this file becomes the complete
+                set. Use when loading a new season&rsquo;s tables or replacing
+                sample data — old ages and catch-alls can&rsquo;t linger. Skipped
+                automatically if the file imports nothing.
+              </span>
+            </span>
+          </label>
+
           {/* Pre-import summary */}
           {hasInput && !result && (
             <div className="rounded-lg border border-border bg-surface-2/60 px-3 py-2.5 text-sm">
@@ -191,6 +220,7 @@ export function ImportStandardsSheet({
                   <p className="tabular-nums">
                     {result.inserted} new · {result.updated} updated · {result.unchanged}{" "}
                     unchanged
+                    {result.deleted > 0 && ` · ${result.deleted} previous cuts replaced`}
                   </p>
                   <p className="mt-0.5 text-ink-muted">
                     {result.rejected.length === 0

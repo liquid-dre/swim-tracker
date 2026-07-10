@@ -6,6 +6,7 @@ import {
   parseStandardsCsv,
   parseTime,
   prepareStandardImport,
+  resolveStandardTime,
   TIER_ORDER,
   type EventDef,
   type PreparedStandard,
@@ -106,6 +107,50 @@ describe("official qualifying-times CSV", () => {
           expect(sanj!).toBeLessThan(l3!);
           expect(l3!).toBeLessThan(l2!);
         }
+      }
+    }
+  });
+
+  it("resolves kids YOUNGER than the &U column to the &U cut (the 12&U convention)", () => {
+    const accepted = importAll();
+    const cutsFor = (tier: string, gender: string, d: number, s: string) =>
+      accepted.filter(
+        (c) =>
+          c.tier === tier && c.gender === gender && c.distance === d && c.stroke === s,
+      );
+    const resolve = (tier: string, gender: string, d: number, s: string, age: number) =>
+      resolveStandardTime(cutsFor(tier, gender, d, s), age);
+
+    // SANJ: any age at or below 12 gets exactly the 12&U cut.
+    const sanj12U = resolve("SANJ", "F", 100, "FREE", 12);
+    expect(sanj12U).toBe(parseTime("1:07:47"));
+    for (const age of [8, 9, 10, 11]) {
+      expect(resolve("SANJ", "F", 100, "FREE", age)).toBe(sanj12U);
+      expect(resolve("SANJ", "M", 200, "IM", age)).toBe(
+        resolve("SANJ", "M", 200, "IM", 12),
+      );
+    }
+    // Same rule at each tier's own youngest band: L3 → 11&U, L2 → 10&U.
+    expect(resolve("LEVEL_3", "M", 100, "FREE", 9)).toBe(
+      resolve("LEVEL_3", "M", 100, "FREE", 11),
+    );
+    expect(resolve("LEVEL_2", "F", 50, "FREE", 8)).toBe(
+      resolve("LEVEL_2", "F", 50, "FREE", 10),
+    );
+    // And exact ages above the band never fall INTO it.
+    expect(resolve("SANJ", "F", 100, "FREE", 13)).toBe(parseTime("1:05:59"));
+  });
+
+  it("gives a 17-year-old no cut at any tier (16 is the exact oldest age)", () => {
+    const accepted = importAll();
+    for (const tier of TIER_ORDER) {
+      for (const gender of ["F", "M"] as const) {
+        const cuts = accepted.filter(
+          (c) =>
+            c.tier === tier && c.gender === gender &&
+            c.distance === 100 && c.stroke === "FREE",
+        );
+        expect(resolveStandardTime(cuts, 17)).toBeNull();
       }
     }
   });

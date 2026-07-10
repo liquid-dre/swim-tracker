@@ -142,11 +142,19 @@ const rawRowValidator = v.object({
 });
 
 export const importStandards = mutation({
-  args: { rows: v.array(rawRowValidator) },
+  args: {
+    rows: v.array(rawRowValidator),
+    // Delete EVERY existing cut first, so the imported file becomes the
+    // complete set. Without this the import only upserts by identity — rows
+    // from an earlier sample/season at ages the new file doesn't have would
+    // linger and keep resolving.
+    replaceExisting: v.optional(v.boolean()),
+  },
   returns: v.object({
     inserted: v.number(),
     updated: v.number(),
     unchanged: v.number(),
+    deleted: v.number(),
     acceptedCount: v.number(),
     rejectedCount: v.number(),
     rejected: v.array(
@@ -156,16 +164,29 @@ export const importStandards = mutation({
       }),
     ),
   }),
-  handler: async (ctx, { rows }) => {
+  handler: async (ctx, { rows, replaceExisting }) => {
     await requireSuperUser(ctx);
     const events = await loadEvents(ctx);
     const { accepted, rejected } = prepareStandardImport(
       rows as RawStandardRow[],
       events,
     );
+
+    // Refuse to wipe the table for a file that imports NOTHING — a malformed
+    // upload must never leave the app with zero cuts.
+    let deleted = 0;
+    if (replaceExisting && accepted.length > 0) {
+      const existing = await ctx.db.query("standards").take(5000);
+      for (const row of existing) {
+        await ctx.db.delete(row._id);
+        deleted += 1;
+      }
+    }
+
     const counts = await upsertPreparedStandards(ctx, accepted);
     return {
       ...counts,
+      deleted,
       acceptedCount: accepted.length,
       rejectedCount: rejected.length,
       // Report bad rows (index + reason); the full row stays server-side.
