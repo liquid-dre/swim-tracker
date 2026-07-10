@@ -1023,15 +1023,26 @@ export function computeCalibratedRadius(
   if (cuts.sanjMs !== null) anchors.push({ r: STROKE_RING_POS.SANJ, t: cuts.sanjMs });
   if (anchors.length === 0) return null;
 
-  // A PB may only extend PAST its outermost ring when that ring is SANJ — the
-  // hardest tier, where beating the cut is a real achievement worth showing past
-  // the ring. For an event whose coverage tops out below SANJ (a 50 has ONLY an
-  // L2 cut, §4.9), a faster PB must NOT shoot past that ring into the empty zone
-  // where higher rings sit on other events — it caps exactly on its own top ring.
-  // (`anchors` is ordered inner→outer, so the last one is the outermost present.)
-  const outermostRing = anchors[anchors.length - 1].r;
-  const maxRadius =
-    outermostRing === STROKE_RING_POS.SANJ ? STROKE_RADIUS_MAX : outermostRing;
+  // The bar reaches a ring IFF the swimmer has MET that tier's cut — so a time
+  // short of a cut can never look like it reached that ring (a 100 Breast 0.57s
+  // slower than SANJ must not appear to touch the SANJ ring). Cap the radius at
+  // the ring of the HIGHEST tier met (pbMs ≤ cut, hardest first): SANJ met earns
+  // headroom past its ring (a real achievement); L3/L2 met caps exactly on that
+  // ring; nothing met keeps the sub-ring calibrated position (the PB is slower
+  // than the easiest cut, so it already sits below the innermost ring). This
+  // keeps the wheel and the road "all tiers" bars honest — bar length reads as
+  // "tier achieved", never "tier nearly achieved".
+  let maxRadius: number;
+  if (cuts.sanjMs !== null && pbMs <= cuts.sanjMs) {
+    maxRadius = STROKE_RADIUS_MAX;
+  } else if (cuts.l3Ms !== null && pbMs <= cuts.l3Ms) {
+    maxRadius = STROKE_RING_POS.LEVEL_3;
+  } else if (cuts.l2Ms !== null && pbMs <= cuts.l2Ms) {
+    maxRadius = STROKE_RING_POS.LEVEL_2;
+  } else {
+    // Nothing met — never reach the innermost (easiest) present ring.
+    maxRadius = anchors[0].r;
+  }
   const clamp = (r: number) =>
     Math.max(STROKE_RADIUS_MIN, Math.min(maxRadius, r));
 
