@@ -259,13 +259,16 @@ describe("tours (dates are super-user reference data; qualification is role-scop
           enteredBy: coachProfile!._id,
           createdAt: 0,
         });
+        // Young catch-all so the cut resolves at whatever CURRENT age each
+        // swimmer is on the day the suite runs (fixed DOBs, corrected §4.9
+        // rule = judged at current age). Both beat 70.00, so both qualify.
         await ctx.db.insert("standards", {
           tier: "SANJ",
           gender,
           distance: 100,
           stroke: "FREE",
-          age: 13,
-          isCatchAllYoung: false,
+          age: 18,
+          isCatchAllYoung: true,
           isCatchAllOld: false,
           timeMs: 70_000,
         });
@@ -287,66 +290,7 @@ describe("tours (dates are super-user reference data; qualification is role-scop
     expect(viewerView.hasSwimmers).toBe(true);
   });
 
-  test("a tour date flips qualification to the age on tour day", async () => {
-    const { t, asSuper, asCoach, ids } = await setup();
-
-    // Ava (dob 2012-05-01) swam a 100 Free LCM meet PB of 1:09.00 at age 13.
-    // SANJ cuts: 1:10.00 at 13, 1:08.00 at 14 — she makes the 13 cut only.
-    await t.run(async (ctx) => {
-      const coachProfile = await ctx.db
-        .query("profiles")
-        .withIndex("by_authId", (q) => q.eq("authId", ids.coachA))
-        .unique();
-      await ctx.db.insert("results", {
-        swimmerId: ids.swimmerA,
-        distance: 100,
-        stroke: "FREE",
-        course: "LCM",
-        timeMs: 69_000,
-        swimType: "MEET",
-        swimDate: "2025-06-01",
-        ageAtSwim: 13,
-        enteredBy: coachProfile!._id,
-        createdAt: 0,
-      });
-      for (const cut of [
-        { age: 13, timeMs: 70_000 },
-        { age: 14, timeMs: 68_000 },
-      ]) {
-        await ctx.db.insert("standards", {
-          tier: "SANJ",
-          gender: "F",
-          distance: 100,
-          stroke: "FREE",
-          age: cut.age,
-          isCatchAllYoung: false,
-          isCatchAllOld: false,
-          timeMs: cut.timeMs,
-        });
-      }
-    });
-
-    // No tour date: judged at the age the PB was swum (13) → SANJ qualified.
-    const before = await asCoach.query(api.tours.getTourQualification, {});
-    const sanjBefore = before.tiers.find((x) => x.tier === "SANJ")!;
-    expect(sanjBefore.swimmers.map((s) => s.swimmerId)).toEqual([ids.swimmerA]);
-
-    // SANJ tour after her 14th birthday: judged at 14 (cut 1:08.00) → out.
-    await asSuper.mutation(api.tours.setTour, {
-      tier: "SANJ",
-      date: "2026-12-01",
-      name: "SANJ Nationals",
-    });
-    const after = await asCoach.query(api.tours.getTourQualification, {});
-    const sanjAfter = after.tiers.find((x) => x.tier === "SANJ")!;
-    expect(sanjAfter.tour).toEqual({ name: "SANJ Nationals", date: "2026-12-01" });
-    expect(sanjAfter.swimmers).toEqual([]);
-
-    // Clearing the date restores the as-swum judgement.
-    await asSuper.mutation(api.tours.clearTour, { tier: "SANJ" });
-    const restored = await asCoach.query(api.tours.getTourQualification, {});
-    expect(
-      restored.tiers.find((x) => x.tier === "SANJ")!.swimmers.map((s) => s.swimmerId),
-    ).toEqual([ids.swimmerA]);
-  });
+  // The tour-date-vs-current-age flip (the birthday rule) is owned by
+  // convex/qualificationAge.test.ts, which reproduces the exact age math with
+  // a run-date-independent DOB.
 });

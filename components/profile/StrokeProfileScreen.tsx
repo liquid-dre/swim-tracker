@@ -252,8 +252,7 @@ function WheelPanel({
           {data.agedUpAt && (
             <p className="w-full rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">
               Turned {data.swimmer.age} on {formatShortDate(data.agedUpAt)} —
-              no-time events now target the age-{data.swimmer.age} cuts;
-              existing bests count at the age they were swum.
+              every cut now resolves to the age-{data.swimmer.age} standard.
               {pinnedTierNames(data.tourDates).length > 0 &&
                 ` ${pinnedTierNames(data.tourDates).join(" and ")} ${
                   pinnedTierNames(data.tourDates).length === 1 ? "is" : "are"

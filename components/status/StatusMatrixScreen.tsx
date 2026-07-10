@@ -166,7 +166,7 @@ export function StatusMatrixScreen() {
                 .join(" and ")}{" "}
               {pinned.length === 1 ? "is" : "are"} judged at each
               swimmer&rsquo;s age on tour day
-              {pinned.length < 3 && "; other tiers at the age each time was swum"}
+              {pinned.length < 3 && "; other tiers at each swimmer's current age"}
               .
             </p>
           );

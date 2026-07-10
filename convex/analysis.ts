@@ -227,15 +227,14 @@ export const getEventComparison = query({
       if (args.ageGroup && band !== args.ageGroup) continue;
 
       const age = computeAge(swimmer.dob, today); // display age (as of today)
-      // Tiers WITH a tour date judge at the age the swimmer will be on tour
-      // day; the rest match the cut to the swimmer's age AT THE GALA where the
-      // PB was swum (§4.9) — a time set at 13 is judged against the
-      // 13-year-old cut, and that qualification stands even once the swimmer
-      // has turned 14. Applied on both courses (SCM reuses the long-course cut
-      // when no SCM-specific cut exists).
+      // Resolve each tier's cut at the age the swimmer IS FOR THE COMPETITION:
+      // the tour date when one is set, else their current age (§4.9). NEVER the
+      // age a past PB was swum — a swimmer who beat the easier 14-year-old cut
+      // must not still read as qualified once they're 15 and need the 15 cut.
+      // Applied on both courses (SCM reuses the long-course cut).
       const cuts = pickApplicableStandardsPerTier(
         await loadCuts(swimmer.gender),
-        tierResolutionAges(swimmer.dob, best.ageAtSwim, tourDates),
+        tierResolutionAges(swimmer.dob, age, tourDates),
       );
       const highestTier: Tier | null = highestTierMet(best.timeMs, cuts);
 
@@ -649,14 +648,14 @@ export const getQualificationMatrix = query({
       const cells = lcmEvents.map((e) => {
         const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
         const pbMs = pb ? pb.timeMs : null;
-        // Tiers WITH a tour date judge at the swimmer's age ON TOUR DAY; the
-        // rest judge the PB against the cut for the age AT THAT GALA (§4.9),
-        // falling back to today's age with no PB so an aspirational target
-        // still resolves for the (blank) cell.
-        const fallbackAge = pb?.ageAtSwim ?? age;
+        // Judge each tier's cut at the age the swimmer IS FOR THE COMPETITION:
+        // the tour date when one is set, else their current age (§4.9). Never
+        // the age a past PB was swum — a swimmer who beat the easier younger
+        // cut must not keep reading as qualified once they've aged into a
+        // harder one they don't meet.
         const applicable = pickApplicableStandardsPerTier(
           cutsByEvent.get(`${swimmer.gender}|${e.distance}|${e.stroke}`) ?? [],
-          tierResolutionAges(swimmer.dob, fallbackAge, tourDates),
+          tierResolutionAges(swimmer.dob, age, tourDates),
         );
         const cell = computeMatrixCell(pbMs, applicable);
         return {
@@ -831,10 +830,10 @@ export const getRoadToQualify = query({
       }
     }
 
-    // With a tour date for this tier, EVERY cut resolves at the age the
-    // swimmer will be on tour day — the question this screen answers becomes
-    // "can they go?". Without one, judge each PB at the age it was swum
-    // (§4.9), today's age when no PB yet.
+    // With a tour date for this tier, every cut resolves at the age the
+    // swimmer will be on tour day — the question this screen answers is "can
+    // they go?". Without one, judge against their CURRENT age (§4.9) — never
+    // the age a past PB was swum.
     const tourDates = await loadTourDates(ctx);
     const tourDate = tourDates[targetTier];
     const tourAge = tourDate !== undefined ? computeAge(swimmer.dob, tourDate) : null;
@@ -852,7 +851,9 @@ export const getRoadToQualify = query({
       // event AND a cut actually resolves for the applicable age.
       if (!tierCoversEvent(targetTier, e.distance, e.stroke)) continue;
       const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
-      const cutAge = tourAge ?? pb?.ageAtSwim ?? age;
+      // The cut the swimmer must meet FOR THE COMPETITION: tour-day age when a
+      // date is set, else their current age — never the age a past PB was swum.
+      const cutAge = tourAge ?? age;
       const cutMs = resolveStandardTime(
         cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [],
         cutAge,
@@ -1043,13 +1044,12 @@ export const getStrokeProfile = query({
     const events = [];
     for (const e of lcmEvents) {
       const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
-      // Tiers WITH a tour date calibrate to the cut for the age the swimmer
-      // will be on tour day; the rest calibrate to the cut for the age AT THE
-      // GALA where the PB was swum (§4.9) — today's age with no PB, so an
-      // event with a cut still shows its (empty) rings.
+      // Calibrate each tier's ring to the cut the swimmer must meet FOR THE
+      // COMPETITION: tour-day age when a date is set, else current age (§4.9).
+      // Never the age a past PB was swum.
       const applicable = pickApplicableStandardsPerTier(
         cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [],
-        tierResolutionAges(swimmer.dob, pb?.ageAtSwim ?? age, tourDates),
+        tierResolutionAges(swimmer.dob, age, tourDates),
       );
       const l2Ms = applicable.LEVEL_2 ?? null;
       const l3Ms = applicable.LEVEL_3 ?? null;

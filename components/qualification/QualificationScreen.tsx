@@ -22,7 +22,7 @@ import { formatTime, TIER_FULL } from "@/lib/swim";
   under the HIGHEST tier they qualify for (SANJ > L3 > L2), with the events
   that got them there. Long-course meet times only. Cuts follow the tour
   rule: a tier with a tour date judges at each swimmer's age ON TOUR DAY; a
-  tier without one judges each PB at the age it was swum (§4.9). Coach-only —
+  tier without one judges each PB at the swimmer's current age (§4.9). Coach-only —
   this is a cross-roster planning surface.
 */
 
@@ -96,7 +96,7 @@ export function QualificationScreen() {
                   </>
                 ) : (
                   <>
-                    no tour date set — judged at the age each time was swum
+                    no tour date set — judged at each swimmer&rsquo;s current age
                     {isSuperUser && (
                       <>
                         {" · "}

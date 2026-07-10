@@ -252,7 +252,10 @@ export const getTourQualification = query({
         for (const pb of lcmPbs) {
           if (!tierCoversEvent(tier, pb.distance, pb.stroke)) continue;
           const headline = pb.headline!;
-          const cutAge = tourAge ?? headline.ageAtSwim ?? ageToday;
+          // The cut the swimmer must meet FOR THIS TOUR: tour-day age when a
+          // date is set, else current age — never the age the PB was swum, so
+          // a time that only beat an easier younger cut never lists them here.
+          const cutAge = tourAge ?? ageToday;
           const cutMs = resolveStandardTime(
             (cutsByEvent.get(`${swimmer.gender}|${pb.distance}|${pb.stroke}`) ?? [])
               .filter((r) => r.tier === tier),
