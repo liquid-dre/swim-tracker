@@ -212,11 +212,12 @@ export const getCoachDashboard = query({
       for (const pb of pbs) {
         if (pb.course !== "LCM" || !pb.headline) continue;
         // Same rule as the status matrix: tiers WITH a tour date judge at the
-        // swimmer's age on tour day; the rest at the age the PB was swum
-        // (§4.9) — never their age today.
+        // swimmer's age on tour day; the rest at their CURRENT age (§4.9) —
+        // never the age the PB was swum, so these counts match what the
+        // qualification screens show.
         const applicable = pickApplicableStandardsPerTier(
           cutsByEvent.get(`${swimmer.gender}|${pb.distance}|${pb.stroke}`) ?? [],
-          tierResolutionAges(swimmer.dob, pb.headline.ageAtSwim ?? age, tourDates),
+          tierResolutionAges(swimmer.dob, age, tourDates),
         );
         const cell = computeMatrixCell(pb.headline.timeMs, applicable);
         if (cell.tier !== null) cutsQualified += 1;

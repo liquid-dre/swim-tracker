@@ -175,8 +175,10 @@ export const logResult = mutation({
       args.swimType === "MEET" && (prevBestMs === null || timeMs < prevBestMs);
 
     // A new LCM PB may also be the first time a qualifying cut is met — the
-    // one moment worth naming over "Time saved". Judged under the same cuts
-    // for both times (tour rule; fallback age = this swim's age).
+    // one moment worth naming over "Time saved". Judged at the age the swimmer
+    // is FOR THE COMPETITION (tour date, else current age) — the same rule the
+    // qualification screens use — so the toast never claims a cut those screens
+    // won't show. Both times are judged under the same cuts.
     let newlyMetTier: Tier | null = null;
     if (newPb && args.course === "LCM") {
       const rows = await ctx.db
@@ -188,9 +190,13 @@ export const logResult = mutation({
             .eq("stroke", args.stroke),
         )
         .take(500);
+      const ageToday = computeAge(
+        swimmer.dob,
+        new Date().toISOString().slice(0, 10),
+      );
       const cuts = pickApplicableStandardsPerTier(
         rows,
-        tierResolutionAges(swimmer.dob, ageAtSwim, await loadTourDates(ctx)),
+        tierResolutionAges(swimmer.dob, ageToday, await loadTourDates(ctx)),
       );
       const tierNow = highestTierMet(timeMs, cuts);
       const tierBefore = prevBestMs === null ? null : highestTierMet(prevBestMs, cuts);

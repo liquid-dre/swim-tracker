@@ -74,8 +74,8 @@ export default defineSchema({
   // Tour dates (docs/access-control.md: super-user writes, every role reads).
   // One row per tier: the date of that tier's tour/meet. When set, every
   // qualifying surface judges swimmers against the cut for the age they will
-  // be ON TOUR DAY (the birthday rule); with no row, resolution stays at the
-  // age the PB was swum (§4.9). `name` is display-only ("SANJ Nationals").
+  // be ON TOUR DAY (the birthday rule); with no row, resolution falls back to
+  // the swimmer's CURRENT age (§4.9). `name` is display-only ("SANJ Nationals").
   tours: defineTable({
     tier: v.union(
       v.literal("LEVEL_2"),

@@ -1,11 +1,11 @@
 import { formatShortDate } from "@/lib/format";
 
 /*
-  Standards resolve to the exact single-year age, so a birthday changes which
-  cuts apply — but only where nothing is already locked in: an existing best
-  is judged at the age it was swum (§4.9), so only no-time events move to the
-  new age's cuts. Say exactly that for a month rather than leave the swimmer
-  wondering. Quiet by design: context, not a warning.
+  Qualification resolves to the swimmer's CURRENT exact single-year age, so a
+  birthday moves every cut at once — the gaps a coach sees the day after a
+  birthday are against the new age's (usually harder) cuts. Say so for a month
+  rather than leave them wondering why the numbers shifted. Quiet by design:
+  context, not a warning.
 */
 export function AgeUpNote({
   name,
@@ -22,9 +22,8 @@ export function AgeUpNote({
 }) {
   return (
     <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
-      {name} turned {age} on {formatShortDate(date)} — events without a meet
-      time now target the age-{age} cuts; existing bests still count at the age
-      they were swum.
+      {name} turned {age} on {formatShortDate(date)} — every cut now resolves to
+      the age-{age} standard.
       {pinnedTiers.length > 0 &&
         ` ${pinnedTiers.join(" and ")} ${
           pinnedTiers.length === 1 ? "is" : "are"

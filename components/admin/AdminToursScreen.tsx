@@ -19,7 +19,7 @@ import { TIER_FULL, TIER_ORDER, type Tier } from "@/lib/swim";
   Tour dates (super-user only; docs/access-control.md). One date per tier.
   Setting a date switches EVERY qualifying surface to judge swimmers against
   the cut for the age they'll be on tour day (the birthday rule); clearing it
-  reverts that tier to judging at the age each time was swum (§4.9). Writes
+  reverts that tier to judging at the swimmer's current age (§4.9). Writes
   are gated server-side by requireSuperUser — this screen is reachable only
   by the super-user via the /admin route boundary.
 */
@@ -38,7 +38,7 @@ export function AdminToursScreen() {
       <PageHeader
         title="Tour dates"
         breadcrumb={trailForHref("/admin/tours")}
-        description="The date of each tier's tour. With a date set, the qualifying screens judge swimmers against the cut for their age on that day (the progression chart's historical overlay keeps showing what applied when each swim happened). Clear a date and that tier reverts to judging at the age each time was swum."
+        description="The date of each tier's tour. With a date set, the qualifying screens judge swimmers against the cut for their age on that day (the progression chart's historical overlay keeps showing what applied when each swim happened). Clear a date and that tier reverts to judging at the swimmer's current age."
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -160,7 +160,7 @@ function TourEditor({
         open={confirmClear}
         onOpenChange={setConfirmClear}
         title={`Clear the ${TIER_FULL[tier]} tour date?`}
-        description="Without a tour date, this tier goes back to judging each swimmer at the age their time was swum — gaps and qualification may change across the app."
+        description="Without a tour date, this tier goes back to judging each swimmer at their current age — gaps and qualification may change across the app."
         confirmLabel="Clear date"
         onConfirm={async () => {
           await notify.promise(clearTour({ tier }), {

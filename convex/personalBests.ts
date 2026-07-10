@@ -378,7 +378,9 @@ export const getViewerHighlights = query({
           cutRows.filter(
             (r) => r.distance === pb.distance && r.stroke === pb.stroke,
           ),
-          tierResolutionAges(swimmer.dob, pb.headline.ageAtSwim ?? age, tourDates),
+          // Tour-day age when a date is set, else current age — never the age
+          // the PB was swum, matching every qualification surface.
+          tierResolutionAges(swimmer.dob, age, tourDates),
         );
         const cell = computeMatrixCell(pb.headline.timeMs, cuts);
         if (cell.gapMs === null || cell.gapMs <= 0 || cell.nextTier === null) {
