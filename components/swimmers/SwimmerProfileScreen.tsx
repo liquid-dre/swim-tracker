@@ -16,6 +16,7 @@ import { formatShortDate } from "@/lib/format";
 import { formatTime } from "@/lib/swim";
 import { PbBoard } from "./PbBoard";
 import { ImprovementSummary } from "./ImprovementSummary";
+import { AttendanceFigure } from "@/components/attendance/AttendanceFigure";
 import { HistoryTable, type HistoryResult } from "./HistoryTable";
 import { ResultEditSheet } from "./ResultEditSheet";
 import { ViewerAccessSection } from "./ViewerAccessSection";
@@ -132,6 +133,15 @@ export function SwimmerProfileScreen({
       >
         <ImprovementSummary pbs={personalBests} />
       </Section>
+
+      {editable && (
+        <Section
+          title="Attendance"
+          hint="Training attendance this season. Excused absences don't count against the rate."
+        >
+          <AttendanceFigure swimmerId={swimmerId} />
+        </Section>
+      )}
 
       <Section
         title="History"

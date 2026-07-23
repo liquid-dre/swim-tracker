@@ -54,20 +54,20 @@ const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // Pure date helpers — local-time (never UTC), so an ISO day never shifts.
 // ---------------------------------------------------------------------------
 
-function parseIso(iso: string): Date | null {
+export function parseIso(iso: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!m) return null;
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function toIso(d: Date): string {
+export function toIso(d: Date): string {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-function sameDay(a: Date, b: Date): boolean {
+export function sameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&
@@ -137,7 +137,7 @@ function parseTypedDate(input: string): string | null {
 }
 
 /** Weeks of the given month as a 7-wide grid; leading/trailing cells are null. */
-function buildCalendar(year: number, month: number): (Date | null)[][] {
+export function buildCalendar(year: number, month: number): (Date | null)[][] {
   const startWeekday = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells: (Date | null)[] = [];
