@@ -10,6 +10,10 @@
 
 import type * as admin from "../admin.js";
 import type * as analysis from "../analysis.js";
+import type * as attendance from "../attendance.js";
+import type * as attendanceInsights from "../attendanceInsights.js";
+import type * as attendanceLib from "../attendanceLib.js";
+import type * as attendanceShared from "../attendanceShared.js";
 import type * as audit from "../audit.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
@@ -22,6 +26,8 @@ import type * as http from "../http.js";
 import type * as personalBests from "../personalBests.js";
 import type * as profiles from "../profiles.js";
 import type * as results from "../results.js";
+import type * as sessionPatterns from "../sessionPatterns.js";
+import type * as sessions from "../sessions.js";
 import type * as settings from "../settings.js";
 import type * as squads from "../squads.js";
 import type * as standards from "../standards.js";
@@ -40,6 +46,10 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   analysis: typeof analysis;
+  attendance: typeof attendance;
+  attendanceInsights: typeof attendanceInsights;
+  attendanceLib: typeof attendanceLib;
+  attendanceShared: typeof attendanceShared;
   audit: typeof audit;
   auth: typeof auth;
   authz: typeof authz;
@@ -52,6 +62,8 @@ declare const fullApi: ApiFromModules<{
   personalBests: typeof personalBests;
   profiles: typeof profiles;
   results: typeof results;
+  sessionPatterns: typeof sessionPatterns;
+  sessions: typeof sessions;
   settings: typeof settings;
   squads: typeof squads;
   standards: typeof standards;
