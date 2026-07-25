@@ -43,7 +43,13 @@ export function SessionMarkingScreen({
   today: string;
 }) {
   const router = useRouter();
-  const data = useQuery(api.sessions.getSessionRoster, { sessionId });
+  // Once deleted, stop subscribing to the (now-gone) session so the query can't
+  // throw "Session not found" during the render window before the redirect lands.
+  const [deleted, setDeleted] = useState(false);
+  const data = useQuery(
+    api.sessions.getSessionRoster,
+    deleted ? "skip" : { sessionId },
+  );
   const squads = useQuery(api.squads.listSquads, {});
 
   const mark = useMutation(api.attendance.markAttendance);
@@ -226,6 +232,7 @@ export function SessionMarkingScreen({
         confirmLabel="Delete session"
         onConfirm={async () => {
           await deleteSession({ sessionId });
+          setDeleted(true);
           notify.success("Session deleted");
           router.push("/attendance");
         }}
