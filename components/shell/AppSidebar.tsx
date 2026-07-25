@@ -32,7 +32,6 @@ import {
 import {
   isGroupActive,
   isLeafActive,
-  isRouteActive,
   navForRole,
   roleLabel,
   type NavGroup,
@@ -172,7 +171,7 @@ function InlineGroup({ node, pathname }: { node: NavGroup; pathname: string }) {
         <CollapsibleContent className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down">
           <SidebarMenuSub>
             {node.items.map((item) => {
-              const active = isRouteActive(pathname, item.href);
+              const active = isLeafActive(pathname, item);
               return (
                 <SidebarMenuSubItem key={item.href}>
                   <SidebarMenuSubButton asChild isActive={active} className={ACTIVE_BRAND}>
@@ -358,7 +357,7 @@ function RailFlyoutGroup({ node, pathname }: { node: NavGroup; pathname: string 
               {node.label}
             </p>
             {node.items.map((item, i) => {
-              const active = isRouteActive(pathname, item.href);
+              const active = isLeafActive(pathname, item);
               return (
                 <Link
                   key={item.href}

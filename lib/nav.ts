@@ -3,6 +3,8 @@ import {
   Award,
   BarChart3,
   Building2,
+  CalendarCheck,
+  CalendarClock,
   CalendarDays,
   ClipboardList,
   Gauge,
@@ -72,7 +74,10 @@ export const NAV: NavNode[] = [
     label: "Swimmer",
     icon: Waves,
     roles: ["VIEWER"],
-    items: [{ label: "My swimmers", href: "/me/swimmers", icon: UserCheck }],
+    items: [
+      { label: "My swimmers", href: "/me/swimmers", icon: UserCheck },
+      { label: "Attendance", href: "/me/attendance", icon: CalendarCheck },
+    ],
   },
   {
     kind: "group",
@@ -139,6 +144,20 @@ export const NAV: NavNode[] = [
       { label: "Road to qualify", href: "/road", icon: Target },
       { label: "Tour qualification", href: "/qualification", icon: Plane },
       { label: "Standards", href: "/standards", icon: Ruler },
+    ],
+  },
+  // Session attendance (§R18). Coach-owned: the calendar (view + mark), the
+  // recurring schedule, and season insights. Any club coach manages it; server-
+  // enforced club-scoped in every function.
+  {
+    kind: "group",
+    label: "Attendance",
+    icon: CalendarDays,
+    roles: ["COACH"],
+    items: [
+      { label: "Calendar", href: "/attendance", icon: CalendarCheck, exact: true },
+      { label: "Schedule", href: "/attendance/schedule", icon: CalendarClock },
+      { label: "Insights", href: "/attendance/insights", icon: BarChart3 },
     ],
   },
   // Coach-only audit trails (§R17). Read-only history of who did what: viewer

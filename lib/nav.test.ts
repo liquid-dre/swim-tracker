@@ -22,6 +22,7 @@ describe("navForRole — role decides which nav renders", () => {
   it("gives a viewer the coach-mirroring IA, scoped under /me", () => {
     expect(hrefsFor("VIEWER")).toEqual([
       "/me/swimmers",
+      "/me/attendance",
       "/me/compare",
       "/me/progression",
       "/me/stroke-profile",
@@ -45,6 +46,14 @@ describe("navForRole — role decides which nav renders", () => {
     expect(coach).toContain("/dashboard");
     expect(coach).toContain("/road");
     for (const href of coach) expect(href.startsWith("/me")).toBe(false);
+  });
+
+  it("gives a coach the attendance surface but not the viewer calendar", () => {
+    const coach = hrefsFor("COACH");
+    expect(coach).toContain("/attendance");
+    expect(coach).toContain("/attendance/schedule");
+    expect(coach).toContain("/attendance/insights");
+    expect(coach).not.toContain("/me/attendance");
   });
 
   it("gives the super-user every coach item (superset) and no viewer routes", () => {

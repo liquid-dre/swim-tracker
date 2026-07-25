@@ -30,6 +30,20 @@ const swimType = v.union(
   v.literal("SCHOOL_GALA"),
 );
 
+// Session attendance (§R18). A swimmer's mark against one training session.
+// EXCUSED is a non-punitive absence (illness, gala, notified ahead) and is the
+// ONLY status settable on a future session — an advance absence must be a
+// communicated excusal, never a bare "absent".
+const attendanceStatus = v.union(
+  v.literal("PRESENT"),
+  v.literal("ABSENT"),
+  v.literal("LATE"),
+  v.literal("EXCUSED"),
+);
+// A concrete session either runs as scheduled or is cancelled. Cancelling keeps
+// the row (and any marks) — the calendar greys it — so history is never lost.
+const sessionStatus = v.union(v.literal("SCHEDULED"), v.literal("CANCELLED"));
+
 // The data model from BRD §7 (profiles, swimmers, squads, squadMemberships,
 // swimmerAccess, events, standards, results), extended with the multi-club,
 // role-based access model in docs/access-control.md: a SUPER_USER over global
@@ -289,6 +303,76 @@ export default defineSchema({
     .index("by_swimmer", ["swimmerId"])
     .index("by_squad", ["squadId"])
     .index("by_date", ["noteDate"]),
+
+  // ── Session attendance (§R18) ──────────────────────────────────────────────
+  // A named recurring template a coach defines once ("Evening — Mon–Fri 4:30pm,
+  // all squads"). It MATERIALISES concrete `sessions` across the season window;
+  // it is not consulted on read. Each pattern targets one OR MORE squads and a
+  // session's roster is the UNION of its target squads' live membership. Club-
+  // scoped: a coach manages only their own club's patterns.
+  sessionPatterns: defineTable({
+    clubId: v.id("clubs"),
+    name: v.string(),
+    weekdays: v.array(v.number()), // subset of 0–6, matching Date.getDay() (0=Sun)
+    startMin: v.number(), // minutes-from-midnight, 0–1439 (timezone-free time-of-day)
+    endMin: v.number(),
+    squadIds: v.array(v.id("squads")), // one or more target squads
+    label: v.optional(v.string()),
+    location: v.optional(v.string()),
+    active: v.boolean(),
+    createdBy: v.id("profiles"),
+    createdAt: v.number(),
+    lastEditedBy: v.optional(v.id("profiles")),
+    updatedAt: v.optional(v.number()),
+  }).index("by_club", ["clubId"]),
+
+  // A concrete, dated training session — one row per occurrence. Generated from a
+  // pattern (`patternId` set) or hand-created as a one-off (`patternId` unset).
+  // `overridden` marks a session a coach has hand-edited (time/squads changed,
+  // cancelled, or a one-off) so pattern regeneration leaves it alone. Regeneration
+  // also freezes anything in the past or already marked. Attendance attaches here.
+  sessions: defineTable({
+    clubId: v.id("clubs"),
+    date: v.string(), // ISO YYYY-MM-DD
+    startMin: v.number(),
+    endMin: v.number(),
+    squadIds: v.array(v.id("squads")),
+    label: v.optional(v.string()),
+    location: v.optional(v.string()),
+    patternId: v.optional(v.id("sessionPatterns")), // unset ⇒ one-off / detached
+    status: sessionStatus,
+    overridden: v.boolean(),
+    createdBy: v.id("profiles"),
+    createdAt: v.number(),
+    lastEditedBy: v.optional(v.id("profiles")),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_club_date", ["clubId", "date"])
+    .index("by_pattern", ["patternId"])
+    .index("by_date", ["date"]),
+
+  // One swimmer's mark against one session (unmarked ⇒ no row). `clubId` and
+  // `date` are denormalised from the parent session so swimmer-scoped season-range
+  // reads (viewer calendar, profile figure) stay index-only via by_swimmer_date,
+  // mirroring results.by_date. `note` is a private coaching observation, hidden
+  // from viewers UNLESS `noteVisibleToViewer` is set per this mark. Provenance
+  // (enteredBy/lastEditedBy) matches the results table.
+  attendance: defineTable({
+    sessionId: v.id("sessions"),
+    swimmerId: v.id("swimmers"),
+    clubId: v.id("clubs"),
+    date: v.string(), // denormalised session date (kept in sync on session date edits)
+    status: attendanceStatus,
+    note: v.optional(v.string()),
+    noteVisibleToViewer: v.boolean(),
+    enteredBy: v.id("profiles"),
+    createdAt: v.number(),
+    lastEditedBy: v.optional(v.id("profiles")),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_session", ["sessionId"])
+    .index("by_swimmer", ["swimmerId"])
+    .index("by_swimmer_date", ["swimmerId", "date"]),
 
   // Coach app settings — a single, club-wide singleton row (BRD §5.12, Step 13).
   // `key` is always "app" so the row is found/upserted by a stable lookup. Season
