@@ -233,6 +233,39 @@ describe("marking rules", () => {
   });
 });
 
+describe("session title", () => {
+  test("a pattern-generated session titles from the pattern name when it has no label", async () => {
+    const { asCoachA, ids, t } = await setup();
+    await asCoachA.mutation(api.sessionPatterns.createPattern, {
+      name: "Evening squad",
+      weekdays: [1],
+      startMin: 990,
+      endMin: 1080,
+      squadIds: [ids.squadX],
+    });
+    const generated = await t.run(async (ctx) => ctx.db.query("sessions").take(50));
+    const patternSession = generated.find((s) => s.patternId)!;
+    const roster = await asCoachA.query(api.sessions.getSessionRoster, {
+      sessionId: patternSession._id,
+    });
+    expect(roster.session.label).toBeNull();
+    expect(roster.session.title).toBe("Evening squad");
+  });
+
+  test("a session's own label wins over the pattern name", async () => {
+    const { asCoachA, ids } = await setup();
+    const session = await asCoachA.mutation(api.sessions.createOneOffSession, {
+      date: PAST_DATE,
+      startMin: 990,
+      endMin: 1080,
+      squadIds: [ids.squadX],
+      label: "Distance set",
+    });
+    const roster = await asCoachA.query(api.sessions.getSessionRoster, { sessionId: session });
+    expect(roster.session.title).toBe("Distance set");
+  });
+});
+
 describe("roster", () => {
   test("a swimmer in two target squads appears once", async () => {
     const { asCoachA, ids } = await setup();

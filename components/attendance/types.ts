@@ -19,6 +19,8 @@ export type CalendarSession = {
   startMin: number;
   endMin: number;
   label: string | null;
+  /** Display title: label if set, else the pattern name. */
+  title: string | null;
   location?: string | null;
   status: SessionStatus;
   /** Summary counts (coach unfiltered view); absent in per-swimmer mode. */

@@ -212,6 +212,7 @@ export const getViewerCalendar = query({
         startMin: v.number(),
         endMin: v.number(),
         label: v.union(v.string(), v.null()),
+        title: v.union(v.string(), v.null()),
         location: v.union(v.string(), v.null()),
         status: sessionStatusV,
         perSwimmer: v.array(
@@ -280,6 +281,17 @@ export const getViewerCalendar = query({
     }
 
     const isViewer = role === "VIEWER";
+    const patternName = new Map<string, string | null>();
+    const titleFor = async (s: Doc<"sessions">): Promise<string | null> => {
+      if (s.label) return s.label;
+      if (!s.patternId) return null;
+      const key = String(s.patternId);
+      if (patternName.has(key)) return patternName.get(key)!;
+      const pattern = await ctx.db.get(s.patternId);
+      const name = pattern?.name ?? null;
+      patternName.set(key, name);
+      return name;
+    };
     const out = [];
     for (const s of sessions) {
       // Which targets are on THIS session's roster.
@@ -304,6 +316,7 @@ export const getViewerCalendar = query({
         startMin: s.startMin,
         endMin: s.endMin,
         label: s.label ?? null,
+        title: await titleFor(s),
         location: s.location ?? null,
         status: s.status,
         perSwimmer,

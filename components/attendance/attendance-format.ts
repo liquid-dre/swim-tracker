@@ -33,30 +33,34 @@ export const STATUS_ORDER: AttendanceStatus[] = ["PRESENT", "LATE", "ABSENT", "E
 
 export const STATUS_META: Record<
   AttendanceStatus,
-  { label: string; short: string; chip: string; dot: string }
+  { label: string; short: string; chip: string; solid: string; dot: string }
 > = {
   PRESENT: {
     label: "Present",
     short: "P",
     chip: "border-success-subtle bg-success-subtle text-success-ink",
+    solid: "border-success-500 bg-success-500 text-white",
     dot: "bg-success-500",
   },
   LATE: {
     label: "Late",
     short: "L",
     chip: "border-warning-subtle bg-warning-subtle text-warning-ink",
+    solid: "border-warning-500 bg-warning-500 text-white",
     dot: "bg-warning-500",
   },
   ABSENT: {
     label: "Absent",
     short: "A",
     chip: "border-danger-subtle bg-danger-subtle text-danger-ink",
+    solid: "border-error-500 bg-error-500 text-white",
     dot: "bg-error-500",
   },
   EXCUSED: {
     label: "Excused",
     short: "E",
     chip: "border-gray-200 bg-gray-100 text-ink-muted",
+    solid: "border-gray-500 bg-gray-500 text-white",
     dot: "bg-gray-400",
   },
 };

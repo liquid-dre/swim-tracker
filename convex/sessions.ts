@@ -220,6 +220,9 @@ const sessionSummary = v.object({
   startMin: v.number(),
   endMin: v.number(),
   label: v.union(v.string(), v.null()),
+  // Display title: the session's own label if set, else its pattern's name, so a
+  // recurring session always shows something meaningful on the calendar.
+  title: v.union(v.string(), v.null()),
   location: v.union(v.string(), v.null()),
   status: sessionStatusV,
   squadIds: v.array(v.id("squads")),
@@ -302,6 +305,17 @@ export const listSessionsInRange = query({
       squadName.set(key, name);
       return name;
     };
+    const patternName = new Map<string, string | null>();
+    const titleFor = async (s: Doc<"sessions">): Promise<string | null> => {
+      if (s.label) return s.label;
+      if (!s.patternId) return null;
+      const key = String(s.patternId);
+      if (patternName.has(key)) return patternName.get(key)!;
+      const pattern = await ctx.db.get(s.patternId);
+      const name = pattern?.name ?? null;
+      patternName.set(key, name);
+      return name;
+    };
 
     const results = [];
     for (const s of sessions) {
@@ -339,6 +353,7 @@ export const listSessionsInRange = query({
         startMin: s.startMin,
         endMin: s.endMin,
         label: s.label ?? null,
+        title: await titleFor(s),
         location: s.location ?? null,
         status: s.status,
         squadIds: s.squadIds,
@@ -382,6 +397,7 @@ export const getSessionRoster = query({
       startMin: v.number(),
       endMin: v.number(),
       label: v.union(v.string(), v.null()),
+      title: v.union(v.string(), v.null()),
       location: v.union(v.string(), v.null()),
       status: sessionStatusV,
       squadIds: v.array(v.id("squads")),
@@ -404,6 +420,12 @@ export const getSessionRoster = query({
       const squad = await ctx.db.get(id);
       squadNames.push(squad?.name ?? "Unknown squad");
     }
+    // Title = the session's own label, else its pattern's name.
+    let title: string | null = session.label ?? null;
+    if (!title && session.patternId) {
+      const pattern = await ctx.db.get(session.patternId);
+      title = pattern?.name ?? null;
+    }
 
     return {
       session: {
@@ -412,6 +434,7 @@ export const getSessionRoster = query({
         startMin: session.startMin,
         endMin: session.endMin,
         label: session.label ?? null,
+        title,
         location: session.location ?? null,
         status: session.status,
         squadIds: session.squadIds,

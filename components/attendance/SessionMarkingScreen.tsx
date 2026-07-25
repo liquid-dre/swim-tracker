@@ -102,6 +102,7 @@ export function SessionMarkingScreen({
     : "Session";
   const description = data
     ? [
+        data.session.title,
         formatTimeRange(data.session.startMin, data.session.endMin),
         data.session.squadNames.join(", "),
         data.session.location,

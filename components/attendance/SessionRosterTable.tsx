@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -49,13 +50,14 @@ function StatusButtons({
             title={isFuture && s !== "EXCUSED" ? "Only 'Excused' can be set ahead of time" : undefined}
             onClick={() => onSet(s)}
             className={cn(
-              "h-9 rounded-md border px-2.5 text-xs font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring",
+              "inline-flex h-9 items-center gap-1 rounded-md border px-2.5 text-xs font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring",
               active
-                ? meta.chip
+                ? cn(meta.solid, "shadow-theme-xs")
                 : "border-gray-300 bg-white text-ink-muted hover:border-gray-400",
               blocked && "cursor-not-allowed opacity-40 hover:border-gray-300",
             )}
           >
+            {active && <Check className="size-3.5" aria-hidden strokeWidth={2.5} />}
             {meta.label}
           </button>
         );

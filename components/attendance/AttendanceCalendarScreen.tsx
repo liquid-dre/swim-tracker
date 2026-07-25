@@ -125,6 +125,7 @@ export function AttendanceCalendarScreen({
           startMin: s.startMin,
           endMin: s.endMin,
           label: s.label,
+          title: s.title,
           location: s.location,
           status: s.status,
           counts: {
@@ -156,6 +157,7 @@ export function AttendanceCalendarScreen({
         startMin: s.startMin,
         endMin: s.endMin,
         label: s.label,
+        title: s.title,
         location: s.location,
         status: s.status,
         perSwimmer: s.perSwimmer.map((p) => ({

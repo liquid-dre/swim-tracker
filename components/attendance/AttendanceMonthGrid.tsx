@@ -37,10 +37,12 @@ export function SessionChip({
 
   const body = (
     <>
-      <span className="flex items-center gap-1 truncate">
-        <span className="font-medium tabular-nums text-ink">{formatChipTime(session.startMin)}</span>
-        {session.label && (
-          <span className="truncate text-ink-muted">{session.label}</span>
+      <span className="flex min-w-0 items-center gap-1 truncate">
+        <span className="shrink-0 font-medium tabular-nums text-ink">
+          {formatChipTime(session.startMin)}
+        </span>
+        {session.title && (
+          <span className="truncate text-ink-muted">{session.title}</span>
         )}
       </span>
       {cancelled ? (
