@@ -2,16 +2,19 @@
 
 import { useState } from "react";
 import { useQuery } from "convex/react";
+import { Bar } from "@/components/charts/bar";
+import { BarChart } from "@/components/charts/bar-chart";
+import { BarXAxis } from "@/components/charts/bar-x-axis";
+import { Grid } from "@/components/charts/grid";
+import { StaticChartPreviewProvider } from "@/components/charts/static-chart-preview-context";
+import { ChartTooltip } from "@/components/charts/tooltip";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+  SWIM_TOOLTIP_PANEL,
+  TooltipMeta,
+  TooltipRows,
+  TooltipTitle,
+  ValueAxis,
+} from "@/components/charts/swim";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -49,22 +52,32 @@ function StatCard({
 
 type SquareDatum = { squadName: string; ratePct: number; attended: number; eligible: number };
 
-function RateTooltip({
-  active,
-  payload,
+/** Renders children at rest (no enter animation) when motion is reduced. */
+function MaybeStatic({
+  reduced,
+  children,
 }: {
-  active?: boolean;
-  payload?: Array<{ payload: SquareDatum }>;
+  reduced: boolean;
+  children: React.ReactNode;
 }) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
+  return reduced ? (
+    <StaticChartPreviewProvider>{children}</StaticChartPreviewProvider>
+  ) : (
+    <>{children}</>
+  );
+}
+
+function RateTooltip({ row }: { row: SquareDatum }) {
+  if (!row?.squadName) return null;
   return (
-    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-theme-md">
-      <p className="font-semibold text-ink">{d.squadName}</p>
-      <p className="mt-0.5 tabular-nums text-ink-muted">
-        {d.ratePct}% · {d.attended}/{d.eligible} attended
-      </p>
-    </div>
+    <TooltipRows>
+      <TooltipTitle>{row.squadName}</TooltipTitle>
+      <TooltipMeta>
+        <span className="tabular-nums">
+          {row.ratePct}% · {row.attended}/{row.eligible} attended
+        </span>
+      </TooltipMeta>
+    </TooltipRows>
   );
 }
 
@@ -146,35 +159,38 @@ export function AttendanceInsightsScreen() {
           </p>
         ) : (
           <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 8, left: -16 }}>
-                <CartesianGrid stroke={CHART.grid} vertical={false} />
-                <XAxis
-                  dataKey="squadName"
-                  tick={{ fill: CHART.tick, fontSize: 12 }}
-                  stroke={CHART.axis}
-                  tickLine={false}
+            <MaybeStatic reduced={reduced}>
+              <BarChart
+                animationDuration={CHART_ANIM_MS}
+                // Fill the h-72 parent rather than bklit's default "2 / 1".
+                aspectRatio=""
+                className="h-full"
+                data={chartData}
+                margin={{ top: 8, right: 8, bottom: 26, left: 44 }}
+                // A rate is only readable against the full scale — 0-100, not
+                // 0-to-whatever-the-best-squad-managed.
+                valueDomain={[0, 100]}
+                xDataKey="squadName"
+              >
+                <Grid horizontal stroke={CHART.grid} vertical={false} />
+                <BarXAxis />
+                <ValueAxis
+                  format={(v) => `${Math.round(v)}%`}
+                  label="Attendance rate"
+                  width={44}
                 />
-                <YAxis
-                  domain={[0, 100]}
-                  unit="%"
-                  tick={{ fill: CHART.tick, fontSize: 12 }}
-                  stroke={CHART.axis}
-                  tickLine={false}
+                {/* Every bar is the accent — bklit's single `fill` is all this
+                    chart needs, so it keeps bklit's own Bar. */}
+                <Bar dataKey="ratePct" fill={CHART.accent} />
+                <ChartTooltip
+                  panelStyle={SWIM_TOOLTIP_PANEL}
+                  showDots={false}
+                  content={({ point }) => (
+                    <RateTooltip row={point as unknown as SquareDatum} />
+                  )}
                 />
-                <Tooltip cursor={{ fill: CHART.cursor }} content={<RateTooltip />} />
-                <Bar
-                  dataKey="ratePct"
-                  radius={[4, 4, 0, 0]}
-                  isAnimationActive={!reduced}
-                  animationDuration={CHART_ANIM_MS}
-                >
-                  {chartData.map((d) => (
-                    <Cell key={d.squadName} fill={CHART.accent} />
-                  ))}
-                </Bar>
               </BarChart>
-            </ResponsiveContainer>
+            </MaybeStatic>
           </div>
         )}
       </div>

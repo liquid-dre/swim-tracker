@@ -11,6 +11,13 @@ export interface BarYAxisProps {
   showAllLabels?: boolean;
   /** Maximum number of labels to show. Default: 20 */
   maxLabels?: number;
+  /**
+   * LOCAL EDIT (ours). Label width in px before truncating. Upstream hardcodes
+   * 70, so a chart reserving a wider gutter still lost long names to an ellipsis
+   * — and on a swimmer comparison the name is what makes the row mean anything.
+   * Default: 70, i.e. exactly the upstream behaviour.
+   */
+  maxLabelWidth?: number;
 }
 
 interface BarYAxisLabelProps {
@@ -18,6 +25,7 @@ interface BarYAxisLabelProps {
   y: number;
   bandHeight: number;
   isHovered: boolean;
+  maxLabelWidth: number;
 }
 
 function BarYAxisLabel({
@@ -25,6 +33,7 @@ function BarYAxisLabel({
   y,
   bandHeight,
   isHovered,
+  maxLabelWidth,
 }: BarYAxisLabelProps) {
   return (
     <div
@@ -46,7 +55,7 @@ function BarYAxisLabel({
           opacity: 0.7,
           color: "var(--chart-label, var(--color-zinc-500))",
         }}
-        style={{ maxWidth: 70 }}
+        style={{ maxWidth: maxLabelWidth }}
         transition={{ duration: 0.15 }}
       >
         {label}
@@ -78,6 +87,7 @@ export function BarYAxis(props: BarYAxisProps) {
 const BarYAxisInner = memo(function BarYAxisInner({
   showAllLabels = true,
   maxLabels = 20,
+  maxLabelWidth = 70,
   container,
 }: BarYAxisProps & { container: HTMLDivElement }) {
   const { margin, barScale, bandWidth, barXAccessor, data, hoveredBarIndex } =
@@ -129,6 +139,7 @@ const BarYAxisInner = memo(function BarYAxisInner({
           isHovered={hoveredBarIndex === item.index}
           key={`${item.label}-${item.y}`}
           label={item.label}
+          maxLabelWidth={maxLabelWidth}
           y={item.y}
         />
       ))}

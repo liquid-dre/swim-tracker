@@ -81,6 +81,16 @@ export interface BarChartProps {
   barWidth?: number;
   /** Bar chart orientation. Default: "vertical" */
   orientation?: BarOrientation;
+  /**
+   * LOCAL EDIT (ours). Explicit `[min, max]` for the VALUE scale.
+   *
+   * Two reasons the derived domain does not serve us. It scans the `dataKey` of
+   * each `<Bar>` child, so a chart drawing its bars with our own `<SwimBars>`
+   * finds no keys and silently falls back to `[0, 110]` — meaningless for
+   * milliseconds. And a qualifying threshold slower than every bar has to stay
+   * on-scale, or a swimmer short of the cut would have nothing to be short of.
+   */
+  valueDomain?: [number, number];
   /** Whether to stack bars instead of grouping them. Default: false */
   stacked?: boolean;
   /** Gap between stacked bar segments in pixels. Default: 0 */
@@ -156,6 +166,7 @@ interface ChartInnerProps {
   barGap: number;
   barWidthProp?: number;
   orientation: BarOrientation;
+  valueDomain?: [number, number];
   stacked: boolean;
   stackGap: number;
   squareSnap?: { squareGap: number; groupGap?: number; fit?: boolean };
@@ -186,6 +197,7 @@ const ChartCore = memo(function ChartCore({
   barGap,
   barWidthProp,
   orientation,
+  valueDomain,
   stacked,
   stackGap,
   squareSnap,
@@ -285,10 +297,11 @@ const ChartCore = memo(function ChartCore({
     const range = isHorizontal ? [0, innerWidth] : [innerHeight, 0];
     return scaleLinear({
       range,
-      domain: [0, maxValue * 1.1],
+      // LOCAL EDIT (ours) — see `valueDomain` on BarChartProps.
+      domain: valueDomain ?? [0, maxValue * 1.1],
       nice: true,
     });
-  }, [innerWidth, innerHeight, maxValue, isHorizontal]);
+  }, [innerWidth, innerHeight, maxValue, isHorizontal, valueDomain]);
 
   const yScales = useMemo(() => {
     if (isHorizontal) {
@@ -682,6 +695,7 @@ export function BarChart({
   barGap = 0.2,
   barWidth,
   orientation = "vertical",
+  valueDomain,
   stacked = false,
   stackGap = 0,
   squareSnap,
@@ -717,6 +731,7 @@ export function BarChart({
             stacked={stacked}
             stackGap={stackGap}
             status={status}
+            valueDomain={valueDomain}
             width={width}
             xDataKey={xDataKey}
           >
