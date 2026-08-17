@@ -23,7 +23,14 @@ import { useChart, useYScale } from "../chart-context";
 export type Threshold = {
   key: string;
   value: number;
+  /** Stroke colour for the line. */
   color: string;
+  /**
+   * Colour for the LABEL — the darker `-ink` variant, not `color`. The gala hues
+   * are tuned to read as 1.5px strokes; at that lightness an 11px label fails
+   * contrast on white (SANJ gold is about 2.4:1). See TIER_STYLE.
+   */
+  ink: string;
   dash: string;
   /** Rendered beside the line, e.g. "◆ SANJ". Never omit — colour alone is not a label. */
   label: string;
@@ -66,7 +73,7 @@ export function ValueThresholds({
               y2={innerHeight}
             />
             <text
-              fill={t.color}
+              fill={t.ink}
               fontSize={11}
               fontWeight={600}
               textAnchor="middle"
@@ -89,7 +96,7 @@ export function ValueThresholds({
               y2={at}
             />
             <text
-              fill={t.color}
+              fill={t.ink}
               fontSize={11}
               fontWeight={600}
               textAnchor="end"

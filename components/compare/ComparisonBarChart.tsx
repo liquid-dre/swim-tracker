@@ -124,6 +124,7 @@ export function ComparisonBarChart({
       key: c.tier,
       value: c.timeMs,
       color: st.color,
+      ink: st.ink,
       dash: st.dash,
       // Glyph + label: a gala is never colour-only (DESIGN.md §3).
       label: `${st.glyph} ${st.label}`,
@@ -201,7 +202,10 @@ export function ComparisonTierLegend({ tiers }: { tiers: GalaCode[] }) {
               className="size-2.5 rounded-sm"
               style={{ background: st.color }}
             />
-            <span aria-hidden style={{ color: st.color }} className="text-2xs leading-none">
+            {/* The glyph is the SHAPE channel for this gala, so it uses `ink`:
+                at 11px the line colour itself is too light to see, which would
+                lose the very redundancy the glyph exists to provide. */}
+            <span aria-hidden style={{ color: st.ink }} className="text-2xs leading-none">
               {st.glyph}
             </span>
             <span className="font-medium text-ink">{st.label}</span>

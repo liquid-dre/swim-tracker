@@ -25,6 +25,7 @@ import {
 import {
   markFor,
   pivotSeries,
+  progressionYDomain,
   type ChartRow,
   type RowSeries,
 } from "./progressionRows";
@@ -271,24 +272,20 @@ export function ProgressionChart({
     ? overlay.lines.flatMap((l) => (l.y2 === undefined ? [l.y] : [l.y, l.y2]))
     : [];
   const projYs = projected ? [projected.fromMs, projected.toMs] : [];
-  const yLo = Math.min(...allTimes, ...cutYs, ...projYs);
-  const yHi = Math.max(...allTimes, ...cutYs, ...projYs);
-
-  // Y-axis floor: one second faster than the world record, so the line fills the
-  // grid rather than sinking toward zero. Use the fastest record among the
-  // genders actually plotted (mixed groups → the outright record) so no line can
-  // ever dip below the floor. Clamp below the fastest plotted value as a belt-
-  // and-braces guard against a stale record, and fall back to a zero-anchored
-  // axis when the event has no listed record.
+  // The world record for the plotted gender(s) — mixed groups take the outright
+  // record, so no line can ever dip below the floor it sets.
   const genders = Array.from(new Set(series.map((s) => s.gender)));
   const wr =
     genders.length === 1
       ? worldRecordMs(distance, stroke, course, genders[0])
       : worldRecordMs(distance, stroke, course);
-  const yFloor = wr === null ? 0 : Math.min(wr - 1_000, yLo);
 
-  // Breathing room above the top value; the floor sits at yFloor, not zero.
-  const yPad = Math.max(500, Math.round((yHi - yFloor) * 0.08));
+  // Floored just under the record rather than at zero — see progressionYDomain,
+  // which is where the reasoning and the regression test live.
+  const [yFloor, yTop] = progressionYDomain(
+    [...allTimes, ...cutYs, ...projYs],
+    wr,
+  );
 
   const projColor = projectionTier
     ? TIER_STYLE[projectionTier].color
@@ -364,7 +361,7 @@ export function ProgressionChart({
             // The one prop bklit does not ship: without it the shell pins the
             // domain to [0, max*1.1] and the whole trajectory collapses into the
             // top of the plot. yFloor sits just under the world record.
-            yDomain={[yFloor, yHi + yPad]}
+            yDomain={[yFloor, yTop]}
             // ...and without this, x labels lose the year, which a chart spanning
             // seasons cannot afford.
             xDataKey="date"
@@ -896,9 +893,11 @@ function TierOverlayLegend({
               strokeDasharray={TIER_STYLE[e.tier].dash}
             />
           </svg>
+          {/* `ink`, not the line colour: at 11px the stroke hues are too light
+              to read, and the glyph is this gala's shape channel. */}
           <span
             aria-hidden
-            style={{ color: e.color }}
+            style={{ color: TIER_STYLE[e.tier].ink }}
             className="text-2xs leading-none"
           >
             {e.glyph}

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { markFor, pivotSeries, type RowSeries } from "./progressionRows";
+import {
+  markFor,
+  pivotSeries,
+  progressionYDomain,
+  type RowSeries,
+} from "./progressionRows";
 
 /*
   The pivot from "one array per swimmer" (Recharts) to "one row per date with a
@@ -151,5 +156,75 @@ describe("markFor", () => {
     expect(markFor({ swimType: "PRACTICE", isMeet: false, isPB: false })).toBe(
       "trial",
     );
+  });
+});
+
+describe("progressionYDomain", () => {
+  // 200 Free LCM women's record, roughly, for a concrete anchor.
+  const WR = 102_000; // 1:42.00
+  const SWIMS = [131_800, 134_200, 137_100, 140_200];
+
+  it("floors just under the world record, NOT at zero", () => {
+    // The regression this file exists for. bklit's shell would return
+    // [0, max*1.1]; on that axis these four swims occupy the top ~5% of the plot
+    // and the season's improvement becomes invisible.
+    const [floor] = progressionYDomain(SWIMS, WR);
+    expect(floor).toBe(WR - 1_000);
+    expect(floor).toBeGreaterThan(0);
+  });
+
+  it("gives the trajectory far more of the plot than a zero baseline would", () => {
+    // The point of the floor, as a ratio rather than an absolute: these swims get
+    // ~20% of the axis here versus ~5% under bklit's [0, max*1.1], so the shape of
+    // the season is legible instead of a flat line near the top. Asserted against
+    // the zero-baseline share rather than a fixed number, since the useful claim
+    // is the comparison — a bare threshold would just be a magic constant.
+    const [floor, top] = progressionYDomain(SWIMS, WR);
+    const swimSpan = Math.max(...SWIMS) - Math.min(...SWIMS);
+    const ourShare = swimSpan / (top - floor);
+    const zeroBaselineShare = swimSpan / (Math.max(...SWIMS) * 1.1);
+    expect(ourShare).toBeGreaterThan(zeroBaselineShare * 3);
+  });
+
+  it("drops below the fastest swim when the record looks stale", () => {
+    // A swim faster than the listed record must not fall off the bottom of the
+    // axis. The floor tracks the data rather than trusting the constant.
+    const [floor] = progressionYDomain([95_000, 96_000], WR);
+    expect(floor).toBe(95_000);
+    expect(floor).toBeLessThanOrEqual(95_000);
+  });
+
+  it("keeps a cut visible when it is slower than every swim", () => {
+    // The gap TO a cut is the point of the view, so a cut outside the swim range
+    // still has to be inside the domain.
+    const cut = 150_000;
+    const [floor, top] = progressionYDomain([...SWIMS, cut], WR);
+    expect(cut).toBeGreaterThan(floor);
+    expect(cut).toBeLessThan(top);
+  });
+
+  it("keeps a cut visible when it is faster than every swim", () => {
+    const cut = 110_000;
+    const [floor, top] = progressionYDomain([...SWIMS, cut], WR);
+    expect(cut).toBeGreaterThan(floor);
+    expect(cut).toBeLessThan(top);
+  });
+
+  it("falls back to zero only when the event has no listed record", () => {
+    // A visible compromise, not a silent one: with no record there is no
+    // principled floor, so the axis is zero-anchored and says so by its shape.
+    const [floor] = progressionYDomain(SWIMS, null);
+    expect(floor).toBe(0);
+  });
+
+  it("pads the top so the slowest swim is not flush against the edge", () => {
+    const [, top] = progressionYDomain(SWIMS, WR);
+    expect(top).toBeGreaterThan(Math.max(...SWIMS));
+  });
+
+  it("still pads a single-swim series, which has no range of its own", () => {
+    const [floor, top] = progressionYDomain([120_000], WR);
+    expect(top).toBeGreaterThanOrEqual(120_500);
+    expect(floor).toBe(WR - 1_000);
   });
 });

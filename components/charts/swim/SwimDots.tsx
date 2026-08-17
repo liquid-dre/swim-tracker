@@ -33,7 +33,7 @@ export interface SwimDotsProps {
 }
 
 /** Radii, in one place so the four marks stay in proportion to each other. */
-const R = { pbRing: 7, pbCore: 4, meet: 3.5, trial: 3, gala: 4.5 } as const;
+const R = { pbRing: 7, pbCore: 4, meet: 3.5, trial: 3, gala: 4.5, halo: 9 } as const;
 
 function Mark({
   mark,
@@ -112,6 +112,47 @@ function Mark({
   );
 }
 
+/*
+  The halo on the hovered point, split into its own component so pointer motion
+  re-renders one circle instead of the whole grid of marks — the same split
+  bklit uses for `SeriesMarkers`.
+
+  It exists because the tooltip alone does not say WHICH point it is describing.
+  On a dense season, or a group chart where one crosshair serves several
+  swimmers, that ambiguity is the difference between reading a swim and guessing
+  at one.
+*/
+function ActiveHalo({
+  dataKey,
+  color,
+  yAxisId,
+}: {
+  dataKey: string;
+  color: string;
+  yAxisId?: string | number;
+}) {
+  const { tooltipData, xScale, xAccessor } = useChart();
+  const yScale = useYScale(yAxisId);
+
+  if (tooltipData === null) return null;
+  const value = tooltipData.point[dataKey];
+  // This series has no swim on the hovered date — no halo, rather than one
+  // parked at the axis.
+  if (typeof value !== "number") return null;
+
+  return (
+    <circle
+      cx={xScale(xAccessor(tooltipData.point))}
+      cy={yScale(value)}
+      fill="none"
+      opacity={0.45}
+      r={R.halo}
+      stroke={color}
+      strokeWidth={1.5}
+    />
+  );
+}
+
 export function SwimDots({ dataKey, markKey, color, yAxisId }: SwimDotsProps) {
   const { data, xScale, xAccessor } = useChart();
   const yScale = useYScale(yAxisId);
@@ -134,6 +175,7 @@ export function SwimDots({ dataKey, markKey, color, yAxisId }: SwimDotsProps) {
           />
         );
       })}
+      <ActiveHalo color={color} dataKey={dataKey} yAxisId={yAxisId} />
     </g>
   );
 }

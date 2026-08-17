@@ -159,6 +159,18 @@ export function AttendanceInsightsScreen() {
           </p>
         ) : (
           <div className="h-72 w-full">
+            {/* The chart SVG is aria-hidden (bklit marks it so), and unlike the
+                comparison and progression views this card has no table beneath
+                it to fall back on — so the rates are stated here for assistive
+                tech rather than existing only as bar heights. */}
+            <ul className="sr-only">
+              {chartData.map((d) => (
+                <li key={d.squadName}>
+                  {d.squadName}: {d.ratePct}% attendance, {d.attended} of{" "}
+                  {d.eligible} sessions.
+                </li>
+              ))}
+            </ul>
             <MaybeStatic reduced={reduced}>
               <BarChart
                 animationDuration={CHART_ANIM_MS}

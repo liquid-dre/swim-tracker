@@ -542,7 +542,7 @@ function ChartLegend() {
         const st = TIER_STYLE[gala];
         return (
           <span className="inline-flex items-center gap-1.5" key={gala}>
-            <span aria-hidden className="text-2xs leading-none" style={{ color: st.color }}>
+            <span aria-hidden className="text-2xs leading-none" style={{ color: st.ink }}>
               {st.glyph}
             </span>
             <span className="font-medium text-ink">{st.label}</span>

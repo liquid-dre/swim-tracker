@@ -115,3 +115,40 @@ export function markFor(point: {
   if (point.isMeet) return "meet";
   return "trial";
 }
+
+// ---------------------------------------------------------------------------
+// Y-axis domain
+// ---------------------------------------------------------------------------
+
+/**
+ * The y-domain for the progression chart: `[floor, top]` in ms.
+ *
+ * This exists as a named function, and is tested, because it is the one thing the
+ * chart library actively fights. bklit's shell pins all-positive data to a zero
+ * baseline (`resolveTimeSeriesYDomain`), and on a swim-time axis that squeezes a
+ * whole season into the top few percent of the plot. The floor is instead pinned
+ * one second faster than the world record: no club swim ever reaches the record,
+ * so the line fills the grid while still never running off the bottom.
+ *
+ * `worldRecordMs` is null for an event with no listed record, and only then does
+ * the axis fall back to zero — a known, visible compromise rather than a silent
+ * one.
+ *
+ * @param values every value that must be visible: swim times, drawn cut values,
+ *   and the projection's endpoints. A cut faster or slower than every swim still
+ *   has to show, since the gap to it is the point of the view.
+ * @param worldRecord the record for this event / course / gender, or null.
+ */
+export function progressionYDomain(
+  values: ReadonlyArray<number>,
+  worldRecord: number | null,
+): [number, number] {
+  if (values.length === 0) return [0, 1];
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  // Clamp below the fastest plotted value too: belt and braces against a stale
+  // record, so a swim faster than the listed WR cannot fall off the axis.
+  const floor = worldRecord === null ? 0 : Math.min(worldRecord - 1_000, lo);
+  const pad = Math.max(500, Math.round((hi - floor) * 0.08));
+  return [floor, hi + pad];
+}

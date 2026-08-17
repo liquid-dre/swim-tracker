@@ -30,15 +30,51 @@ export type OverlayTier = GalaCode;
 
 export const TIER_STYLE: Record<
   OverlayTier,
-  { color: string; label: string; glyph: string; dash: string }
+  { color: string; ink: string; label: string; glyph: string; dash: string }
 > = {
+  // `color` paints STROKES and swatches; `ink` is the darker variant for TEXT.
+  // They are not interchangeable: the gala hues are picked to be legible as 1.5px
+  // lines against the grid, and at that lightness a small label fails contrast on
+  // white — --color-tier-sanj is about 2.4:1, its -ink about 5.5:1. Any label
+  // drawn in a gala's colour must use `ink` (DESIGN.md §3).
+  //
   // Dash patterns give the lines a second, greyscale-legible signal beyond
   // colour, getting longer as the gala gets harder.
-  SANS: { color: "var(--color-tier-sans)", label: "SANS", glyph: "★", dash: "11 4" },
-  SANY: { color: "var(--color-tier-sany)", label: "SANY", glyph: "✦", dash: "9 4" },
-  SANJ: { color: "var(--color-tier-sanj)", label: "SANJ", glyph: "◆", dash: "7 4" },
-  LEVEL_3: { color: "var(--color-tier-l3)", label: "L3", glyph: "●", dash: "4 3" },
-  LEVEL_2: { color: "var(--color-tier-l2)", label: "L2", glyph: "○", dash: "1 3" },
+  SANS: {
+    color: "var(--color-tier-sans)",
+    ink: "var(--color-tier-sans-ink)",
+    label: "SANS",
+    glyph: "★",
+    dash: "11 4",
+  },
+  SANY: {
+    color: "var(--color-tier-sany)",
+    ink: "var(--color-tier-sany-ink)",
+    label: "SANY",
+    glyph: "✦",
+    dash: "9 4",
+  },
+  SANJ: {
+    color: "var(--color-tier-sanj)",
+    ink: "var(--color-tier-sanj-ink)",
+    label: "SANJ",
+    glyph: "◆",
+    dash: "7 4",
+  },
+  LEVEL_3: {
+    color: "var(--color-tier-l3)",
+    ink: "var(--color-tier-l3-ink)",
+    label: "L3",
+    glyph: "●",
+    dash: "4 3",
+  },
+  LEVEL_2: {
+    color: "var(--color-tier-l2)",
+    ink: "var(--color-tier-l2-ink)",
+    label: "L2",
+    glyph: "○",
+    dash: "1 3",
+  },
 };
 
 /** Hardest → easiest — the one gala order from lib/galas (§4.9). */
