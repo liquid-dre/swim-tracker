@@ -472,6 +472,11 @@ function Legend() {
         </span>
         course the cut was met on
       </span>
+      {/* The either-course rule is genuinely surprising, so it belongs next to
+          the L/S key it explains — not only in the page description. */}
+      <span className="text-ink-faint">
+        A cut counts on either course, against that course&rsquo;s own standard.
+      </span>
       <span className="inline-flex items-center gap-1.5">
         <span aria-hidden className="text-ink-faint">
           –

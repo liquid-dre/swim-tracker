@@ -38,7 +38,6 @@ import {
   type EventDef,
   type ResultForPB,
   type StandardCut,
-  type Course,
   type GalaCode,
   type GalaRef,
   type RawStandardRow,

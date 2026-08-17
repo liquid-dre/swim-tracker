@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { Select } from "@/components/ui/Select";
 import { TierBadge } from "@/components/ui/TierBadge";
 import { notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
@@ -27,7 +28,7 @@ import {
   type GalaCode,
   type Stroke,
 } from "@/lib/swim";
-import { GALA_ORDER, GALA_SHORT } from "@/lib/galas";
+import { GALA_MEDIUM, GALA_ORDER } from "@/lib/galas";
 import { EditableTimeCell } from "./EditableTimeCell";
 import { AddCutSheet, type AddCutPrefill } from "./AddCutSheet";
 import { ImportStandardsSheet } from "./ImportStandardsSheet";
@@ -259,18 +260,23 @@ export function StandardsScreen() {
             />
           </FilterField>
           <FilterField label="Gala">
-            <Segmented
-              ariaLabel="Gala filter"
-              value={tierFilter}
-              onChange={setTierFilter}
-              options={[
-                { value: "ALL", label: "All" },
-                ...GALA_ORDER.map((code) => ({
-                  value: code,
-                  label: GALA_SHORT[code],
-                })),
-              ]}
-            />
+            {/* Six options (All + five galas) is past what a segmented control
+                holds on a phone, so this is the shared styled picker — the same
+                call made on the Road screen's target selector. */}
+            <div className="w-44">
+              <Select
+                aria-label="Filter by gala"
+                value={tierFilter}
+                onValueChange={(v) => setTierFilter(v as GalaFilter)}
+                options={[
+                  { value: "ALL", label: "All galas" },
+                  ...GALA_ORDER.map((code) => ({
+                    value: code as string,
+                    label: GALA_MEDIUM[code],
+                  })),
+                ]}
+              />
+            </div>
           </FilterField>
         </div>
 

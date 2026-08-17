@@ -69,7 +69,13 @@ export function TierBadge({
       )}
       <span>{labelFor(gala)}</span>
       {!isNone && course ? (
-        <span className="text-[0.9em] opacity-70">{COURSE_LABEL[course]}</span>
+        <span className="text-[0.9em] opacity-70">
+          {COURSE_LABEL[course]}
+          {/* The bare L/S is a scanning aid for sighted density; the full word is
+              what a screen reader announces, since a `title` on a span is not
+              reliably read out. */}
+          <span className="sr-only"> ({COURSE_FULL[course]})</span>
+        </span>
       ) : null}
     </Badge>
   );

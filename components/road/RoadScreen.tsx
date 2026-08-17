@@ -151,7 +151,10 @@ export function RoadScreen() {
                     value: code as string,
                     label: GALA_MEDIUM[code],
                   })),
-                  { value: "ALL", label: "All galas" },
+                  // Not "All galas": this view is the calibrated zoned scale,
+                  // which only the three age-graded galas sit on (SANS/SANY are
+                  // open standards). The label must not overclaim.
+                  { value: "ALL", label: "All age-graded" },
                 ]}
               />
             </div>
@@ -252,7 +255,7 @@ export function RoadScreen() {
               date={data.agedUpAt}
             />
           )}
-          <RoadResults data={data} gala={gala} />
+          <RoadResults data={data} gala={gala} courseMode={courseMode} />
         </>
       )}
     </div>
@@ -264,8 +267,18 @@ export function RoadScreen() {
 // Results — presentational (fed by the query, or by the preview harness)
 // ---------------------------------------------------------------------------
 
-export function RoadResults({ data, gala }: { data: RoadData; gala: GalaCode }) {
+export function RoadResults({
+  data,
+  gala,
+  courseMode = "BEST",
+}: {
+  data: RoadData;
+  gala: GalaCode;
+  courseMode?: CourseMode;
+}) {
   const events = data.events;
+  // Only worth tagging each row when more than one course is in play.
+  const showCourse = courseMode === "BEST";
 
   // Three groups the BRD calls for: still chasing (the closest-first anchor),
   // already qualified (grouped, green), and no long-course meet time yet.
@@ -329,6 +342,7 @@ export function RoadResults({ data, gala }: { data: RoadData; gala: GalaCode }) 
             count={chasing.length}
             rows={chasing}
             maxGapPct={maxGapPct}
+            showCourse={showCourse}
           />
         ) : (
           <p className="text-sm text-ink-muted">
@@ -337,9 +351,13 @@ export function RoadResults({ data, gala }: { data: RoadData; gala: GalaCode }) 
           </p>
         )}
 
-        {qualified.length > 0 && <QualifiedGroup rows={qualified} />}
+        {qualified.length > 0 && (
+          <QualifiedGroup rows={qualified} showCourse={showCourse} />
+        )}
 
-        {noTime.length > 0 && <NoTimeGroup rows={noTime} />}
+        {noTime.length > 0 && (
+          <NoTimeGroup rows={noTime} showCourse={showCourse} />
+        )}
       </section>
 
       {/* Qualifying progress — one bar per event filling toward this gala's cut */}
@@ -451,16 +469,40 @@ function GroupHeading({ label, count }: { label: string; count: number }) {
   );
 }
 
+/*
+  Which course a row is measured in. In "best of both" mode different events can
+  legitimately resolve in different courses, so every row has to say which one —
+  otherwise "1.0s to SANJ" silently hides whether that is the 50 m or the 25 m
+  cut. Suppressed on a pinned single-course view, where the toolbar already
+  answers it and a tag on every row would be noise.
+*/
+const COURSE_TAG: Record<Course, { short: string; full: string }> = {
+  LCM: { short: "LC", full: "long course" },
+  SCM: { short: "SC", full: "short course" },
+};
+
+function CourseTag({ course, show }: { course: Course; show: boolean }) {
+  if (!show) return null;
+  return (
+    <span className="rounded border border-border px-1 text-2xs font-medium leading-[1.4] text-ink-faint">
+      {COURSE_TAG[course].short}
+      <span className="sr-only"> ({COURSE_TAG[course].full})</span>
+    </span>
+  );
+}
+
 function GapGroup({
   heading,
   count,
   rows,
   maxGapPct,
+  showCourse,
 }: {
   heading: string;
   count: number;
   rows: RoadEvent[];
   maxGapPct: number;
+  showCourse: boolean;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -468,14 +510,27 @@ function GapGroup({
       {/* Flush divider rows, not a bordered inner box — no card-in-card. */}
       <ul className="flex flex-col divide-y divide-gray-100">
         {rows.map((e) => (
-          <GapRow key={`${e.distance}|${e.stroke}`} e={e} maxGapPct={maxGapPct} />
+          <GapRow
+            key={`${e.distance}|${e.stroke}`}
+            e={e}
+            maxGapPct={maxGapPct}
+            showCourse={showCourse}
+          />
         ))}
       </ul>
     </div>
   );
 }
 
-function GapRow({ e, maxGapPct }: { e: RoadEvent; maxGapPct: number }) {
+function GapRow({
+  e,
+  maxGapPct,
+  showCourse,
+}: {
+  e: RoadEvent;
+  maxGapPct: number;
+  showCourse: boolean;
+}) {
   const gapMs = e.gapMs as number;
   const gapPct = e.gapPct as number;
   // Sliver floor so the closest events are still a visible mark, not nothing.
@@ -484,7 +539,10 @@ function GapRow({ e, maxGapPct }: { e: RoadEvent; maxGapPct: number }) {
   return (
     <li className="flex items-center gap-4 py-3">
       <div className="w-24 shrink-0 sm:w-28">
-        <div className="font-medium text-ink">{e.label}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium text-ink">{e.label}</span>
+          <CourseTag course={e.course} show={showCourse} />
+        </div>
         <div className="time tnum mt-0.5 text-xs text-ink-faint">
           {formatTime(e.pbMs as number)} → {formatTime(e.cutMs)}
         </div>
@@ -510,7 +568,13 @@ function GapRow({ e, maxGapPct }: { e: RoadEvent; maxGapPct: number }) {
   );
 }
 
-function QualifiedGroup({ rows }: { rows: RoadEvent[] }) {
+function QualifiedGroup({
+  rows,
+  showCourse,
+}: {
+  rows: RoadEvent[];
+  showCourse: boolean;
+}) {
   return (
     <div className="flex flex-col gap-2">
       <GroupHeading label="Qualified" count={rows.length} />
@@ -530,9 +594,10 @@ function QualifiedGroup({ rows }: { rows: RoadEvent[] }) {
               >
                 <Check className="size-3" strokeWidth={3} />
               </span>
-              <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span className="font-medium text-ink">{e.label}</span>
-                <span className="time tnum ml-2 text-xs text-ink-faint">
+                <CourseTag course={e.course} show={showCourse} />
+                <span className="time tnum text-xs text-ink-faint">
                   {formatTime(e.pbMs as number)} ≤ {formatTime(e.cutMs)}
                 </span>
               </div>
@@ -552,19 +617,28 @@ function QualifiedGroup({ rows }: { rows: RoadEvent[] }) {
   );
 }
 
-function NoTimeGroup({ rows }: { rows: RoadEvent[] }) {
+function NoTimeGroup({
+  rows,
+  showCourse,
+}: {
+  rows: RoadEvent[];
+  showCourse: boolean;
+}) {
   return (
     <div className="flex flex-col gap-2">
       <GroupHeading label="No time yet" count={rows.length} />
       {/* Flush muted rows — the heading already says "no time", so each row only
-          carries the cut a long-course meet time would have to beat. */}
+          carries the cut a meet time would have to beat. */}
       <ul className="flex flex-col divide-y divide-gray-100">
         {rows.map((e) => (
           <li
             key={`${e.distance}|${e.stroke}`}
             className="flex items-center justify-between gap-4 py-2.5"
           >
-            <span className="font-medium text-ink-muted">{e.label}</span>
+            <span className="flex items-center gap-1.5 font-medium text-ink-muted">
+              {e.label}
+              <CourseTag course={e.course} show={showCourse} />
+            </span>
             <span className="time tnum text-xs text-ink-faint">
               cut {formatTime(e.cutMs)}
             </span>
