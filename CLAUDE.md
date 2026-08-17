@@ -5,7 +5,8 @@ qualifying standards. **Source of truth:** `docs/swim-tracker-BRD.md`. **Build s
 `docs/swim-tracker-build-prompts.md`. Build one step at a time; do not scaffold ahead.
 
 ## Stack
-Next.js (App Router) · TypeScript · Tailwind · Convex · Recharts. Times stored as integer milliseconds.
+Next.js (App Router) · TypeScript · Tailwind · Convex · **bklit UI** charts (a shadcn registry
+built on Visx) vendored into `components/charts/`. Times stored as integer milliseconds.
 
 ## Design skills — always use these for UI (they live in `.claude/skills/`)
 - **impeccable** — product-mode design + anti-slop. **Every UI screen must pass
