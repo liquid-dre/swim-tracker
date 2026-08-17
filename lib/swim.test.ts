@@ -23,9 +23,8 @@ import {
   parseStandardsCsv,
   findAgeInversions,
   cutAgeOrder,
+  buildRingScale,
   computeCalibratedRadius,
-  STROKE_RING_POS,
-  STROKE_RADIUS_MAX,
   rollingSeasonStart,
   isInSeason,
   computeSeasonImprovements,
@@ -1250,93 +1249,126 @@ describe("findAgeInversions — younger cut faster than older", () => {
 // computeCalibratedRadius (Step 12.5, §4.9) — the stroke-profile radial metric
 // ---------------------------------------------------------------------------
 
-describe("computeCalibratedRadius", () => {
-  // A representative full-coverage event (Girls 100 Free, age 14 in the sample):
-  // SANJ 1:00.00 < L3 1:03.00 < L2 1:06.00.
-  const full = { l2Ms: 66000, l3Ms: 63000, sanjMs: 60000 };
-
-  it("returns null without a PB or without any cut", () => {
-    expect(computeCalibratedRadius(null, full)).toBeNull();
-    expect(
-      computeCalibratedRadius(60000, { l2Ms: null, l3Ms: null, sanjMs: null }),
-    ).toBeNull();
+describe("buildRingScale", () => {
+  it("orders rings easiest (inner) → hardest (outer), whatever the input order", () => {
+    const scale = buildRingScale(["SANJ", "LEVEL_2", "LEVEL_3"]);
+    expect(scale.order).toEqual(["LEVEL_2", "LEVEL_3", "SANJ"]);
+    expect(scale.pos).toEqual({ LEVEL_2: 1, LEVEL_3: 2, SANJ: 3 });
+    expect(scale.max).toBe(3.5); // one ring-unit of headroom past the hardest
   });
 
-  it("lands exactly on a ring when the PB equals that tier's cut", () => {
-    expect(computeCalibratedRadius(66000, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_2);
-    expect(computeCalibratedRadius(63000, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
-    expect(computeCalibratedRadius(60000, full)).toBeCloseTo(STROKE_RING_POS.SANJ);
+  it("sizes itself to however many galas the swimmer can enter", () => {
+    // A 17+ swimmer: the age-graded galas have closed, so only the open pair.
+    const senior = buildRingScale(["SANS", "SANY"]);
+    expect(senior.order).toEqual(["SANY", "SANS"]); // SANY is the easier of the two
+    expect(senior.pos).toEqual({ SANY: 1, SANS: 2 });
+    expect(senior.max).toBe(2.5);
+
+    // A 15-16-year-old: the ladder plus SANS.
+    const sixteen = buildRingScale(["LEVEL_2", "LEVEL_3", "SANJ", "SANS"]);
+    expect(sixteen.order).toEqual(["LEVEL_2", "LEVEL_3", "SANJ", "SANS"]);
+    expect(sixteen.max).toBe(4.5);
+  });
+
+  it("is empty and zero-bounded with no galas at all", () => {
+    const none = buildRingScale([]);
+    expect(none.order).toEqual([]);
+    expect(none.max).toBe(0);
+  });
+
+  it("ignores duplicates", () => {
+    expect(buildRingScale(["SANJ", "SANJ", "LEVEL_2"]).order).toEqual([
+      "LEVEL_2",
+      "SANJ",
+    ]);
+  });
+});
+
+describe("computeCalibratedRadius", () => {
+  // The classic three-ring wheel (an under-16 swimmer). A representative
+  // full-coverage event: SANJ 1:00.00 < L3 1:03.00 < L2 1:06.00.
+  const scale = buildRingScale(["LEVEL_2", "LEVEL_3", "SANJ"]);
+  const RING = { L2: 1, L3: 2, SANJ: 3 } as const;
+  const cut = (gala: GalaCode, timeMs: number) => ({ gala, timeMs });
+  const full = [cut("LEVEL_2", 66000), cut("LEVEL_3", 63000), cut("SANJ", 60000)];
+
+  it("returns null without a PB or without any cut", () => {
+    expect(computeCalibratedRadius(null, full, scale)).toBeNull();
+    expect(computeCalibratedRadius(60000, [], scale)).toBeNull();
+  });
+
+  it("lands exactly on a ring when the PB equals that gala's cut", () => {
+    expect(computeCalibratedRadius(66000, full, scale)).toBeCloseTo(RING.L2);
+    expect(computeCalibratedRadius(63000, full, scale)).toBeCloseTo(RING.L3);
+    expect(computeCalibratedRadius(60000, full, scale)).toBeCloseTo(RING.SANJ);
   });
 
   it("crossing the SANJ ring == beating the SANJ cut (the headline invariant)", () => {
     // One hundredth under the SANJ cut sits just past the outer ring.
-    expect(computeCalibratedRadius(59990, full)!).toBeGreaterThan(STROKE_RING_POS.SANJ);
+    expect(computeCalibratedRadius(59990, full, scale)!).toBeGreaterThan(RING.SANJ);
     // One hundredth over sits just inside it.
-    expect(computeCalibratedRadius(60010, full)!).toBeLessThan(STROKE_RING_POS.SANJ);
+    expect(computeCalibratedRadius(60010, full, scale)!).toBeLessThan(RING.SANJ);
   });
 
-  it("caps a within-band PB at the ring of the tier actually met", () => {
-    // Bar length reads as "tier achieved", never "tier nearly achieved": a PB
+  it("caps a within-band PB at the ring of the gala actually met", () => {
+    // Bar length reads as "gala achieved", never "gala nearly achieved": a PB
     // between the L2 and L3 cuts has met L2 only, so it sits exactly on the L2
     // ring — it does NOT creep toward the (unmet) L3 ring.
-    expect(computeCalibratedRadius(64500, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_2);
+    expect(computeCalibratedRadius(64500, full, scale)).toBeCloseTo(RING.L2);
     // Between L3 and SANJ: met L3, not SANJ → parks on the L3 ring, however
     // close to the SANJ cut it lands (the reported 100 Breast bug).
-    expect(computeCalibratedRadius(61500, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
-    // A hair short of SANJ still caps at L3, never grazing the SANJ ring.
-    expect(computeCalibratedRadius(60010, full)!).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
+    expect(computeCalibratedRadius(61500, full, scale)).toBeCloseTo(RING.L3);
+    expect(computeCalibratedRadius(60010, full, scale)!).toBeCloseTo(RING.L3);
   });
 
   it("extrapolates past the outer ring when faster than SANJ", () => {
     // 1s under SANJ, using the L3→SANJ slope (1 ring / 3000 ms): 2 + 4000/3000.
-    expect(computeCalibratedRadius(59000, full)).toBeCloseTo(3 + 1 / 3);
+    expect(computeCalibratedRadius(59000, full, scale)).toBeCloseTo(3 + 1 / 3);
   });
 
-  it("caps the extrapolated radius at STROKE_RADIUS_MAX", () => {
+  it("caps the extrapolated radius at the scale's outer bound", () => {
     // An absurdly fast time can't run off the canvas.
-    expect(computeCalibratedRadius(1000, full)).toBe(STROKE_RADIUS_MAX);
+    expect(computeCalibratedRadius(1000, full, scale)).toBe(scale.max);
   });
 
-  it("clamps to the centre when slower than the L2 (inner) cut", () => {
-    expect(computeCalibratedRadius(90000, full)).toBe(0);
+  it("clamps to the centre when slower than the innermost cut", () => {
+    expect(computeCalibratedRadius(90000, full, scale)).toBe(0);
   });
 
   it("handles partial coverage with a gap between anchors (L2 + SANJ only)", () => {
     // 200 Fly-style: L2 and SANJ exist, no L3. At each cut the bar lands on that
     // ring; a PB between them has met L2 but not SANJ, so it caps on the L2 ring
     // rather than drifting up into the SANJ gap.
-    const cuts = { l2Ms: 66000, l3Ms: null, sanjMs: 60000 };
-    expect(computeCalibratedRadius(66000, cuts)).toBeCloseTo(1); // L2 ring
-    expect(computeCalibratedRadius(60000, cuts)).toBeCloseTo(3); // SANJ ring
-    expect(computeCalibratedRadius(63000, cuts)).toBeCloseTo(1); // met L2 only → L2 ring
+    const cuts = [cut("LEVEL_2", 66000), cut("SANJ", 60000)];
+    expect(computeCalibratedRadius(66000, cuts, scale)).toBeCloseTo(RING.L2);
+    expect(computeCalibratedRadius(60000, cuts, scale)).toBeCloseTo(RING.SANJ);
+    expect(computeCalibratedRadius(63000, cuts, scale)).toBeCloseTo(RING.L2);
   });
 
   it("places a single-anchor spoke by direction, exact at its own ring", () => {
     // 800 Free-style: SANJ only. At the cut the radius is exactly the SANJ ring…
-    const cuts = { l2Ms: null, l3Ms: null, sanjMs: 600000 };
-    expect(computeCalibratedRadius(600000, cuts)).toBeCloseTo(STROKE_RING_POS.SANJ);
+    const cuts = [cut("SANJ", 600000)];
+    expect(computeCalibratedRadius(600000, cuts, scale)).toBeCloseTo(RING.SANJ);
     // …faster pushes outward, slower pulls inward.
-    expect(computeCalibratedRadius(576000, cuts)!).toBeGreaterThan(STROKE_RING_POS.SANJ);
-    expect(computeCalibratedRadius(624000, cuts)!).toBeLessThan(STROKE_RING_POS.SANJ);
+    expect(computeCalibratedRadius(576000, cuts, scale)!).toBeGreaterThan(RING.SANJ);
+    expect(computeCalibratedRadius(624000, cuts, scale)!).toBeLessThan(RING.SANJ);
   });
 
-  it("caps a below-SANJ top tier at its own ring (50s have only L2)", () => {
-    // A 50 has only an L2 cut (no L3/SANJ, §4.9). At the cut the bar sits on the
-    // L2 ring, and a FASTER PB must not overshoot past it toward the (absent)
-    // SANJ ring — it caps exactly on L2 rather than extrapolating outward.
-    const cuts = { l2Ms: 26000, l3Ms: null, sanjMs: null };
-    expect(computeCalibratedRadius(26000, cuts)).toBeCloseTo(STROKE_RING_POS.LEVEL_2);
-    expect(computeCalibratedRadius(24000, cuts)).toBe(STROKE_RING_POS.LEVEL_2);
+  it("caps a below-outer-ring top gala at its own ring (50s have only L2)", () => {
+    // A 50 has no L3/SANJ cut (§4.9). At the cut the bar sits on the L2 ring, and
+    // a FASTER PB must not overshoot toward the rings this event does not have —
+    // headroom is reserved for beating the gala on the wheel's OUTERMOST ring.
+    const cuts = [cut("LEVEL_2", 26000)];
+    expect(computeCalibratedRadius(26000, cuts, scale)).toBeCloseTo(RING.L2);
+    expect(computeCalibratedRadius(24000, cuts, scale)).toBe(RING.L2);
     // Slower than L2 still pulls inward toward the centre (a real gap to show).
-    expect(computeCalibratedRadius(27000, cuts)!).toBeLessThan(STROKE_RING_POS.LEVEL_2);
+    expect(computeCalibratedRadius(27000, cuts, scale)!).toBeLessThan(RING.L2);
   });
 
   it("caps an L2+L3 (no SANJ) event at the L3 ring", () => {
-    // If an event's coverage stops at L3, a PB beating L3 caps on the L3 ring
-    // rather than shooting past into the empty SANJ zone.
-    const cuts = { l2Ms: 66000, l3Ms: 63000, sanjMs: null };
-    expect(computeCalibratedRadius(63000, cuts)).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
-    expect(computeCalibratedRadius(50000, cuts)).toBe(STROKE_RING_POS.LEVEL_3);
+    const cuts = [cut("LEVEL_2", 66000), cut("LEVEL_3", 63000)];
+    expect(computeCalibratedRadius(63000, cuts, scale)).toBeCloseTo(RING.L3);
+    expect(computeCalibratedRadius(50000, cuts, scale)).toBe(RING.L3);
   });
 
   it("never draws an unmet SANJ spoke for a near-SANJ PB (regression: 100 Breast)", () => {
@@ -1344,10 +1376,57 @@ describe("computeCalibratedRadius", () => {
     // cut 1:21.58 (81580) but is 0.57s SLOWER than the SANJ cut 1:13.84 (73840).
     // The old piecewise line put the spoke at ~2.93 — visually grazing the SANJ
     // ring — which read as "qualified for SANJ". It must cap on the L3 ring.
-    const cuts = { l2Ms: 91250, l3Ms: 81580, sanjMs: 73840 };
-    const r = computeCalibratedRadius(74410, cuts)!;
-    expect(r).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
-    expect(r).toBeLessThan(STROKE_RING_POS.SANJ);
+    const cuts = [
+      cut("LEVEL_2", 91250),
+      cut("LEVEL_3", 81580),
+      cut("SANJ", 73840),
+    ];
+    const r = computeCalibratedRadius(74410, cuts, scale)!;
+    expect(r).toBeCloseTo(RING.L3);
+    expect(r).toBeLessThan(RING.SANJ);
+  });
+
+  // ---- the ring counts the entry windows actually produce ------------------
+
+  it("holds the invariant on a FOUR-ring wheel (a 15-16-year-old)", () => {
+    // L2 < L3 < SANJ < SANS in difficulty, so SANS is the outer ring.
+    const s4 = buildRingScale(["LEVEL_2", "LEVEL_3", "SANJ", "SANS"]);
+    const cuts = [
+      cut("LEVEL_2", 74450),
+      cut("LEVEL_3", 66980),
+      cut("SANJ", 63890),
+      cut("SANS", 59840),
+    ];
+    expect(computeCalibratedRadius(74450, cuts, s4)).toBeCloseTo(1);
+    expect(computeCalibratedRadius(66980, cuts, s4)).toBeCloseTo(2);
+    expect(computeCalibratedRadius(63890, cuts, s4)).toBeCloseTo(3);
+    expect(computeCalibratedRadius(59840, cuts, s4)).toBeCloseTo(4);
+    // Beating the OUTER ring (SANS) earns headroom; beating SANJ alone does not.
+    expect(computeCalibratedRadius(59830, cuts, s4)!).toBeGreaterThan(4);
+    expect(computeCalibratedRadius(63880, cuts, s4)).toBeCloseTo(3);
+  });
+
+  it("holds the invariant on a TWO-ring wheel (a 17+ swimmer)", () => {
+    // Only the open galas remain, and SANY is the easier of the two.
+    const s2 = buildRingScale(["SANS", "SANY"]);
+    expect(s2.order).toEqual(["SANY", "SANS"]);
+    const cuts = [cut("SANY", 67470), cut("SANS", 59840)];
+    expect(computeCalibratedRadius(67470, cuts, s2)).toBeCloseTo(1);
+    expect(computeCalibratedRadius(59840, cuts, s2)).toBeCloseTo(2);
+    // Between them: met SANY, not SANS → parks on ring 1.
+    expect(computeCalibratedRadius(63000, cuts, s2)).toBeCloseTo(1);
+    // Faster than SANS gets headroom, bounded by the 2-ring scale.
+    expect(computeCalibratedRadius(1000, cuts, s2)).toBe(s2.max);
+  });
+
+  it("ignores a cut for a gala that is not on this wheel", () => {
+    // A SANY cut cannot be placed on an under-16 wheel, so it must not become an
+    // anchor — otherwise the swimmer would be measured against a gala they
+    // cannot enter.
+    const cuts = [cut("LEVEL_2", 66000), cut("SANY", 55000)];
+    expect(computeCalibratedRadius(66000, cuts, scale)).toBeCloseTo(RING.L2);
+    // 55000 beats the ignored SANY cut but is still capped on the L2 ring.
+    expect(computeCalibratedRadius(55000, cuts, scale)).toBe(RING.L2);
   });
 });
 

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
+  buildRingScale,
   findAgeInversions,
   isGalaAgeEligible,
   parseStandardsCsv,
@@ -358,6 +359,59 @@ describe("official qualifying-times CSV", () => {
   // -------------------------------------------------------------------------
   // Hand-checked anchors + the generated seed module
   // -------------------------------------------------------------------------
+
+  it("gives each age exactly the galas the entry windows allow", () => {
+    // The property the chart overlays and the wheel rings both depend on: nobody
+    // is eligible for all five at once, so a progression chart never draws five
+    // cut lines and a wheel never has five rings. SANS opens at 15 and SANY at
+    // 17, while L2/L3/SANJ close at 16.
+    const accepted = importAll();
+    const refs = GALA_SEED.map((g) => ({
+      code: g.code,
+      minAge: g.minAge ?? null,
+      maxAge: g.maxAge ?? null,
+    }));
+
+    // Resolve on a shared event every gala covers, so coverage never confounds
+    // the eligibility question.
+    const eligibleAt = (age: number) =>
+      GALA_ORDER.filter((code) => {
+        const ref = refs.find((r) => r.code === code)!;
+        return (
+          resolveGalaCut(
+            ref,
+            cutsFor(accepted, code, "LCM", "F", 100, "FREE"),
+            age,
+          ) !== null
+        );
+      });
+
+    expect(eligibleAt(13)).toEqual(["SANJ", "LEVEL_3", "LEVEL_2"]);
+    expect(eligibleAt(15)).toEqual(["SANS", "SANJ", "LEVEL_3", "LEVEL_2"]);
+    expect(eligibleAt(16)).toEqual(["SANS", "SANJ", "LEVEL_3", "LEVEL_2"]);
+    expect(eligibleAt(17)).toEqual(["SANS", "SANY"]);
+    expect(eligibleAt(25)).toEqual(["SANS", "SANY"]);
+    expect(eligibleAt(26)).toEqual(["SANS"]);
+
+    // The headline claim, across every age a swimmer could plausibly be.
+    for (let age = 8; age <= 40; age++) {
+      expect(eligibleAt(age).length, `age ${age}`).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("builds a 3-, 4- or 2-ring wheel scale for those ages", () => {
+    // The wheel consumes the same eligible set, so its ring count follows.
+    expect(buildRingScale(["SANJ", "LEVEL_3", "LEVEL_2"]).order).toHaveLength(3);
+    expect(
+      buildRingScale(["SANS", "SANJ", "LEVEL_3", "LEVEL_2"]).order,
+    ).toHaveLength(4);
+    expect(buildRingScale(["SANS", "SANY"]).order).toHaveLength(2);
+    // Inner ring is always the easiest gala present.
+    expect(buildRingScale(["SANS", "SANY"]).order[0]).toBe("SANY");
+    expect(
+      buildRingScale(["SANS", "SANJ", "LEVEL_3", "LEVEL_2"]).order[0],
+    ).toBe("LEVEL_2");
+  });
 
   it("matches hand-checked anchor values from each federation table", () => {
     const accepted = importAll();

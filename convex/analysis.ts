@@ -31,7 +31,7 @@ import {
   type GalaCode,
   type GalaRef,
   type Distance,
-  type RingGala,
+  buildRingScale,
   type Stroke as StrokeT,
   type TourDateByGala,
   type ResultForPB,
@@ -1080,17 +1080,25 @@ export const getRoadToQualify = query({
 // ---------------------------------------------------------------------------
 //
 // One entry per APPLICABLE LCM event for a swimmer: an event is applicable when
-// at least one tier (L2/L3/SANJ) has a cut at the swimmer's EXACT single-year
+// at least one gala the swimmer can ENTER has a cut at their EXACT single-year
 // age (§4.9). Each entry carries the headline MEET LCM PB (fastest meet only —
-// trials/practice never count, §4.6), the three cuts (null where the tier has
-// no coverage — never faked, §4.9), the calibrated radius (the PB on this
-// event's own L2->L3->SANJ scale, in ring units; null with no PB), and the
-// hardest tier the PB meets.
+// trials/practice never count, §4.6), that event's cuts as a sparse list ordered
+// inner ring → outer ring (a gala with no coverage simply contributes no entry —
+// never a faked one, §4.9), the calibrated radius (the PB on this event's own
+// scale, in ring units; null with no PB), and the hardest gala the PB meets.
 //
-// The client splits events into "full coverage" (all three cuts → every ring
-// present) and "partial coverage" (some rings absent, drawn flagged) purely
-// from the three cut fields — no hard-coded event list, so it stays honest as a
-// swimmer ages across coverage boundaries. LCM only; SCM never has standards.
+// The RINGS are the union of galas that produced a cut, which the entry windows
+// hold to 2-4 and never 5 (SANS opens at 15 and SANY at 17, while L2/L3/SANJ
+// close at 16) — that bound is what keeps the wheel legible. `ringGalas` ships
+// that layout; the client rebuilds the full scale with `buildRingScale` rather
+// than carry a second copy of numbers that must agree.
+//
+// The client splits events into "full coverage" (a cut on every ring) and
+// "partial coverage" (some rings absent, drawn flagged) purely from the returned
+// cuts — no hard-coded event list, so it stays honest as a swimmer ages across
+// coverage boundaries. The wheel reads ONE course, long, so every spoke is
+// measured on the same footing; short-course cuts exist (§4.2) but mixing the two
+// on one radial scale would compare times that are not comparable.
 //
 // Access is role-scoped SERVER-SIDE: a coach reads any swimmer, a viewer only
 // their own linked swimmer(s) (requireSwimmerAccess). The screen's compare mode
@@ -1109,21 +1117,18 @@ const strokeProfileEvent = v.object({
   stroke,
   label: v.string(),
   pbMs: v.union(v.number(), v.null()),
-  l2Ms: v.union(v.number(), v.null()),
-  l3Ms: v.union(v.number(), v.null()),
-  sanjMs: v.union(v.number(), v.null()),
-  // The PB on this event's calibrated L2->L3->SANJ scale (ring units). Null
-  // when there is no PB; the wheel renders those spokes as an empty tick.
+  // This event's cuts, one per gala that both covers it and is on the wheel,
+  // ordered inner ring → outer ring. Sparse by design: a 50 Free carries no
+  // Level 3 or SANJ cut, so it simply anchors on fewer rings.
+  cuts: v.array(v.object({ gala: galaCodeValidator, timeMs: v.number() })),
+  // The PB on this event's calibrated ring scale (ring units). Null when there
+  // is no PB; the wheel renders those spokes as an empty tick.
   calibratedRadius: v.union(v.number(), v.null()),
-  // The wheel has three rings, so only the three age-graded galas can appear
-  // here — SANS/SANY are open standards with no place on a calibrated ring scale.
-  highestGala: v.union(
-    v.literal("SANJ"),
-    v.literal("LEVEL_3"),
-    v.literal("LEVEL_2"),
-    v.null(),
-  ),
-  // Convenience flag the client would otherwise recompute: all three cuts exist.
+  // Hardest gala this event's PB meets. Any of the five — which one is possible
+  // depends on the swimmer's age, since the wheel only carries galas they can enter.
+  highestGala: v.union(galaCodeValidator, v.null()),
+  // Convenience flag the client would otherwise recompute: this event has a cut
+  // on every ring of the wheel.
   fullCoverage: v.boolean(),
 });
 
@@ -1141,13 +1146,13 @@ type StrokeProfileResult = {
     stroke: StrokeT;
     label: string;
     pbMs: number | null;
-    l2Ms: number | null;
-    l3Ms: number | null;
-    sanjMs: number | null;
+    cuts: Array<{ gala: GalaCode; timeMs: number }>;
     calibratedRadius: number | null;
-    highestGala: RingGala | null;
+    highestGala: GalaCode | null;
     fullCoverage: boolean;
   }>;
+  /** The wheel's rings, inner → outer. Feed to `buildRingScale` for the full scale. */
+  ringGalas: GalaCode[];
   hasStandards: boolean;
   agedUpAt: string | null;
   tourDates: TourDateByGala;
@@ -1166,6 +1171,11 @@ export const getStrokeProfile = query({
         active: v.boolean(),
       }),
       events: v.array(strokeProfileEvent),
+      // The wheel's rings, inner → outer. Derived from the galas this swimmer can
+      // enter, so it is 2-4 long. Everything else about the scale (ring positions,
+      // the outer bound) is derivable — clients call `buildRingScale(order)` rather
+      // than carry a second copy of numbers that must agree.
+      ringGalas: v.array(galaCodeValidator),
       // False when no cuts exist for this swimmer's gender — callers show the
       // standards-missing guidance instead of a shrugging empty state.
       hasStandards: v.boolean(),
@@ -1252,16 +1262,22 @@ export const getStrokeProfile = query({
     const galaRefs = toGalaRefs(profileGalas);
     const ages = galaResolutionAges(swimmer.dob, age, galaRefs);
 
-    const events = [];
+    // PASS 1 — resolve each event's cuts and learn which galas the wheel needs.
+    //
+    // Calibrate against the cut the swimmer must meet FOR THE COMPETITION:
+    // tour-day age when a date is set, else current age (§4.9). Never the age a
+    // past PB was swum. `pickApplicableStandardsPerGala` already drops galas the
+    // swimmer is too young or too old to enter, which is what keeps the wheel to
+    // 2-4 rings and never 5: SANS opens at 15 and SANY at 17, while L2/L3/SANJ
+    // close at 16. Long course only — the wheel reads one course.
+    const resolved: Array<{
+      event: (typeof lcmEvents)[number];
+      pbMs: number | null;
+      applicable: Partial<Record<GalaCode, number>>;
+    }> = [];
+    const galasOnWheel = new Set<GalaCode>();
     for (const e of lcmEvents) {
       const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
-      // Calibrate each ring to the cut the swimmer must meet FOR THE COMPETITION:
-      // tour-day age when a date is set, else current age (§4.9). Never the age a
-      // past PB was swum.
-      //
-      // The wheel has exactly three rings (L2 -> L3 -> SANJ) and reads long
-      // course. SANS/SANY are not placed on it: five concentric rings do not
-      // read, so extending the wheel to the open galas is its own design step.
       const applicable = pickApplicableStandardsPerGala(
         (cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? []).filter(
           (c) => c.course === "LCM",
@@ -1269,38 +1285,43 @@ export const getStrokeProfile = query({
         galaRefs,
         ages,
       );
-      const l2Ms = applicable.LEVEL_2 ?? null;
-      const l3Ms = applicable.LEVEL_3 ?? null;
-      const sanjMs = applicable.SANJ ?? null;
+      const present = Object.keys(applicable) as GalaCode[];
+      // Applicable = at least one gala has a cut here at this age. An event with
+      // no cut at all can't be placed on any ring — omit it (§4.9).
+      if (present.length === 0) continue;
+      for (const gala of present) galasOnWheel.add(gala);
+      resolved.push({ event: e, pbMs: pb ? pb.timeMs : null, applicable });
+    }
 
-      // Applicable = at least one ring gala has a cut here at this age. Events
-      // with no cut at all can't be placed on any ring — omit them (§4.9).
-      if (l2Ms === null && l3Ms === null && sanjMs === null) continue;
+    // The ring layout is a property of the WHOLE wheel, so it is built from the
+    // union across events. Deriving it from galas that actually produced a cut
+    // (rather than from eligibility alone) guarantees no empty ring is drawn.
+    const ringScale = buildRingScale([...galasOnWheel]);
 
-      const pbMs = pb ? pb.timeMs : null;
-      const calibratedRadius = computeCalibratedRadius(pbMs, { l2Ms, l3Ms, sanjMs });
-      // Only the three ring galas' cuts were supplied above, so the result can
-      // only ever be one of those (or null) — narrow it to match the wheel.
-      const highestGala: RingGala | null =
-        pbMs === null
-          ? null
-          : ((highestGalaMet(
-              { LCM: pbMs },
-              { LCM: applicable, SCM: {} },
-              "LCM",
-            )?.gala ?? null) as RingGala | null);
-
+    // PASS 2 — place each event's PB on that shared scale.
+    const events = [];
+    for (const { event: e, pbMs, applicable } of resolved) {
+      // Ordered inner ring → outer ring, so the client can render without sorting.
+      const cuts = ringScale.order.flatMap((gala) => {
+        const timeMs = applicable[gala];
+        return timeMs === undefined ? [] : [{ gala, timeMs }];
+      });
       events.push({
         distance: e.distance,
         stroke: e.stroke,
         label: e.label,
         pbMs,
-        l2Ms,
-        l3Ms,
-        sanjMs,
-        calibratedRadius,
-        highestGala,
-        fullCoverage: l2Ms !== null && l3Ms !== null && sanjMs !== null,
+        cuts,
+        calibratedRadius: computeCalibratedRadius(pbMs, cuts, ringScale),
+        highestGala:
+          pbMs === null
+            ? null
+            : (highestGalaMet(
+                { LCM: pbMs },
+                { LCM: applicable, SCM: {} },
+                "LCM",
+              )?.gala ?? null),
+        fullCoverage: cuts.length === ringScale.order.length,
       });
     }
 
@@ -1321,10 +1342,12 @@ export const getStrokeProfile = query({
         active: swimmer.active,
       },
       events,
+      ringGalas: [...ringScale.order],
       hasStandards: allStandards.length > 0,
-      // Suppressed once every RING gala is pinned to a tour date — a birthday
-      // changes nothing then. Only the three wheel galas matter here.
-      agedUpAt: (["LEVEL_2", "LEVEL_3", "SANJ"] as const).every(
+      // Suppressed once every gala ON THIS WHEEL is pinned to a tour date — a
+      // birthday changes none of its cuts then. Galas absent from the wheel are
+      // irrelevant to this note.
+      agedUpAt: ringScale.order.every(
         (code) => profileGalas.find((g) => g.code === code)?.tourDate,
       )
         ? null

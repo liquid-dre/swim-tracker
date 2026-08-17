@@ -50,6 +50,15 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
 - **Chart pages:** the chart is the centred hero above the fold; filters are a slim toolbar (primary
   selectors) plus a compact "Filters" popover (secondary filters, with an active-count badge) — never a
   tall filter block. Shared FilterBar across all chart pages.
+- **Charts draw only the galas the swimmer can actually enter.** Overlay cut lines and wheel rings come
+  from the Step A entry-window gate (`pickApplicableStandardsPerGala`), so the count is 2–4, never 5:
+  age ≤14 → L2/L3/SANJ; 15–16 → those + SANS; 17–25 → SANS + SANY; 26+ → SANS. That bound is what keeps
+  five galas legible — do not "helpfully" draw a line for a gala with no cut to chase.
+- **Two visualisations are deliberately hand-built SVG, not chart-library output.** The stroke-profile
+  wheel, because `computeCalibratedRadius` gives every spoke its **own** scale so "the bar crosses the
+  SANJ ring" means exactly "beats the SANJ cut" (a radar chart's shared radial scale would silently
+  destroy that, and a test locks it); and the dashboard sparkline, because it renders ×20 rows and needs
+  no axes. Both follow the app-wide orientation: **faster = lower / further out**.
 - **Dropdowns:** one shared styled menu component (white rounded panel, soft shadow, brand-indigo hover
   items, rotating chevron, subtle staggered entrance) for every select / picker / action menu.
 - **Collapsed sidebar:** the icon rail still reaches every subcategory — groups reveal a flyout of their

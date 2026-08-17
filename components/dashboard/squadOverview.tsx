@@ -449,10 +449,13 @@ function Avatar({ name }: { name: string }) {
 }
 
 /*
-  Trend of recent MEET times. Faster (lower ms) sits HIGHER, so an improving
-  swimmer's line rises to the right; the stroke is green when the latest time is
-  at or under the earliest (improving), grey otherwise. Colour here means TREND
-  only — never a tier. A single point renders as a dot.
+  Trend of recent MEET times. Faster (lower ms) sits LOWER, so an improving
+  swimmer's line FALLS to the right — the same orientation as the progression
+  chart, whose y axis is time and is not reversed. One direction for time
+  app-wide: a line going down always means getting faster, on every surface.
+  The stroke is green when the latest time is at or under the earliest
+  (improving), grey otherwise. Colour here means TREND only — never a gala.
+  A single point renders as a dot.
 */
 function Sparkline({ points }: { points: number[] }) {
   if (points.length === 0) {
@@ -483,7 +486,9 @@ function Sparkline({ points }: { points: number[] }) {
   const coords = points
     .map((t, i) => {
       const x = pad + i * step;
-      const y = pad + ((t - min) / range) * (h - pad * 2);
+      // SVG y grows downward, so the FASTEST time (min) must map to the largest
+      // y to sit at the bottom — hence the inversion.
+      const y = pad + (1 - (t - min) / range) * (h - pad * 2);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");

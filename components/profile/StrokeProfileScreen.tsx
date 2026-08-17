@@ -13,17 +13,26 @@ import { Select } from "@/components/ui/Select";
 import { FilterBar } from "@/components/ui/FilterBar";
 import { useContainerWidth } from "@/hooks/use-container-width";
 import { formatShortDate } from "@/lib/format";
-import type { RingGala, TourDateByGala } from "@/lib/swim";
-import { GALA_FULL } from "@/lib/galas";
+import { buildRingScale, type GalaCode, type RingScale, type TourDateByGala } from "@/lib/swim";
+import { GALA_FULL, GALA_SHORT } from "@/lib/galas";
 import { trailForHref } from "@/lib/nav";
 
-// Only the three galas the wheel draws rings for — SANS/SANY are not on it.
-const RING_GALAS: ReadonlyArray<RingGala> = ["SANJ", "LEVEL_3", "LEVEL_2"];
+/**
+ * Which of THIS wheel's galas are pinned to a tour date. Only the galas actually
+ * on the wheel matter — naming one the swimmer cannot enter would be noise.
+ */
+function pinnedTierNames(
+  tourDates: TourDateByGala,
+  rings: ReadonlyArray<GalaCode>,
+): string[] {
+  return rings
+    .filter((code) => tourDates[code] !== undefined)
+    .map((code) => GALA_FULL[code]);
+}
 
-function pinnedTierNames(tourDates: TourDateByGala): string[] {
-  return RING_GALAS.filter((code) => tourDates[code] !== undefined).map(
-    (code) => GALA_FULL[code],
-  );
+/** "L2 · L3 · SANJ · SANS" — the rings this swimmer's wheel actually carries. */
+function ringSummary(scale: RingScale): string {
+  return scale.order.map((g) => GALA_SHORT[g]).join(" · ");
 }
 import { StrokeWheel } from "./StrokeWheel";
 import { STROKE_META, WHEEL_STROKE_ORDER, type ProfileEvent } from "./strokeProfile";
@@ -202,6 +211,12 @@ function WheelPanel({
   compact: boolean;
 }) {
   const data = useQuery(api.analysis.getStrokeProfile, { swimmerId });
+  // The query sends only the ring ORDER; the positions and outer bound are
+  // derived from it so there is one source of truth for the geometry.
+  const scale = useMemo(
+    () => buildRingScale(data?.ringGalas ?? []),
+    [data?.ringGalas],
+  );
 
   // Measure the cell's inner content width (card padding already excluded). Grid
   // cells are 1fr, so this is stable — no wheel→card→wheel feedback. Ignored when
@@ -258,9 +273,11 @@ function WheelPanel({
             <p className="w-full rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">
               Turned {data.swimmer.age} on {formatShortDate(data.agedUpAt)} —
               every cut now resolves to the age-{data.swimmer.age} standard.
-              {pinnedTierNames(data.tourDates).length > 0 &&
-                ` ${pinnedTierNames(data.tourDates).join(" and ")} ${
-                  pinnedTierNames(data.tourDates).length === 1 ? "is" : "are"
+              {pinnedTierNames(data.tourDates, scale.order).length > 0 &&
+                ` ${pinnedTierNames(data.tourDates, scale.order).join(" and ")} ${
+                  pinnedTierNames(data.tourDates, scale.order).length === 1
+                    ? "is"
+                    : "are"
                 } judged at age on tour day.`}
             </p>
           )}
@@ -277,6 +294,7 @@ function WheelPanel({
           ) : (
             <StrokeWheel
               events={events}
+              scale={scale}
               size={wheelSize}
               title={data.swimmer.name}
             />
@@ -288,9 +306,10 @@ function WheelPanel({
               hidden
             </p>
           )}
-          {!compact && events.length > 0 && (
+          {events.length > 0 && (
             <p className="text-2xs leading-tight text-ink-faint">
-              Hover or focus a bar for the PB and every cut.
+              Rings, inner to outer: {ringSummary(scale)}
+              {!compact && " · hover or focus a bar for the PB and every cut"}
             </p>
           )}
         </>

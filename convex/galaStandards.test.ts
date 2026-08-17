@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import { parseTime } from "../lib/swim";
-import { GALA_ORDER } from "../lib/galas";
+import { GALA_ORDER, type GalaCode } from "../lib/galas";
 
 /*
   Galas end-to-end (§4.2, §4.9): the two rules this change turns on, exercised
@@ -151,6 +151,255 @@ async function seedScenario(
 
 const LCM_CUT = parseTime("1:00:00"); // 60_000
 const SCM_CUT = parseTime("58:00"); // 58_000
+
+/**
+ * The real entry windows, so the wheel tests exercise the production gate rather
+ * than a convenient fiction. All five galas are always seeded — what excludes a
+ * gala from a wheel must be the WINDOW, not the absence of rows.
+ */
+const WHEEL_WINDOWS: Record<
+  GalaCode,
+  { ageScope: "AGE_GRADED" | "OPEN"; minAge?: number; maxAge?: number }
+> = {
+  SANS: { ageScope: "OPEN", minAge: 15 },
+  SANY: { ageScope: "OPEN", minAge: 17, maxAge: 25 },
+  SANJ: { ageScope: "AGE_GRADED", maxAge: 16 },
+  LEVEL_3: { ageScope: "AGE_GRADED", maxAge: 16 },
+  LEVEL_2: { ageScope: "AGE_GRADED", maxAge: 16 },
+};
+
+type WheelEventSpec = {
+  distance: 50 | 100 | 200;
+  stroke: "FREE" | "BACK";
+  label: string;
+  /** LCM cut per gala. Omit a gala to mean "this gala does not cover this event". */
+  cuts: Partial<Record<GalaCode, number>>;
+  /** Headline LCM meet PB; omit for an unraced event. */
+  pbMs?: number;
+};
+
+/**
+ * Seed a whole stroke-profile wheel: every gala, its window, the per-event LCM
+ * cuts, and the swimmer's headline meet PBs. Age-graded cuts are written at the
+ * swimmer's exact age — including for galas whose window excludes them, which is
+ * what lets a test prove the window (not a missing row) does the excluding.
+ */
+async function seedWheel(
+  t: Awaited<ReturnType<typeof setup>>["t"],
+  ids: Awaited<ReturnType<typeof setup>>["ids"],
+  opts: { swimmerAge: number; events: ReadonlyArray<WheelEventSpec> },
+) {
+  return await t.run(async (ctx) => {
+    const existing = await ctx.db.query("events").take(200);
+    for (const e of opts.events) {
+      if (
+        existing.some((x) => x.distance === e.distance && x.stroke === e.stroke)
+      ) {
+        continue;
+      }
+      await ctx.db.insert("events", {
+        distance: e.distance,
+        stroke: e.stroke,
+        allowedCourses: ["LCM", "SCM"],
+        label: e.label,
+        active: true,
+      });
+    }
+
+    for (const code of GALA_ORDER) {
+      const window = WHEEL_WINDOWS[code];
+      const covered = opts.events.filter((e) => e.cuts[code] !== undefined);
+      const gala = await ctx.db.insert("galas", {
+        code,
+        displayName: `Gala ${code}`,
+        shortLabel: code,
+        ageScope: window.ageScope,
+        minAge: window.minAge,
+        maxAge: window.maxAge,
+        coveredEvents: covered.map((e) => ({
+          distance: e.distance,
+          stroke: e.stroke,
+        })),
+        sortHint: GALA_ORDER.indexOf(code),
+        season: "2027",
+      });
+      for (const e of covered) {
+        await ctx.db.insert("standards", {
+          galaId: gala,
+          course: "LCM",
+          gender: "F",
+          distance: e.distance,
+          stroke: e.stroke,
+          ...(window.ageScope === "OPEN" ? {} : { age: opts.swimmerAge }),
+          isCatchAllYoung: false,
+          isCatchAllOld: false,
+          timeMs: e.cuts[code]!,
+        });
+      }
+    }
+
+    const swimmer = await ctx.db.insert("swimmers", {
+      name: "Ava",
+      dob: dobForAge(opts.swimmerAge),
+      gender: "F",
+      active: true,
+      clubId: ids.club,
+      createdAt: 0,
+    });
+    for (const e of opts.events) {
+      if (e.pbMs === undefined) continue;
+      await ctx.db.insert("results", {
+        swimmerId: swimmer,
+        distance: e.distance,
+        stroke: e.stroke,
+        course: "LCM",
+        timeMs: e.pbMs,
+        swimType: "MEET",
+        swimDate: "2026-06-01",
+        ageAtSwim: opts.swimmerAge,
+        enteredBy: ids.coach,
+        createdAt: 0,
+      });
+    }
+    return { swimmer };
+  });
+}
+
+describe("stroke profile wheel rings (§5)", () => {
+  test("the wheel carries only the galas the swimmer can enter, easiest ring inward", async () => {
+    const { t, ids, asCoach } = await setup();
+    // At 15 the age-graded galas are still open (maxAge 16) and SANS has just
+    // opened (minAge 15), but SANY does not start until 17 — four rings, not five.
+    const { swimmer } = await seedWheel(t, ids, {
+      swimmerAge: 15,
+      events: [
+        {
+          distance: 100,
+          stroke: "FREE",
+          label: "100 Free",
+          cuts: {
+            LEVEL_2: 70_000,
+            LEVEL_3: 65_000,
+            SANJ: 62_000,
+            SANS: 58_000,
+            SANY: 63_000, // seeded, but out of window → must not appear
+          },
+          pbMs: 62_000, // exactly the SANJ cut
+        },
+      ],
+    });
+
+    const profile = await asCoach.query(api.analysis.getStrokeProfile, {
+      swimmerId: swimmer,
+    });
+    expect(profile!.ringGalas).toEqual(["LEVEL_2", "LEVEL_3", "SANJ", "SANS"]);
+
+    const free = profile!.events.find(
+      (e) => e.distance === 100 && e.stroke === "FREE",
+    )!;
+    expect(free.cuts.map((c) => c.gala)).toEqual([
+      "LEVEL_2",
+      "LEVEL_3",
+      "SANJ",
+      "SANS",
+    ]);
+    expect(free.cuts.find((c) => c.gala === "SANJ")!.timeMs).toBe(62_000);
+    expect(free.fullCoverage).toBe(true);
+    expect(free.highestGala).toBe("SANJ");
+    // The acceptance invariant, end to end: a PB at the SANJ cut lands exactly
+    // on the SANJ ring (third of four), so "crosses the ring" == "beats the cut".
+    expect(free.calibratedRadius).toBeCloseTo(3, 10);
+  });
+
+  test("a 17-year-old gets a two-ring wheel even though age-graded rows exist for that age", async () => {
+    const { t, ids, asCoach } = await setup();
+    const { swimmer } = await seedWheel(t, ids, {
+      swimmerAge: 17,
+      events: [
+        {
+          distance: 100,
+          stroke: "FREE",
+          label: "100 Free",
+          // L2/L3/SANJ rows are written AT AGE 17 here. They are still excluded,
+          // because the entry window closes at 16 — the gate is the window.
+          cuts: {
+            LEVEL_2: 70_000,
+            LEVEL_3: 65_000,
+            SANJ: 62_000,
+            SANS: 58_000,
+            SANY: 63_000, // the youth standard is the SOFTER of the two (see the CSV)
+          },
+          pbMs: 63_000, // exactly the SANY cut — the inner ring at this age
+        },
+      ],
+    });
+
+    const profile = await asCoach.query(api.analysis.getStrokeProfile, {
+      swimmerId: swimmer,
+    });
+    expect(profile!.ringGalas).toEqual(["SANY", "SANS"]);
+
+    const free = profile!.events.find(
+      (e) => e.distance === 100 && e.stroke === "FREE",
+    )!;
+    expect(free.cuts.map((c) => c.gala)).toEqual(["SANY", "SANS"]);
+    expect(free.highestGala).toBe("SANY");
+    expect(free.calibratedRadius).toBeCloseTo(1, 10);
+  });
+
+  test("an event only the easier galas cover anchors on fewer rings and reports partial coverage", async () => {
+    const { t, ids, asCoach } = await setup();
+    // The real coverage rule: no 50m at L3/SANJ, and SANS publishes none either,
+    // so a 50 Free carries a single L2 anchor while the 100 spans all four rings.
+    const { swimmer } = await seedWheel(t, ids, {
+      swimmerAge: 15,
+      events: [
+        {
+          distance: 50,
+          stroke: "FREE",
+          label: "50 Free",
+          cuts: { LEVEL_2: 32_000 },
+          pbMs: 27_000, // far inside the only cut it has
+        },
+        {
+          distance: 100,
+          stroke: "FREE",
+          label: "100 Free",
+          cuts: {
+            LEVEL_2: 70_000,
+            LEVEL_3: 65_000,
+            SANJ: 62_000,
+            SANS: 58_000,
+          },
+          pbMs: 72_000, // slower than every cut it has
+        },
+      ],
+    });
+
+    const profile = await asCoach.query(api.analysis.getStrokeProfile, {
+      swimmerId: swimmer,
+    });
+    // The ring layout is a property of the whole wheel: the union across events.
+    expect(profile!.ringGalas).toEqual(["LEVEL_2", "LEVEL_3", "SANJ", "SANS"]);
+
+    const fifty = profile!.events.find((e) => e.distance === 50)!;
+    expect(fifty.cuts.map((c) => c.gala)).toEqual(["LEVEL_2"]);
+    expect(fifty.fullCoverage).toBe(false);
+    expect(fifty.highestGala).toBe("LEVEL_2");
+    // Bar length must stay comparable across spokes: beating the only cut this
+    // event has caps the bar on the LEVEL_2 ring, never out in the headroom that
+    // belongs to beating SANS on the outermost ring.
+    expect(fifty.calibratedRadius).toBeCloseTo(1, 10);
+
+    const hundred = profile!.events.find((e) => e.distance === 100)!;
+    expect(hundred.fullCoverage).toBe(true);
+    // 72.00 misses even the easiest cut, so the bar stays INSIDE the first ring —
+    // short of a cut can never look like it reached that cut's ring.
+    expect(hundred.highestGala).toBeNull();
+    expect(hundred.calibratedRadius).toBeGreaterThan(0);
+    expect(hundred.calibratedRadius).toBeLessThan(1);
+  });
+});
 
 describe("either course qualifies (§4.2)", () => {
   test("a SHORT-course PB that clears the short-course cut qualifies", async () => {

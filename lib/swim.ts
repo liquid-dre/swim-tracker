@@ -1039,96 +1039,128 @@ export function computeMatrixCell(
 // The stroke-profile wheel draws one bar per event around a circle. Raw times
 // CANNOT share a radial axis (a 30 s 50 and a 9:00 800 would be incomparable),
 // so each event's PB is mapped onto a PER-EVENT calibrated scale anchored to
-// that event's own L2/L3/SANJ cuts:
+// that event's own cuts. Ring 1 is the EASIEST gala on the wheel, ascending
+// outward to the hardest, with one ring-unit of headroom past it:
 //
-//     L2 cut  -> inner ring   (radius 1)
-//     L3 cut  -> middle ring  (radius 2)
-//     SANJ cut-> outer ring   (radius 3)
-//     centre  -> radius 0
+//     easiest gala's cut -> inner ring  (radius 1)
+//     …                                 (radius 2, 3, …)
+//     hardest gala's cut -> outer ring  (radius = ring count)
+//     centre                            (radius 0)
 //
-// OUTWARD = FASTER. The returned value is in RING UNITS (unitless), so the
-// wheel can place fixed pixel ring radii and every swimmer shares one scale.
-// It is piecewise-linear between the anchors that exist, extrapolating beyond
-// the fastest/slowest anchor along the nearest segment. Faster than SANJ pushes
-// past the outer ring; slower than L2 falls toward the centre (clamped there).
+// The ring ASSIGNMENT is a property of the whole wheel, not of one spoke —
+// otherwise ring 2 would mean Level 3 on one spoke and SANS on another and the
+// concentric circles would carry no meaning. It comes from the galas the swimmer
+// is ELIGIBLE for at this age (`buildRingScale`), so it is 2-4 rings in practice
+// and never 5: SANS starts at 15 and SANY at 17, while L2/L3/SANJ stop at 16.
+// A spoke simply anchors on whichever of those galas covers its event — a 50
+// Free has no L3/SANJ cut, so it interpolates between the rings it does have.
 //
-// CRUCIAL invariant (acceptance): at a tier's exact cut the radius equals that
-// tier's ring position exactly, so "the bar crosses the SANJ ring" is TRUE iff
+// OUTWARD = FASTER. The returned value is in RING UNITS (unitless), so the wheel
+// can place fixed pixel ring radii and every spoke shares one scale. It is
+// piecewise-linear between the anchors that exist, extrapolating beyond the
+// fastest/slowest anchor along the nearest segment. Faster than the hardest cut
+// pushes past the outer ring; slower than the easiest falls toward the centre.
+//
+// CRUCIAL invariant (acceptance): at a gala's exact cut the radius equals that
+// gala's ring position exactly, so "the bar crosses the SANJ ring" is TRUE iff
 // the PB beats the SANJ cut — regardless of how the between-ring slope is drawn.
-
-/**
- * The three galas the wheel draws rings for. SANS and SANY are deliberately NOT
- * included: five concentric rings do not read, so extending the wheel to the
- * open galas is its own design step (Step B) rather than a mechanical widening.
- */
-export type RingGala = "LEVEL_2" | "LEVEL_3" | "SANJ";
-
-/** Fixed ring positions (radius units) for the three age-graded galas. */
-export const STROKE_RING_POS: Record<RingGala, number> = {
-  LEVEL_2: 1,
-  LEVEL_3: 2,
-  SANJ: 3,
-};
 
 /** Centre of the wheel (a PB slower than every cut clamps here). */
 export const STROKE_RADIUS_MIN = 0;
-/** How far a PB faster than SANJ may extrapolate past the outer ring. */
-export const STROKE_RADIUS_MAX = 3.5;
 
-// When a spoke has only ONE tier cut there is no second anchor to define a
-// slope, so the bar is placed with a synthetic unit: one ring-unit = this
-// fraction of the cut time. This only affects magnitude AWAY from that single
-// ring; the crossing AT the ring is still exact (radius === ring pos at the cut).
+/** One ring-unit of headroom past the outermost ring, for beating the hardest cut. */
+const RING_HEADROOM = 0.5;
+
+// When a spoke has only ONE cut there is no second anchor to define a slope, so
+// the bar is placed with a synthetic unit: one ring-unit = this fraction of the
+// cut time. This only affects magnitude AWAY from that single ring; the crossing
+// AT the ring is still exact (radius === ring pos at the cut).
 const SINGLE_ANCHOR_UNIT_FRACTION = 0.04;
 
-/** The three (possibly absent) cuts for one event, already resolved to an age. */
-export type ProfileCuts = {
-  l2Ms: number | null;
-  l3Ms: number | null;
-  sanjMs: number | null;
+/**
+ * The ring layout for one wheel. Derived from the galas a swimmer can enter, so
+ * every spoke on that wheel shares it.
+ */
+export type RingScale = {
+  /** Galas in ring order: index 0 is ring 1 (easiest), ascending outward. */
+  order: ReadonlyArray<GalaCode>;
+  /** Ring position (1-based) per gala. Absent = not on this wheel. */
+  pos: Partial<Record<GalaCode, number>>;
+  /** Outer bound of the track — the hardest ring plus headroom. */
+  max: number;
 };
+
+/**
+ * Build the ring layout from the galas present, easiest ring first. Input order
+ * does not matter; `GALA_ORDER` (hardest → easiest) decides, reversed.
+ */
+export function buildRingScale(galas: ReadonlyArray<GalaCode>): RingScale {
+  const present = new Set(galas);
+  // GALA_ORDER is hardest → easiest, so reversing gives easiest → hardest,
+  // which is inner ring → outer ring.
+  const order = [...GALA_ORDER].reverse().filter((g) => present.has(g));
+  const pos: Partial<Record<GalaCode, number>> = {};
+  order.forEach((gala, i) => {
+    pos[gala] = i + 1;
+  });
+  return {
+    order,
+    pos,
+    max: order.length === 0 ? STROKE_RADIUS_MIN : order.length + RING_HEADROOM,
+  };
+}
+
+/** One event's resolved cuts, as `getStrokeProfile` returns them. */
+export type ProfileCut = { gala: GalaCode; timeMs: number };
 
 /**
  * Map a headline PB onto its event's calibrated radial scale (ring units), or
  * null when there is no PB or no cut to anchor against. See the section header
  * for the full contract; the short version:
- *   - returns exactly the ring position when pb equals that tier's cut,
+ *   - returns exactly the ring position when pb equals that gala's cut,
  *   - interpolates linearly between adjacent anchors,
- *   - extrapolates past the extremes (clamped to [0, STROKE_RADIUS_MAX]).
+ *   - extrapolates past the extremes (clamped to [0, scale.max]).
+ *
+ * `cuts` may be in any order and may cover only some of the wheel's rings.
  */
 export function computeCalibratedRadius(
   pbMs: number | null,
-  cuts: ProfileCuts,
+  cuts: ReadonlyArray<ProfileCut>,
+  scale: RingScale,
 ): number | null {
   if (pbMs === null) return null;
 
-  // Anchors present, ordered inner -> outer (ring pos ascending => cut ms
-  // descending, since a harder tier is a faster cut).
+  // Anchors present on this spoke, ordered inner -> outer (ring pos ascending
+  // => cut ms descending, since a harder gala is a faster cut). Cuts for a gala
+  // that is not on this wheel are ignored rather than given a position.
   const anchors: Array<{ r: number; t: number }> = [];
-  if (cuts.l2Ms !== null) anchors.push({ r: STROKE_RING_POS.LEVEL_2, t: cuts.l2Ms });
-  if (cuts.l3Ms !== null) anchors.push({ r: STROKE_RING_POS.LEVEL_3, t: cuts.l3Ms });
-  if (cuts.sanjMs !== null) anchors.push({ r: STROKE_RING_POS.SANJ, t: cuts.sanjMs });
+  for (const gala of scale.order) {
+    const cut = cuts.find((c) => c.gala === gala);
+    if (cut !== undefined) anchors.push({ r: scale.pos[gala]!, t: cut.timeMs });
+  }
   if (anchors.length === 0) return null;
 
-  // The bar reaches a ring IFF the swimmer has MET that tier's cut — so a time
+  // The bar reaches a ring IFF the swimmer has MET that gala's cut — so a time
   // short of a cut can never look like it reached that ring (a 100 Breast 0.57s
   // slower than SANJ must not appear to touch the SANJ ring). Cap the radius at
-  // the ring of the HIGHEST tier met (pbMs ≤ cut, hardest first): SANJ met earns
-  // headroom past its ring (a real achievement); L3/L2 met caps exactly on that
-  // ring; nothing met keeps the sub-ring calibrated position (the PB is slower
-  // than the easiest cut, so it already sits below the innermost ring). This
-  // keeps the wheel and the road "all tiers" bars honest — bar length reads as
-  // "tier achieved", never "tier nearly achieved".
-  let maxRadius: number;
-  if (cuts.sanjMs !== null && pbMs <= cuts.sanjMs) {
-    maxRadius = STROKE_RADIUS_MAX;
-  } else if (cuts.l3Ms !== null && pbMs <= cuts.l3Ms) {
-    maxRadius = STROKE_RING_POS.LEVEL_3;
-  } else if (cuts.l2Ms !== null && pbMs <= cuts.l2Ms) {
-    maxRadius = STROKE_RING_POS.LEVEL_2;
-  } else {
-    // Nothing met — never reach the innermost (easiest) present ring.
-    maxRadius = anchors[0].r;
+  // the ring of the HARDEST gala met, walking outer -> inner.
+  //
+  // Headroom past the track is reserved for beating the gala on the wheel's
+  // OUTERMOST RING, not merely the outermost cut this event happens to have:
+  // a 200 Fly that only carries L2/L3 cuts must not extend as far as a 100 Free
+  // that beat SANS, or bar length would stop being comparable across spokes.
+  // Anything else met caps exactly on that ring; nothing met keeps the sub-ring
+  // calibrated position (the PB is slower than the easiest cut here, so it
+  // already sits below the innermost anchor). This is what keeps the wheel and
+  // the road "all galas" bars honest — length reads as "gala achieved", never
+  // "gala nearly achieved".
+  const outerRing = scale.order.length;
+  let maxRadius = anchors[0].r; // nothing met → never reach the innermost ring
+  for (let i = anchors.length - 1; i >= 0; i--) {
+    if (pbMs <= anchors[i].t) {
+      maxRadius = anchors[i].r === outerRing ? scale.max : anchors[i].r;
+      break;
+    }
   }
   const clamp = (r: number) =>
     Math.max(STROKE_RADIUS_MIN, Math.min(maxRadius, r));
