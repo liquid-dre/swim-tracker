@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { Check } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
@@ -20,17 +20,16 @@ import {
   eventLabel,
   formatTime,
   parseTime,
-  tierCoversEvent,
+  galaCoversEvent,
+  type Course,
+  type GalaCode,
   type Stroke,
-  type Tier,
 } from "@/lib/swim";
-import { TIER_COLUMNS, type AgeKind } from "./model";
+import { GALA_MEDIUM } from "@/lib/galas";
+import { GALA_COLUMNS, type AgeKind } from "./model";
 
-const TIER_LABEL: Record<Tier, string> = {
-  SANJ: "SANJ",
-  LEVEL_3: "Level 3",
-  LEVEL_2: "Level 2",
-};
+// One label map, shared with every other gala surface (lib/galas.ts).
+const TIER_LABEL = GALA_MEDIUM;
 
 const KIND_OPTIONS: { value: AgeKind; label: string; hint: string }[] = [
   { value: "young", label: "Youngest", hint: "&U: applies to this age and below" },
@@ -38,7 +37,7 @@ const KIND_OPTIONS: { value: AgeKind; label: string; hint: string }[] = [
   { value: "old", label: "Oldest", hint: "+ : applies to this age and above" },
 ];
 
-export type AddCutPrefill = { tier?: Tier; kind?: AgeKind; age?: number };
+export type AddCutPrefill = { tier?: GalaCode; kind?: AgeKind; age?: number | null };
 
 /*
   Add a missing cut for the event in view (Step 9, §5.8). Gender + event come
@@ -53,6 +52,7 @@ export function AddCutSheet({
   gender,
   distance,
   stroke,
+  course,
   prefill,
 }: {
   open: boolean;
@@ -60,16 +60,23 @@ export function AddCutSheet({
   gender: "M" | "F";
   distance: number;
   stroke: Stroke;
+  /** The course being edited — a cut belongs to one course only (§4.2). */
+  course: Course;
   prefill?: AddCutPrefill;
 }) {
   const createStandard = useMutation(api.standards.createStandard);
+  const galas = useQuery(api.galas.listGalas, {});
 
   const coveringTiers = useMemo(
-    () => TIER_COLUMNS.filter((t) => tierCoversEvent(t, distance, stroke)),
-    [distance, stroke],
+    () =>
+      GALA_COLUMNS.filter((code) => {
+        const gala = (galas ?? []).find((g) => g.code === code);
+        return gala !== undefined && galaCoversEvent(gala, distance, stroke);
+      }),
+    [galas, distance, stroke],
   );
 
-  const [tier, setTier] = useState<Tier | null>(
+  const [tier, setTier] = useState<GalaCode | null>(
     prefill?.tier ?? coveringTiers[0] ?? null,
   );
   const [kind, setKind] = useState<AgeKind>(prefill?.kind ?? "exact");
@@ -80,8 +87,14 @@ export function AddCutSheet({
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // An OPEN gala (SANS/SANY) has one cut for every age, so it needs NO age at
+  // all — the age fields are hidden and the value sent is null.
+  const selectedGala = (galas ?? []).find((g) => g.code === tier);
+  const isOpenGala = selectedGala?.ageScope === "OPEN";
   const ageNum = Number(age);
-  const ageValid = age.trim() !== "" && Number.isInteger(ageNum) && ageNum > 0 && ageNum <= 100;
+  const ageValid =
+    isOpenGala ||
+    (age.trim() !== "" && Number.isInteger(ageNum) && ageNum > 0 && ageNum <= 100);
 
   const parsed = useMemo(() => {
     if (time.trim() === "") return { ms: null as number | null, error: null as string | null };
@@ -100,14 +113,19 @@ export function AddCutSheet({
     setSaving(true);
     setFormError(null);
     try {
+      if (selectedGala === undefined) {
+        setFormError("That gala is not set up yet.");
+        return;
+      }
       await createStandard({
-        tier,
+        galaId: selectedGala._id,
+        course,
         gender,
         distance: distance as 50 | 100 | 200 | 400 | 800 | 1500,
         stroke,
-        age: ageNum,
-        isCatchAllYoung: kind === "young",
-        isCatchAllOld: kind === "old",
+        age: isOpenGala ? null : ageNum,
+        isCatchAllYoung: !isOpenGala && kind === "young",
+        isCatchAllOld: !isOpenGala && kind === "old",
         timeMs: parsed.ms,
       });
       notify.success("Cut added");
@@ -132,11 +150,11 @@ export function AddCutSheet({
 
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-1">
-            {/* Tier */}
+            {/* Gala */}
             <fieldset className="flex flex-col gap-2">
-              <legend className="text-sm font-medium text-ink">Tier</legend>
-              <div role="radiogroup" aria-label="Tier" className="flex flex-wrap gap-2">
-                {TIER_COLUMNS.map((t) => {
+              <legend className="text-sm font-medium text-ink">Gala</legend>
+              <div role="radiogroup" aria-label="Gala" className="flex flex-wrap gap-2">
+                {GALA_COLUMNS.map((t) => {
                   const covers = coveringTiers.includes(t);
                   const active = t === tier;
                   return (

@@ -17,16 +17,24 @@ import { TierBadge } from "@/components/ui/TierBadge";
 import { trailForHref } from "@/lib/nav";
 import { swimmerProfileBase } from "@/lib/swimmerHref";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
-import { DEFAULT_AGE_BANDS, formatTime, TIER_FULL, type Tier } from "@/lib/swim";
+import { DEFAULT_AGE_BANDS, formatTime, type Course, type CourseMode } from "@/lib/swim";
+import { GALA_FULL, GALA_ORDER, GALA_SHORT, type GalaCode } from "@/lib/galas";
 import { formatShortDate } from "@/lib/format";
 
 /*
   Qualification status matrix (Step 11, BRD §5.7) — the "who's ready for what"
-  planning surface. Rows = swimmers, columns = LCM events. Each cell shows the
-  hardest qualifying tier the swimmer's headline MEET PB meets, plus the gap to
-  the next tier up. LCM only (standards are long-course). Cuts resolve to each
-  swimmer's EXACT single-year age; the age-band filter is display-only and never
-  leaks into a lookup. Blank where no cut exists for the event at that age.
+  planning surface. Rows = swimmers, columns = events. Each cell shows the hardest
+  gala the swimmer's headline MEET PB meets, plus the gap to the next gala up.
+
+  COURSE is a first-class control, because both courses are valid for entry
+  (§4.2). "Best of both" — the default — answers "is my swimmer in?" in one read:
+  a cell counts a gala as met if EITHER course's PB beats that course's own cut,
+  and marks which course got them there. "Long course" / "Short course" isolate
+  one course when you want an unambiguous single-course grid. A PB is never
+  measured against the other course's cut.
+
+  Cuts resolve to each swimmer's EXACT single-year age; the age-band filter is
+  display-only and never leaks into a lookup. Blank where no cut exists.
 
   Density is everything here: a sticky header row and sticky swimmer column keep
   the grid readable while it scrolls, tabular figures align every gap, and every
@@ -37,17 +45,19 @@ type GenderFilter = "ALL" | "M" | "F";
 type BandFilter = "ALL" | string;
 type SquadFilter = "ALL" | string;
 
-// Short target label for the "next tier up" hint (matches TierBadge vocabulary).
-const NEXT_LABEL: Record<Tier, string> = {
-  SANJ: "SANJ",
-  LEVEL_3: "L3",
-  LEVEL_2: "L2",
+/** How the course selector reads in prose, for descriptions and titles. */
+const COURSE_MODE_LABEL: Record<CourseMode, string> = {
+  BEST: "best of both courses",
+  LCM: "long course",
+  SCM: "short course",
 };
 
 export function StatusMatrixScreen() {
   const pathname = usePathname();
   const swimmerBase = swimmerProfileBase(pathname);
   const [gender, setGender] = useState<GenderFilter>("ALL");
+  // Default BEST: the honest answer to "is my swimmer in?" — either course counts.
+  const [courseMode, setCourseMode] = useState<CourseMode>("BEST");
   const [band, setBand] = useState<BandFilter>("ALL");
   const [squad, setSquad] = useState<SquadFilter>("ALL");
 
@@ -66,6 +76,7 @@ export function StatusMatrixScreen() {
     ageBand: band === "ALL" ? undefined : band,
     squadId:
       effectiveSquad === "ALL" ? undefined : (effectiveSquad as Id<"squads">),
+    courseMode,
   });
 
   // Keep the last grid on screen while a filter change refetches — the coach
@@ -88,7 +99,7 @@ export function StatusMatrixScreen() {
       <PageHeader
         title="Qualification status"
         breadcrumb={trailForHref(pathname)}
-        description="Who's ready for what. Each swimmer's hardest long-course tier met per event, with the gap to the next tier up. Meet times only — trials and practice never count."
+        description="Who's ready for what. Each swimmer's hardest gala met per event, with the gap to the next one up. Both courses qualify, so a cut can be met on either — meet times only, trials and practice never count."
       />
 
       {/* Slim toolbar: all three cross-cutting filters behind the popover so the
@@ -96,6 +107,20 @@ export function StatusMatrixScreen() {
           shows — three working filters above an unfillable grid only confuse. */}
       {data !== undefined && !data.hasStandards ? null : (
       <FilterBar
+        primary={
+          <FilterField label="Course">
+            <Segmented
+              ariaLabel="Which course to judge"
+              value={courseMode}
+              onChange={setCourseMode}
+              options={[
+                { value: "BEST", label: "Best of both" },
+                { value: "LCM", label: "Long" },
+                { value: "SCM", label: "Short" },
+              ]}
+            />
+          </FilterField>
+        }
         filters={
           <>
             <FilterField label="Gender">
@@ -155,18 +180,22 @@ export function StatusMatrixScreen() {
       {data !== undefined &&
         data.hasStandards &&
         (() => {
-          const pinned = (["SANJ", "LEVEL_3", "LEVEL_2"] as const).filter(
-            (t) => data.tourDates[t] !== undefined,
+          const pinned = GALA_ORDER.filter(
+            (code) => data.tourDates[code] !== undefined,
           );
           if (pinned.length === 0) return null;
           return (
             <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
               {pinned
-                .map((t) => `${TIER_FULL[t]} (${formatShortDate(data.tourDates[t]!)})`)
-                .join(" and ")}{" "}
+                .map(
+                  (code) =>
+                    `${GALA_FULL[code]} (${formatShortDate(data.tourDates[code]!)})`,
+                )
+                .join(", ")}{" "}
               {pinned.length === 1 ? "is" : "are"} judged at each
               swimmer&rsquo;s age on tour day
-              {pinned.length < 3 && "; other tiers at each swimmer's current age"}
+              {pinned.length < GALA_ORDER.length &&
+                "; other galas at each swimmer's current age"}
               .
             </p>
           );
@@ -259,11 +288,15 @@ export function StatusMatrixScreen() {
                           key={`${c.distance}|${c.stroke}`}
                           eventLabel={c.label}
                           swimmer={r.name}
+                          courseMode={courseMode}
                           hasCut={c.hasCut}
-                          pbMs={c.pbMs}
-                          tier={c.tier}
-                          nextTier={c.nextTier}
+                          pbLcmMs={c.pbLcmMs}
+                          pbScmMs={c.pbScmMs}
+                          gala={c.gala}
+                          galaCourse={c.galaCourse}
+                          nextGala={c.nextGala}
                           gapMs={c.gapMs}
+                          gapCourse={c.gapCourse}
                         />
                       ))}
                     </tr>
@@ -277,7 +310,7 @@ export function StatusMatrixScreen() {
             <Legend />
             <p className="text-xs text-ink-faint">
               {rows.length} {rows.length === 1 ? "swimmer" : "swimmers"} ·{" "}
-              {events.length} long-course events
+              {events.length} events · {COURSE_MODE_LABEL[courseMode]}
             </p>
           </div>
         </>
@@ -293,19 +326,27 @@ export function StatusMatrixScreen() {
 function MatrixCell({
   eventLabel,
   swimmer,
+  courseMode,
   hasCut,
-  pbMs,
-  tier,
-  nextTier,
+  pbLcmMs,
+  pbScmMs,
+  gala,
+  galaCourse,
+  nextGala,
   gapMs,
+  gapCourse,
 }: {
   eventLabel: string;
   swimmer: string;
+  courseMode: CourseMode;
   hasCut: boolean;
-  pbMs: number | null;
-  tier: Tier | null;
-  nextTier: Tier | null;
+  pbLcmMs: number | null;
+  pbScmMs: number | null;
+  gala: GalaCode | null;
+  galaCourse: Course | null;
+  nextGala: GalaCode | null;
   gapMs: number | null;
+  gapCourse: Course | null;
 }) {
   // Event columns carry no explicit width, so on a narrow matrix they share the
   // leftover width evenly (the swimmer column is pinned to its content), and on a
@@ -328,10 +369,13 @@ function MatrixCell({
     );
   }
 
-  // A cut exists, but no long-course meet time yet → dash, not a tier.
-  if (pbMs === null) {
+  // A cut exists, but no meet time in any course we're judging → dash, not a gala.
+  if (pbLcmMs === null && pbScmMs === null) {
     return (
-      <td className={base} title={`${swimmer}: no long-course meet time for ${eventLabel}`}>
+      <td
+        className={base}
+        title={`${swimmer}: no ${COURSE_MODE_LABEL[courseMode]} meet time for ${eventLabel}`}
+      >
         <span aria-hidden className="text-ink-faint">
           –
         </span>
@@ -340,22 +384,39 @@ function MatrixCell({
     );
   }
 
-  const displayTier: Tier | "NONE" = tier ?? "NONE";
-  const atTop = nextTier === null; // met the hardest available tier — nothing to chase
+  const displayGala = gala ?? "NONE";
+  const atTop = nextGala === null; // met the hardest available gala — nothing to chase
 
+  // Name every PB the grid is actually measuring, so the tooltip never implies a
+  // single time when two courses are in play.
+  const pbParts = [
+    pbLcmMs === null ? null : `LC ${formatTime(pbLcmMs)}`,
+    pbScmMs === null ? null : `SC ${formatTime(pbScmMs)}`,
+  ].filter(Boolean);
   const title =
-    `${swimmer} · ${eventLabel} · PB ${formatTime(pbMs)}` +
-    (tier ? ` · ${NEXT_LABEL[tier]} met` : " · no tier met") +
-    (nextTier && gapMs !== null
-      ? ` · ${formatTime(gapMs)} to ${NEXT_LABEL[nextTier]}`
+    `${swimmer} · ${eventLabel} · PB ${pbParts.join(" / ")}` +
+    (gala
+      ? ` · ${GALA_SHORT[gala]} met${galaCourse ? ` on ${galaCourse === "LCM" ? "long" : "short"} course` : ""}`
+      : " · no gala met") +
+    (nextGala && gapMs !== null
+      ? ` · ${formatTime(gapMs)} to ${GALA_SHORT[nextGala]}${
+          gapCourse && courseMode === "BEST"
+            ? ` (${gapCourse === "LCM" ? "long" : "short"} course)`
+            : ""
+        }`
       : "");
 
   return (
     <td className={base} title={title}>
       <div className="flex flex-col items-center gap-1">
-        <TierBadge tier={displayTier} />
+        <TierBadge
+          gala={displayGala}
+          // Only mark the course when the grid is judging both — on a
+          // single-course grid the marker would be noise on every cell.
+          course={courseMode === "BEST" ? galaCourse : null}
+        />
         {atTop ? (
-          // Met the hardest tier this event HAS — nothing left to chase. Neutral
+          // Met the hardest gala this event HAS — nothing left to chase. Neutral
           // marker, not a green "qualified" flourish: on an L2-only event (a 50)
           // this is entry level, so celebrating it would overstate readiness.
           <span
@@ -366,14 +427,14 @@ function MatrixCell({
             <span>top</span>
           </span>
         ) : (
-          nextTier &&
+          nextGala &&
           gapMs !== null && (
             <span className="inline-flex items-center gap-1 text-2xs leading-none text-ink-muted">
               <span aria-hidden className="text-ink-faint">
                 ▾
               </span>
               <span className="tabular-nums">{formatTime(gapMs)}</span>
-              <span className="text-ink-faint">{NEXT_LABEL[nextTier]}</span>
+              <span className="text-ink-faint">{GALA_SHORT[nextGala]}</span>
             </span>
           )
         )}
@@ -389,21 +450,27 @@ function MatrixCell({
 function Legend() {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-muted">
-      <TierBadge tier="SANJ" />
-      <TierBadge tier="LEVEL_3" />
-      <TierBadge tier="LEVEL_2" />
-      <TierBadge tier="NONE" />
+      {GALA_ORDER.map((code) => (
+        <TierBadge key={code} gala={code} />
+      ))}
+      <TierBadge gala="NONE" />
       <span className="inline-flex items-center gap-1.5">
         <span aria-hidden className="text-ink-faint">
           ▾
         </span>
-        time to next tier
+        time to next gala
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span aria-hidden className="text-ink-faint">
           ✓
         </span>
-        hardest tier met
+        hardest gala met
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span aria-hidden className="font-medium text-ink-faint">
+          L / S
+        </span>
+        course the cut was met on
       </span>
       <span className="inline-flex items-center gap-1.5">
         <span aria-hidden className="text-ink-faint">

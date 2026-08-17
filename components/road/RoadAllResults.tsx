@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 
-import type { Tier } from "@/lib/swim";
+import type { RingGala } from "@/lib/swim";
+import { GALA_TOKEN } from "@/lib/galas";
 import type { ProfileEvent } from "@/components/profile/strokeProfile";
 import {
   AllTierLegend,
@@ -11,8 +12,9 @@ import {
 } from "./QualifyingProgress";
 
 /*
-  Road-to-qualify "All" mode (Step R3). Reuses the stroke-profile read (all three
-  cuts + the shared calibrated PB position + highest tier met, LCM / exact-age /
+  Road-to-qualify "All" mode (Step R3). Reuses the stroke-profile read (the three
+  AGE-GRADED cuts + the shared calibrated PB position + highest gala met, long
+  course / exact-age /
   meet-PB) to draw one bar per event with the L2/L3/SANJ zones, ranked by the
   hardest tier met. Presentational — fed by the query, or the preview harness.
 */
@@ -40,13 +42,20 @@ export function AllTierResults({ data }: { data: AllData }) {
   );
 
   const counts = useMemo(() => {
-    const c = { SANJ: 0, LEVEL_3: 0, LEVEL_2: 0, none: 0, noTime: 0 };
+    const c: Record<RingGala | "none" | "noTime", number> = {
+      SANJ: 0,
+      LEVEL_3: 0,
+      LEVEL_2: 0,
+      none: 0,
+      noTime: 0,
+    };
     for (const e of events) {
       if (e.pbMs === null) c.noTime += 1;
-      if (e.highestTier === null) {
+      if (e.highestGala === null) {
         if (e.pbMs !== null) c.none += 1;
-      } else {
-        c[e.highestTier] += 1;
+      } else if (e.highestGala in c) {
+        // Only the three age-graded galas can appear on this shared ring scale.
+        c[e.highestGala as RingGala] += 1;
       }
     }
     return c;
@@ -61,7 +70,7 @@ export function AllTierResults({ data }: { data: AllData }) {
           {!data.swimmer.active && <span className="text-ink-faint">· inactive</span>}
         </div>
         <span aria-hidden className="h-3.5 w-px bg-border" />
-        <Stat label="Target" value="All tiers" />
+        <Stat label="Target" value="Age-graded galas" />
         <Stat label="Applicable" value={String(events.length)} />
         <Stat label="SANJ" value={String(counts.SANJ)} tier="SANJ" muted={counts.SANJ === 0} />
         <Stat label="L3" value={String(counts.LEVEL_3)} tier="LEVEL_3" muted={counts.LEVEL_3 === 0} />
@@ -72,7 +81,7 @@ export function AllTierResults({ data }: { data: AllData }) {
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-sm font-semibold text-ink">Qualifying progress</h2>
           <p className="text-xs text-ink-faint">
-            Easiest → hardest · fill = highest tier met
+            Easiest → hardest · fill = highest gala met
           </p>
         </div>
         <AllTierProgress bars={bars} />
@@ -82,10 +91,10 @@ export function AllTierResults({ data }: { data: AllData }) {
   );
 }
 
-const TIER_DOT: Record<Tier, string> = {
-  SANJ: "var(--color-tier-sanj)",
-  LEVEL_3: "var(--color-tier-l3)",
-  LEVEL_2: "var(--color-tier-l2)",
+const TIER_DOT: Record<RingGala, string> = {
+  SANJ: `var(--color-tier-${GALA_TOKEN.SANJ})`,
+  LEVEL_3: `var(--color-tier-${GALA_TOKEN.LEVEL_3})`,
+  LEVEL_2: `var(--color-tier-${GALA_TOKEN.LEVEL_2})`,
 };
 
 function Stat({
@@ -96,7 +105,7 @@ function Stat({
 }: {
   label: string;
   value: string;
-  tier?: Tier;
+  tier?: RingGala;
   muted?: boolean;
 }) {
   return (

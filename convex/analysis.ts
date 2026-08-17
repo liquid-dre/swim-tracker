@@ -30,6 +30,10 @@ import {
   type CutsByCourse,
   type GalaCode,
   type GalaRef,
+  type Distance,
+  type RingGala,
+  type Stroke as StrokeT,
+  type TourDateByGala,
   type ResultForPB,
   type SeasonSwim,
   type StandardCut,
@@ -1111,10 +1115,43 @@ const strokeProfileEvent = v.object({
   // The PB on this event's calibrated L2->L3->SANJ scale (ring units). Null
   // when there is no PB; the wheel renders those spokes as an empty tick.
   calibratedRadius: v.union(v.number(), v.null()),
-  highestGala: v.union(galaCodeValidator, v.null()),
+  // The wheel has three rings, so only the three age-graded galas can appear
+  // here — SANS/SANY are open standards with no place on a calibrated ring scale.
+  highestGala: v.union(
+    v.literal("SANJ"),
+    v.literal("LEVEL_3"),
+    v.literal("LEVEL_2"),
+    v.null(),
+  ),
   // Convenience flag the client would otherwise recompute: all three cuts exist.
   fullCoverage: v.boolean(),
 });
+
+/** Explicit shape for `getStrokeProfile` — see the note on its handler. */
+type StrokeProfileResult = {
+  swimmer: {
+    _id: Id<"swimmers">;
+    name: string;
+    gender: "M" | "F";
+    age: number;
+    active: boolean;
+  };
+  events: Array<{
+    distance: Distance;
+    stroke: StrokeT;
+    label: string;
+    pbMs: number | null;
+    l2Ms: number | null;
+    l3Ms: number | null;
+    sanjMs: number | null;
+    calibratedRadius: number | null;
+    highestGala: RingGala | null;
+    fullCoverage: boolean;
+  }>;
+  hasStandards: boolean;
+  agedUpAt: string | null;
+  tourDates: TourDateByGala;
+} | null;
 
 export const getStrokeProfile = query({
   args: { swimmerId: v.id("swimmers") },
@@ -1139,7 +1176,10 @@ export const getStrokeProfile = query({
       tourDates: tourDatesValidator,
     }),
   ),
-  handler: async (ctx, { swimmerId }) => {
+  // The return type is pinned explicitly: this validator is large enough that
+  // inferring it re-instantiates the generated DataModel type and TS then reports
+  // the two instantiations as unrelated (TS2719).
+  handler: async (ctx, { swimmerId }): Promise<StrokeProfileResult> => {
     // Read gate: coach → any swimmer; viewer → only their linked swimmer(s).
     await requireSwimmerAccess(ctx, swimmerId);
 
@@ -1239,14 +1279,16 @@ export const getStrokeProfile = query({
 
       const pbMs = pb ? pb.timeMs : null;
       const calibratedRadius = computeCalibratedRadius(pbMs, { l2Ms, l3Ms, sanjMs });
-      const highestGala =
+      // Only the three ring galas' cuts were supplied above, so the result can
+      // only ever be one of those (or null) — narrow it to match the wheel.
+      const highestGala: RingGala | null =
         pbMs === null
           ? null
-          : highestGalaMet(
+          : ((highestGalaMet(
               { LCM: pbMs },
               { LCM: applicable, SCM: {} },
               "LCM",
-            )?.gala ?? null;
+            )?.gala ?? null) as RingGala | null);
 
       events.push({
         distance: e.distance,

@@ -7,9 +7,9 @@ import {
   formatTime,
   STROKE_RADIUS_MAX,
   STROKE_RING_POS,
-  TIER_FULL,
-  type Tier,
+  type RingGala,
 } from "@/lib/swim";
+import { GALA_MEDIUM, GALA_TOKEN } from "@/lib/galas";
 import { formatSeconds } from "@/lib/format";
 import { TierBadge } from "@/components/ui/TierBadge";
 import {
@@ -26,8 +26,9 @@ import { cn } from "@/lib/utils";
   Qualifying progress (Step R3, BRD §5.11) — the per-event readiness view that
   replaces the old "% of cut" chart. Two shapes driven by the target toggle:
 
-    • SINGLE TIER (L2 / L3 / SANJ) — one horizontal bar per event filling toward
-      that tier's cut. Qualified events read as a full green bar + a check; the
+    • SINGLE GALA — one horizontal bar per event filling toward that gala's cut,
+      in the course the swimmer is nearest in. Qualified events read as a full
+      green bar + a check; the
       rest fill part-way in the brand accent with the exact gap ("2.1s to go").
       Ordered 50→ by distance, then IM, Free, Back, Breast, Fly.
 
@@ -42,7 +43,7 @@ import { cn } from "@/lib/utils";
 */
 
 // Short target label matching the TierBadge vocabulary.
-const NEXT_LABEL: Record<Tier, string> = {
+const NEXT_LABEL: Record<RingGala, string> = {
   SANJ: "SANJ",
   LEVEL_3: "L3",
   LEVEL_2: "L2",
@@ -219,44 +220,67 @@ export type AllBar = {
 // Fixed positions on the shared scale (ring units → % of track). L2/L3/SANJ sit
 // at ring 1/2/3; the track runs to STROKE_RADIUS_MAX so there is headroom past
 // SANJ. Because these are FIXED, every event's bar is directly comparable.
-const RING_POS: Record<Tier, number> = STROKE_RING_POS;
+// The zoned "all" view covers the THREE AGE-GRADED galas only. SANS and SANY are
+// open standards with no age scaling, so they have no place on a shared
+// calibrated ring scale — they are reachable via the single-gala target instead.
+// (Extending the ring scale to five is the StrokeWheel redesign, a separate step.)
+const RING_POS: Record<RingGala, number> = STROKE_RING_POS;
 const posPct = (ringUnits: number) =>
   (Math.max(0, Math.min(STROKE_RADIUS_MAX, ringUnits)) / STROKE_RADIUS_MAX) * 100;
 
-const TIER_FILL: Record<Tier, string> = {
-  SANJ: "var(--color-tier-sanj)",
-  LEVEL_3: "var(--color-tier-l3)",
-  LEVEL_2: "var(--color-tier-l2)",
+const TIER_FILL: Record<RingGala, string> = {
+  SANJ: `var(--color-tier-${GALA_TOKEN.SANJ})`,
+  LEVEL_3: `var(--color-tier-${GALA_TOKEN.LEVEL_3})`,
+  LEVEL_2: `var(--color-tier-${GALA_TOKEN.LEVEL_2})`,
 };
-const TIER_TINT: Record<Tier, string> = {
-  SANJ: "var(--color-tier-sanj-bg)",
-  LEVEL_3: "var(--color-tier-l3-bg)",
-  LEVEL_2: "var(--color-tier-l2-bg)",
+const TIER_TINT: Record<RingGala, string> = {
+  SANJ: `var(--color-tier-${GALA_TOKEN.SANJ}-bg)`,
+  LEVEL_3: `var(--color-tier-${GALA_TOKEN.LEVEL_3}-bg)`,
+  LEVEL_2: `var(--color-tier-${GALA_TOKEN.LEVEL_2}-bg)`,
 };
 const NONE_FILL = "var(--color-tier-none)";
 
 // Easiest → hardest, matching left → right on the track.
-const ASC_TIERS: ReadonlyArray<Tier> = ["LEVEL_2", "LEVEL_3", "SANJ"];
+const ASC_TIERS: ReadonlyArray<RingGala> = ["LEVEL_2", "LEVEL_3", "SANJ"];
 
 type AllRow = AllBar & {
-  cutsByTier: { LEVEL_2: number | null; LEVEL_3: number | null; SANJ: number | null };
-  present: Tier[]; // tiers this event actually has a cut for (§4.9 coverage)
-  tier: Tier | null; // highest tier met
-  nextTier: Tier | null;
+  cutsByTier: Record<RingGala, number | null>;
+  present: RingGala[]; // galas this event actually has a cut for (§4.9 coverage)
+  gala: RingGala | null; // highest of the three age-graded galas met
+  nextGala: RingGala | null;
   gapMs: number | null;
 };
 
 export function AllTierProgress({ bars }: { bars: AllBar[] }) {
   const rows: AllRow[] = bars.map((b) => {
-    const cutsByTier = { LEVEL_2: b.l2Ms, LEVEL_3: b.l3Ms, SANJ: b.sanjMs };
-    const cell = computeMatrixCell(b.pbMs, cutsByTier);
+    const cutsByTier: Record<RingGala, number | null> = {
+      LEVEL_2: b.l2Ms,
+      LEVEL_3: b.l3Ms,
+      SANJ: b.sanjMs,
+    };
+    // The stroke-profile data is long course, so judge it as long course — a
+    // borrowed cut would be exactly the bug this change removes.
+    const cell = computeMatrixCell(
+      { LCM: b.pbMs },
+      {
+        LCM: {
+          LEVEL_2: b.l2Ms ?? undefined,
+          LEVEL_3: b.l3Ms ?? undefined,
+          SANJ: b.sanjMs ?? undefined,
+        },
+        SCM: {},
+      },
+      "LCM",
+    );
     const present = ASC_TIERS.filter((t) => cutsByTier[t] !== null);
+    // computeMatrixCell walks all five galas; only the three ring galas can
+    // appear here because only their cuts were supplied.
     return {
       ...b,
       cutsByTier,
       present,
-      tier: cell.tier,
-      nextTier: cell.nextTier,
+      gala: (cell.gala as RingGala | null) ?? null,
+      nextGala: (cell.nextGala as RingGala | null) ?? null,
       gapMs: cell.gapMs,
     };
   });
@@ -301,17 +325,17 @@ export function AllTierProgress({ bars }: { bars: AllBar[] }) {
   );
 }
 
-// The hover/focus tooltip for a bar: the qualifying time for the NEXT tier the
+// The hover/focus tooltip for a bar: the qualifying time for the NEXT gala the
 // swimmer is chasing (or the first target when they have no time yet), or —
-// once the hardest available tier is met — that they've topped out. Returns the
+// once the hardest available gala is met — that they've topped out. Returns the
 // rendered node plus a matching aria-label so keyboard and screen-reader users
 // get the same information the pointer tooltip carries.
 function barHint(row: AllRow): { node: React.ReactNode; label: string } {
   const nextCut =
-    row.nextTier !== null ? row.cutsByTier[row.nextTier] : null;
+    row.nextGala !== null ? row.cutsByTier[row.nextGala] : null;
 
-  if (row.nextTier !== null && nextCut !== null) {
-    const tierName = TIER_FULL[row.nextTier];
+  if (row.nextGala !== null && nextCut !== null) {
+    const tierName = GALA_MEDIUM[row.nextGala];
     const cutText = formatTime(nextCut);
     const gapText =
       row.gapMs !== null ? `${formatSeconds(row.gapMs)}s to go` : null;
@@ -344,17 +368,17 @@ function barHint(row: AllRow): { node: React.ReactNode; label: string } {
 function AllRowView({ row }: { row: AllRow }) {
   const hasPb = row.pbMs !== null;
   const fillPct = hasPb ? posPct(row.calibratedRadius ?? 0) : 0;
-  const fillColor = row.tier ? TIER_FILL[row.tier] : NONE_FILL;
+  const fillColor = row.gala ? TIER_FILL[row.gala] : NONE_FILL;
   const [trackRef, trackWidth] = useContainerWidth(320);
   const grown = useGrowIn();
   // On-fill text colour tuned per fill for contrast: white on the deep L3/L2
-  // fills, near-black on the light gold (SANJ) and grey (no-tier) fills.
+  // fills, near-black on the light gold (SANJ) and grey (no-gala) fills.
   const insideClass =
-    row.tier === "LEVEL_3" || row.tier === "LEVEL_2"
+    row.gala === "LEVEL_3" || row.gala === "LEVEL_2"
       ? "text-white"
       : "text-gray-900";
 
-  // Faint zone tints: each present tier tints the band leading up to its marker;
+  // Faint zone tints: each present gala tints the band leading up to its marker;
   // the region past the hardest present tier is neutral headroom.
   const bands: { from: number; to: number; color: string }[] = [];
   let prev = 0;
@@ -371,7 +395,7 @@ function AllRowView({ row }: { row: AllRow }) {
     <li className="flex items-center gap-3 py-3 sm:gap-4">
       <div className="flex w-20 shrink-0 flex-col gap-1 sm:w-28">
         <span className="font-medium text-ink">{row.label}</span>
-        <TierBadge tier={row.tier ?? "NONE"} />
+        <TierBadge gala={row.gala ?? "NONE"} />
         {hasPb && (
           <span className="sr-only">PB {formatTime(row.pbMs as number)}</span>
         )}
@@ -433,14 +457,14 @@ function AllRowView({ row }: { row: AllRow }) {
       <div className="w-20 shrink-0 text-right text-xs sm:w-28">
         {!hasPb ? (
           <span className="text-ink-faint">No time</span>
-        ) : row.nextTier && row.gapMs !== null ? (
+        ) : row.nextGala && row.gapMs !== null ? (
           <span className="font-medium tabular-nums text-ink">
-            {formatSeconds(row.gapMs)}s to {NEXT_LABEL[row.nextTier]}
+            {formatSeconds(row.gapMs)}s to {NEXT_LABEL[row.nextGala]}
           </span>
         ) : (
           <span className="inline-flex items-center justify-end gap-1 text-success-ink">
             <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
-            <span>Top tier</span>
+            <span>Top gala</span>
           </span>
         )}
       </div>

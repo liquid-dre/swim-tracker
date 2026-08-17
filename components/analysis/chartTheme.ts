@@ -1,3 +1,5 @@
+import { GALA_ORDER, type GalaCode } from "@/lib/galas";
+
 // Shared chart tokens (Step 7). Recharts takes plain SVG paint strings, so we
 // reference the DESIGN.md CSS variables directly — no ad-hoc hex, no new colours.
 // One accent (brand) + neutral gridlines is the house style; the series palette
@@ -19,30 +21,28 @@ export const CHART = {
 /** One-time load animation, off under `prefers-reduced-motion`. */
 export const CHART_ANIM_MS = 420;
 
-// Qualifying-tier overlay tokens (Step 10, DESIGN.md §3). Tiers are NEVER
+// Qualifying-gala overlay tokens (Step 10, DESIGN.md §3). Galas are NEVER
 // colour-only: every line/bar carries the short label + glyph below, matching
-// the TierBadge vocabulary (SANJ ◆ > L3 ● > L2 ○) so the chart reads in
-// greyscale and under colour-blindness. No new colours — these resolve to the
-// --tier-* CSS variables already defined in globals.css.
-export type OverlayTier = "SANJ" | "LEVEL_3" | "LEVEL_2";
+// the TierBadge vocabulary (SANS ★ > SANY ✦ > SANJ ◆ > L3 ● > L2 ○) so the chart
+// reads in greyscale and under colour-blindness. No new colours — these resolve
+// to the --color-tier-* CSS variables already defined in globals.css.
+export type OverlayTier = GalaCode;
 
 export const TIER_STYLE: Record<
   OverlayTier,
   { color: string; label: string; glyph: string; dash: string }
 > = {
   // Dash patterns give the lines a second, greyscale-legible signal beyond
-  // colour (hardest = longest dash): SANJ ▬ , L3 ▭ , L2 ┈ .
+  // colour, getting longer as the gala gets harder.
+  SANS: { color: "var(--color-tier-sans)", label: "SANS", glyph: "★", dash: "11 4" },
+  SANY: { color: "var(--color-tier-sany)", label: "SANY", glyph: "✦", dash: "9 4" },
   SANJ: { color: "var(--color-tier-sanj)", label: "SANJ", glyph: "◆", dash: "7 4" },
   LEVEL_3: { color: "var(--color-tier-l3)", label: "L3", glyph: "●", dash: "4 3" },
   LEVEL_2: { color: "var(--color-tier-l2)", label: "L2", glyph: "○", dash: "1 3" },
 };
 
-/** Hardest → easiest, matching TIER_ORDER in lib/swim (§4.9). */
-export const OVERLAY_TIER_ORDER: ReadonlyArray<OverlayTier> = [
-  "SANJ",
-  "LEVEL_3",
-  "LEVEL_2",
-];
+/** Hardest → easiest — the one gala order from lib/galas (§4.9). */
+export const OVERLAY_TIER_ORDER: ReadonlyArray<OverlayTier> = GALA_ORDER;
 
 // Qualitative palette for multi-swimmer progression, drawn only from existing
 // tokens. The first entry is the brand accent, so a single swimmer is fully

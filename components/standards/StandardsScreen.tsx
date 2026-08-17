@@ -22,15 +22,17 @@ import {
   eventLabel,
   findAgeInversions,
   formatTime,
-  tierCoversEvent,
+  galaCoversEvent,
+  type Course,
+  type GalaCode,
   type Stroke,
-  type Tier,
 } from "@/lib/swim";
+import { GALA_ORDER, GALA_SHORT } from "@/lib/galas";
 import { EditableTimeCell } from "./EditableTimeCell";
 import { AddCutSheet, type AddCutPrefill } from "./AddCutSheet";
 import { ImportStandardsSheet } from "./ImportStandardsSheet";
 import {
-  TIER_COLUMNS,
+  GALA_COLUMNS,
   ageKey,
   ageKindOf,
   ageLabel,
@@ -38,7 +40,7 @@ import {
   type StandardRow,
 } from "./model";
 
-type TierFilter = "ALL" | Tier;
+type GalaFilter = "ALL" | GalaCode;
 
 export function StandardsScreen() {
   const profile = useCurrentProfile();
@@ -52,13 +54,17 @@ export function StandardsScreen() {
 
   const all = useQuery(api.standards.listStandards, canView ? {} : "skip");
   const events = useQuery(api.events.listActiveEvents, canView ? {} : "skip");
+  const galas = useQuery(api.galas.listGalas, canView ? {} : "skip");
   const updateStandard = useMutation(api.standards.updateStandard);
   const deleteStandard = useMutation(api.standards.deleteStandard);
 
   const [gender, setGender] = useState<"F" | "M">("F");
   const [distanceSel, setDistanceSel] = useState<number | null>(null);
   const [strokeSel, setStrokeSel] = useState<Stroke | null>(null);
-  const [tierFilter, setTierFilter] = useState<TierFilter>("ALL");
+  const [tierFilter, setTierFilter] = useState<GalaFilter>("ALL");
+  // Cuts are course-specific, so the editor edits ONE course at a time — showing
+  // both at once would put two different numbers in the same cell.
+  const [course, setCourse] = useState<Course>("LCM");
 
   const [addTarget, setAddTarget] = useState<AddCutPrefill | "new" | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -103,25 +109,30 @@ export function StandardsScreen() {
         ? "FREE"
         : (strokesForDistance[0] ?? null);
 
-  // ---- Build the age × tier grid for the selected event -------------------
+  // ---- Build the age × gala grid for the selected event + course ----------
   const grid = useMemo(() => {
-    const columns = TIER_COLUMNS.filter(
+    const columns = GALA_COLUMNS.filter(
       (t) => tierFilter === "ALL" || t === tierFilter,
     );
 
-    const byTier = new Map<Tier, StandardRow[]>();
-    for (const t of TIER_COLUMNS) byTier.set(t, []);
+    const byTier = new Map<GalaCode, StandardRow[]>();
+    for (const t of GALA_COLUMNS) byTier.set(t, []);
     if (all && distance !== null && stroke !== null) {
       for (const c of all) {
-        if (c.gender === gender && c.distance === distance && c.stroke === stroke) {
-          byTier.get(c.tier)!.push(c);
+        if (
+          c.gender === gender &&
+          c.distance === distance &&
+          c.stroke === stroke &&
+          c.course === course
+        ) {
+          byTier.get(c.gala)!.push(c);
         }
       }
     }
 
-    // Per-tier monotonicity messages, keyed by age identity (both sides flagged).
-    const invMsg = new Map<Tier, Map<string, string>>();
-    for (const t of TIER_COLUMNS) {
+    // Per-gala monotonicity messages, keyed by age identity (both sides flagged).
+    const invMsg = new Map<GalaCode, Map<string, string>>();
+    for (const t of GALA_COLUMNS) {
       const cuts = byTier.get(t)!;
       const m = new Map<string, string>();
       for (const { youngerIdx, olderIdx } of findAgeInversions(cuts)) {
@@ -145,7 +156,7 @@ export function StandardsScreen() {
       .map((rep) => ({ key: ageKey(rep), label: ageLabel(rep), rep }));
 
     return { columns, byTier, invMsg, rows };
-  }, [all, gender, distance, stroke, tierFilter]);
+  }, [all, gender, distance, stroke, course, tierFilter]);
 
   async function save(id: Id<"standards">, timeMs: number) {
     await notify.promise(updateStandard({ standardId: id, timeMs }), {
@@ -155,7 +166,7 @@ export function StandardsScreen() {
   }
 
   // Edit → warn (don't block) if it puts a younger cut faster than an older one.
-  function requestCommit(tier: Tier, row: StandardRow, newMs: number) {
+  function requestCommit(tier: GalaCode, row: StandardRow, newMs: number) {
     const cuts = grid.byTier.get(tier)!;
     const candidate = cuts.map((c) =>
       c._id === row._id ? { ...c, timeMs: newMs } : c,
@@ -236,16 +247,28 @@ export function StandardsScreen() {
               ]}
             />
           </FilterField>
-          <FilterField label="Tier">
+          <FilterField label="Course">
             <Segmented
-              ariaLabel="Tier filter"
+              ariaLabel="Which course's cuts to edit"
+              value={course}
+              onChange={setCourse}
+              options={[
+                { value: "LCM", label: "Long (50m)" },
+                { value: "SCM", label: "Short (25m)" },
+              ]}
+            />
+          </FilterField>
+          <FilterField label="Gala">
+            <Segmented
+              ariaLabel="Gala filter"
               value={tierFilter}
               onChange={setTierFilter}
               options={[
                 { value: "ALL", label: "All" },
-                { value: "SANJ", label: "SANJ" },
-                { value: "LEVEL_3", label: "L3" },
-                { value: "LEVEL_2", label: "L2" },
+                ...GALA_ORDER.map((code) => ({
+                  value: code,
+                  label: GALA_SHORT[code],
+                })),
               ]}
             />
           </FilterField>
@@ -299,7 +322,7 @@ export function StandardsScreen() {
                 {grid.columns.map((t) => (
                   <th key={t} scope="col" className="px-4 py-2.5 text-right font-medium">
                     <span className="inline-flex">
-                      <TierBadge tier={t} />
+                      <TierBadge gala={t} />
                     </span>
                   </th>
                 ))}
@@ -334,10 +357,12 @@ export function StandardsScreen() {
                     </th>
                     {grid.columns.map((t) => {
                       const cut = grid.byTier.get(t)!.find((c) => ageKey(c) === key);
+                      const galaRow = (galas ?? []).find((g) => g.code === t);
                       const covers =
                         distance !== null &&
                         stroke !== null &&
-                        tierCoversEvent(t, distance, stroke);
+                        galaRow !== undefined &&
+                        galaCoversEvent(galaRow, distance, stroke);
                       return (
                         <td key={t} className="px-3 py-1.5">
                           {cut ? (
@@ -436,7 +461,7 @@ export function StandardsScreen() {
               ? "add-closed"
               : addTarget === "new"
                 ? "add-new"
-                : `add-${addTarget.tier}-${addTarget.kind}-${addTarget.age}`
+                : `add-${course}-${addTarget.tier}-${addTarget.kind}-${addTarget.age}`
           }
           open={addTarget !== null}
           onOpenChange={(o) => {
@@ -445,6 +470,7 @@ export function StandardsScreen() {
           gender={gender}
           distance={distance}
           stroke={stroke}
+          course={course}
           prefill={addTarget === "new" || addTarget === null ? undefined : addTarget}
         />
       )}

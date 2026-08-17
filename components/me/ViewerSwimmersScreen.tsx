@@ -10,7 +10,7 @@ import { trailForHref } from "@/lib/nav";
 import { formatSeconds, formatShortDate } from "@/lib/format";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { useGreeting } from "@/lib/useGreeting";
-import { formatTime, TIER_FULL } from "@/lib/swim";
+import { formatTime, GALA_MEDIUM } from "@/lib/swim";
 import { NoLinkState, ReadOnlyChip } from "./viewerShared";
 
 /*
@@ -101,7 +101,7 @@ export function ViewerSwimmersScreen() {
                         <span className="tnum">
                           {formatSeconds(h.closestCut.gapMs)}s
                         </span>{" "}
-                        to {TIER_FULL[h.closestCut.tier]} ({h.closestCut.label})
+                        to {GALA_MEDIUM[h.closestCut.gala]} ({h.closestCut.label})
                       </>
                     )}
                   </li>

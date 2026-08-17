@@ -2,8 +2,9 @@
 
 import { useId, useState } from "react";
 
-import { formatTime, type Tier } from "@/lib/swim";
-import { TierBadge, type Tier as BadgeTier } from "@/components/ui/TierBadge";
+import { formatTime, type RingGala } from "@/lib/swim";
+import { TierBadge, type BadgeGala } from "@/components/ui/TierBadge";
+import { GALA_MEDIUM } from "@/lib/galas";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import {
   arcPath,
@@ -26,9 +27,9 @@ import {
   event shows ONLY the rings it actually has a cut for (§4.9 — never a fake ring).
 */
 
-const RING_TIER_ORDER: ReadonlyArray<Tier> = ["LEVEL_2", "LEVEL_3", "SANJ"];
+const RING_TIER_ORDER: ReadonlyArray<RingGala> = ["LEVEL_2", "LEVEL_3", "SANJ"];
 
-function badgeTier(t: Tier | null): BadgeTier {
+function badgeTier(t: RingGala | null): BadgeGala {
   return t ?? "NONE";
 }
 
@@ -59,7 +60,7 @@ export function StrokeWheel({
 
   // Which tiers appear anywhere → which ring labels to print (never a tier with
   // no cut on any spoke).
-  const tiersPresent = new Set<Tier>();
+  const tiersPresent = new Set<RingGala>();
   for (const e of events) {
     if (e.l2Ms !== null) tiersPresent.add("LEVEL_2");
     if (e.l3Ms !== null) tiersPresent.add("LEVEL_3");
@@ -150,7 +151,7 @@ export function StrokeWheel({
             `${b.event.label}: ` +
             (b.event.pbMs !== null ? `PB ${formatTime(b.event.pbMs)}` : "no meet time") +
             (cuts ? `; cuts ${cuts}` : "") +
-            (b.event.highestTier ? `; meets ${b.event.highestTier.replace("_", " ")}` : "") +
+            (b.event.highestGala ? `; meets ${GALA_MEDIUM[b.event.highestGala]}` : "") +
             (!b.event.fullCoverage ? "; partial coverage" : "");
 
           const tip = polar(cx, cy, b.tipR ?? hub, b.angle);
@@ -314,7 +315,7 @@ function WheelTooltip({
     >
       <div className="flex items-center justify-between gap-3">
         <span className="font-medium text-ink">{e.label}</span>
-        <TierBadge tier={badgeTier(e.highestTier)} />
+        <TierBadge gala={badgeTier(e.highestGala)} />
       </div>
       <div className="mt-1 time tnum text-ink">
         {e.pbMs !== null ? formatTime(e.pbMs) : "—"}

@@ -11,7 +11,7 @@ import {
   STROKE_RADIUS_MAX,
   STROKE_RING_POS,
   type Stroke,
-  type Tier,
+  type RingGala,
 } from "@/lib/swim";
 
 // One event as returned by api.analysis.getStrokeProfile.
@@ -24,7 +24,7 @@ export type ProfileEvent = {
   l3Ms: number | null;
   sanjMs: number | null;
   calibratedRadius: number | null;
-  highestTier: Tier | null;
+  highestGala: RingGala | null;
   fullCoverage: boolean;
 };
 
@@ -50,7 +50,7 @@ export const WHEEL_STROKE_ORDER: ReadonlyArray<Stroke> = [
 ];
 
 // The three reference rings, outermost (hardest) first for legends.
-export const RING_TIERS: ReadonlyArray<{ tier: Tier; label: string }> = [
+export const RING_TIERS: ReadonlyArray<{ tier: RingGala; label: string }> = [
   { tier: "SANJ", label: "SANJ" },
   { tier: "LEVEL_3", label: "L3" },
   { tier: "LEVEL_2", label: "L2" },
@@ -93,7 +93,7 @@ export type WheelBar = {
   angle: number; // slot centre, degrees (0 = top, clockwise)
   slotStart: number;
   slotEnd: number;
-  hasCut: (tier: Tier) => boolean;
+  hasCut: (tier: RingGala) => boolean;
   /** Bar tip radius in px (null when there is no PB — an empty spoke). */
   tipR: number | null;
 };
@@ -108,7 +108,7 @@ export type StrokeArc = {
   count: number;
 };
 
-const RING_POS_BY_TIER: Record<Tier, number> = STROKE_RING_POS;
+const RING_POS_BY_TIER: Record<RingGala, number> = STROKE_RING_POS;
 
 /**
  * Turn an ordered event list + a pixel size into everything the wheel draws:
@@ -146,7 +146,7 @@ export function buildWheelLayout(events: ProfileEvent[], size: number) {
       tipR = event.calibratedRadius <= 0 ? hub + MIN_STUB : Math.max(raw, hub + MIN_STUB);
     }
 
-    const hasCut = (t: Tier) =>
+    const hasCut = (t: RingGala) =>
       (t === "LEVEL_2" && event.l2Ms !== null) ||
       (t === "LEVEL_3" && event.l3Ms !== null) ||
       (t === "SANJ" && event.sanjMs !== null);

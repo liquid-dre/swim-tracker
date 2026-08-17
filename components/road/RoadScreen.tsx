@@ -16,7 +16,8 @@ import { StandardsMissing } from "@/components/ui/StandardsMissing";
 import { trailForHref } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { usePickerSwimmers } from "@/lib/usePickerSwimmers";
-import { formatTime, TIER_FULL, type Tier } from "@/lib/swim";
+import { formatTime, type Course, type CourseMode } from "@/lib/swim";
+import { GALA_FULL, GALA_MEDIUM, GALA_ORDER, type GalaCode } from "@/lib/galas";
 import { formatSeconds, formatShortDate } from "@/lib/format";
 import {
   SingleTierLegend,
@@ -27,33 +28,37 @@ import { AllTierResults } from "./RoadAllResults";
 
 /*
   Road to qualify (Step 12 / R3, BRD §5.10–5.11). For one swimmer at one target,
-  two linked LCM-only reads of readiness. The target toggle is L2 / L3 / SANJ /
-  All:
+  two linked reads of readiness. The target is any of the five galas, or All:
 
     • Gap to cut — the anchor. One horizontal bar per applicable event, closest
       to the cut first, so the low-hanging events surface immediately. Qualified
       events (PB ≤ cut) are flagged in the success green and grouped; events with
-      no long-course meet time are listed separately, never drawn as a huge gap.
-    • Qualifying progress — single-tier: one bar per event filling toward that
-      tier's cut, most-complete first. All: one bar per event with the L2/L3/SANJ
+      no meet time are listed separately, never drawn as a huge gap.
+    • Qualifying progress — single-gala: one bar per event filling toward that
+      gala's cut, most-complete first. All: one bar per event with the age-graded
       cuts as fixed calibrated zones, filled to the swimmer's PB and coloured by
-      the highest tier met.
+      the highest gala met.
+
+  Both courses qualify (§4.2), so each row is measured in whichever course the
+  swimmer is CLOSEST in and says which one that was; the course selector pins it
+  to one course when you want an unambiguous single-course read.
 
   Coverage is automatic (§4.9): SANJ has no 50s, L2 nothing above 200 m — the
-  query only returns events the tier covers at the swimmer's EXACT age, so the
-  toggle reshapes the whole screen without any client-side event list.
+  query only returns events the gala covers at the swimmer's EXACT age, so the
+  target reshapes the whole screen without any client-side event list.
+
+  With five galas a segmented control no longer fits, so the target uses the
+  shared styled picker (CLAUDE.md's one-dropdown rule) with All alongside it.
 */
 
-// The Road target selector — the three tiers plus an All view. The three real
-// tiers stay in the shared/persisted store (so the choice carries to other
-// screens); "ALL" is a Road-local overlay that never touches that store, so the
-// projection toggle elsewhere (Tier only) is unaffected.
-type RoadTarget = Tier | "ALL";
+type RoadTarget = GalaCode | "ALL";
 
 type RoadEvent = {
   distance: number;
   stroke: string;
   label: string;
+  /** The course this row is measured in (§4.2). */
+  course: Course;
   cutMs: number;
   pbMs: number | null;
   gapMs: number | null;
@@ -75,25 +80,26 @@ export function RoadScreen() {
   // Opens on the all-tiers zoned view by default; the specific-tier choice is a
   // per-session, page-local override (no global default any more).
   const [showAll, setShowAll] = useState(true);
-  const [tier, setTier] = useState<Tier>("LEVEL_2");
+  const [gala, setGala] = useState<GalaCode>("LEVEL_2");
+  const [courseMode, setCourseMode] = useState<CourseMode>("BEST");
   const [swimmerId, setSwimmerId] = useState<Id<"swimmers"> | "">("");
 
-  const target: RoadTarget = showAll ? "ALL" : tier;
+  const target: RoadTarget = showAll ? "ALL" : gala;
   const setTarget = (next: RoadTarget) => {
     if (next === "ALL") setShowAll(true);
     else {
       setShowAll(false);
-      setTier(next);
+      setGala(next);
     }
   };
 
-  // Single-tier gap/progress read (skipped in All mode).
+  // Single-gala gap/progress read (skipped in All mode).
   const data = useQuery(
     api.analysis.getRoadToQualify,
-    swimmerId === "" || showAll ? "skip" : { swimmerId, tier },
+    swimmerId === "" || showAll ? "skip" : { swimmerId, gala, courseMode },
   );
-  // All-tier read reuses the stroke-profile data (all three cuts + the shared
-  // calibrated position + highest tier met, already LCM / exact-age / meet-PB).
+  // All-gala read reuses the stroke-profile data (the three age-graded cuts + the
+  // shared calibrated position + highest gala met, exact-age / meet-PB).
   const allData = useQuery(
     api.analysis.getStrokeProfile,
     swimmerId === "" || !showAll ? "skip" : { swimmerId },
@@ -115,7 +121,7 @@ export function RoadScreen() {
       <PageHeader
         title="Road to qualify"
         breadcrumb={trailForHref(pathname)}
-        description="For one swimmer, the gap from their fastest long-course meet time to each qualifying cut, closest first. Trials and practice never count; standards resolve to the swimmer's exact age."
+        description="For one swimmer, the gap from their fastest meet time to each qualifying cut, closest first. Either course can qualify them, so each row is measured in the course they're nearest in. Trials and practice never count; standards resolve to the swimmer's exact age."
       />
 
       {/* Slim toolbar: swimmer + target tier inline, so the gap chart leads. */}
@@ -135,17 +141,32 @@ export function RoadScreen() {
                 }))}
               />
             </div>
-            <Segmented
-              ariaLabel="Target qualifying tier"
-              value={target}
-              onChange={setTarget}
-              options={[
-                { value: "LEVEL_2", label: "L2" },
-                { value: "LEVEL_3", label: "L3" },
-                { value: "SANJ", label: "SANJ" },
-                { value: "ALL", label: "All" },
-              ]}
-            />
+            <div className="w-full max-w-xs sm:w-44">
+              <Select
+                aria-label="Target gala"
+                value={target}
+                onValueChange={(v) => setTarget(v as RoadTarget)}
+                options={[
+                  ...GALA_ORDER.map((code) => ({
+                    value: code as string,
+                    label: GALA_MEDIUM[code],
+                  })),
+                  { value: "ALL", label: "All galas" },
+                ]}
+              />
+            </div>
+            {!showAll && (
+              <Segmented
+                ariaLabel="Which course to measure"
+                value={courseMode}
+                onChange={setCourseMode}
+                options={[
+                  { value: "BEST", label: "Best of both" },
+                  { value: "LCM", label: "Long" },
+                  { value: "SCM", label: "Short" },
+                ]}
+              />
+            )}
           </>
         }
       />
@@ -153,7 +174,7 @@ export function RoadScreen() {
       {!swimmerChosen ? (
         <EmptyState
           title="Choose a swimmer"
-          body="Select a swimmer above to see how close they are to every Level 2, Level 3 or SANJ cut for their exact age."
+          body="Select a swimmer above to see how close they are to every gala cut for their exact age, in whichever course they're nearest in."
         />
       ) : showAll ? (
         allData === undefined ? (
@@ -172,7 +193,7 @@ export function RoadScreen() {
         ) : allData.events.length === 0 ? (
           <EmptyState
             title={`No qualifying cuts at age ${allData.swimmer.age}`}
-            body={`${allData.swimmer.name} has no long-course qualifying cuts at their exact age yet. This may be an age no tier covers.`}
+            body={`${allData.swimmer.name} has no qualifying cuts at their exact age yet. This may be an age no gala covers.`}
           />
         ) : (
           <>
@@ -181,9 +202,9 @@ export function RoadScreen() {
                 name={allData.swimmer.name}
                 age={allData.swimmer.age}
                 date={allData.agedUpAt}
-                pinnedTiers={(["SANJ", "LEVEL_3", "LEVEL_2"] as const)
-                  .filter((t) => allData.tourDates[t] !== undefined)
-                  .map((t) => TIER_FULL[t])}
+                pinnedTiers={GALA_ORDER.filter(
+                  (code) => allData.tourDates[code] !== undefined,
+                ).map((code) => GALA_FULL[code])}
               />
             )}
             <AllTierResults data={allData} />
@@ -202,16 +223,23 @@ export function RoadScreen() {
         ) : (
           <StandardsMissing isStaff={isStaff} />
         )
+      ) : data.ineligible ? (
+        // Outside the gala's entry window there is no road at all — say why,
+        // rather than showing an empty list that reads as "nothing imported".
+        <EmptyState
+          title={`Age ${data.swimmer.age} can't enter ${data.displayName}`}
+          body={`${data.swimmer.name} is outside this gala's entry age range, so none of its cuts apply to them. Pick another target, or correct the range under Admin › Galas.`}
+        />
       ) : data.events.length === 0 ? (
         <EmptyState
-          title={`No ${TIER_FULL[tier]} cuts at age ${data.swimmer.age}`}
-          body={`${data.swimmer.name} has no ${TIER_FULL[tier]} events at their exact age. This tier may not cover their age group. Try another target tier.`}
+          title={`No ${GALA_MEDIUM[gala]} cuts at age ${data.swimmer.age}`}
+          body={`${data.swimmer.name} has no ${GALA_MEDIUM[gala]} events at their exact age. This gala may not cover their age group. Try another target.`}
         />
       ) : (
         <>
           {data.tour && (
             <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
-              {data.tour.name ?? `${TIER_FULL[tier]} tour`} ·{" "}
+              {data.tour.name ?? `${GALA_FULL[gala]} tour`} ·{" "}
               {formatShortDate(data.tour.date)} — every cut here is the one{" "}
               {data.swimmer.name} must meet at age {data.tour.ageAtTour}, their
               age on tour day.
@@ -224,7 +252,7 @@ export function RoadScreen() {
               date={data.agedUpAt}
             />
           )}
-          <RoadResults data={data} tier={tier} />
+          <RoadResults data={data} gala={gala} />
         </>
       )}
     </div>
@@ -236,7 +264,7 @@ export function RoadScreen() {
 // Results — presentational (fed by the query, or by the preview harness)
 // ---------------------------------------------------------------------------
 
-export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
+export function RoadResults({ data, gala }: { data: RoadData; gala: GalaCode }) {
   const events = data.events;
 
   // Three groups the BRD calls for: still chasing (the closest-first anchor),
@@ -264,6 +292,7 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
         .map((e) => ({
           key: `${e.distance}|${e.stroke}`,
           label: e.label,
+          course: e.course,
           pbMs: e.pbMs as number,
           cutMs: e.cutMs,
           gapMs: e.gapMs as number,
@@ -278,7 +307,7 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
         name={data.swimmer.name}
         age={data.swimmer.age}
         active={data.swimmer.active}
-        tier={tier}
+        gala={gala}
         applicable={events.length}
         qualified={qualified.length}
         chasing={chasing.length}
@@ -290,7 +319,7 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-sm font-semibold text-ink">Gap to the cut</h2>
           <p className="text-xs text-ink-faint">
-            Shorter bar = closer · {TIER_FULL[tier]}
+            Shorter bar = closer · {GALA_MEDIUM[gala]}
           </p>
         </div>
 
@@ -303,7 +332,7 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
           />
         ) : (
           <p className="text-sm text-ink-muted">
-            No events left to chase at this tier — every applicable event is
+            No events left to chase at this gala — every applicable event is
             either qualified or has no time yet.
           </p>
         )}
@@ -313,17 +342,17 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
         {noTime.length > 0 && <NoTimeGroup rows={noTime} />}
       </section>
 
-      {/* Qualifying progress — one bar per event filling toward this tier's cut */}
+      {/* Qualifying progress — one bar per event filling toward this gala's cut */}
       {progressBars.length > 0 && (
         <section className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-sm font-semibold text-ink">Qualifying progress</h2>
             <p className="text-xs text-ink-faint">
-              Full bar = qualified · {TIER_FULL[tier]}
+              Full bar = qualified · {GALA_MEDIUM[gala]}
             </p>
           </div>
           <SingleTierProgress bars={progressBars} />
-          <SingleTierLegend tierLabel={TIER_FULL[tier]} />
+          <SingleTierLegend tierLabel={GALA_MEDIUM[gala]} />
         </section>
       )}
     </div>
@@ -338,7 +367,7 @@ function SummaryBar({
   name,
   age,
   active,
-  tier,
+  gala,
   applicable,
   qualified,
   chasing,
@@ -347,7 +376,7 @@ function SummaryBar({
   name: string;
   age: number;
   active: boolean;
-  tier: Tier;
+  gala: GalaCode;
   applicable: number;
   qualified: number;
   chasing: number;
@@ -361,7 +390,7 @@ function SummaryBar({
         {!active && <span className="text-ink-faint">· inactive</span>}
       </div>
       <span aria-hidden className="h-3.5 w-px bg-border" />
-      <Stat label="Target" value={TIER_FULL[tier]} />
+      <Stat label="Target" value={GALA_MEDIUM[gala]} />
       <Stat label="Applicable" value={String(applicable)} />
       <Stat
         label="Qualified"

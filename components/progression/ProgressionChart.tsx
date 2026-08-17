@@ -22,9 +22,12 @@ import {
   type QualifyProjection,
   type StandardCut,
   type Stroke,
-  type Tier,
-  type TourDateByTier,
+  type Course,
+  type GalaCode,
+  type GalaRef,
+  type TourDateByGala,
 } from "@/lib/swim";
+import { GALA_MEDIUM } from "@/lib/galas";
 import { formatMonthYear, formatSeconds, formatShortDate } from "@/lib/format";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -77,7 +80,27 @@ export type ProgressionPoint = {
   isPB: boolean;
 };
 
-export type StandardRow = StandardCut & { gender: "M" | "F"; tier: Tier };
+export type StandardRow = StandardCut & {
+  gender: "M" | "F";
+  gala: GalaCode;
+  /** Cuts are course-specific — the chart only draws its OWN course (§4.2). */
+  course: Course;
+};
+
+/**
+ * The gala refs the pure resolvers need, built from what the chart is given.
+ * Tour dates come through; entry AGE WINDOWS do not — the chart is a historical
+ * time series, and its overlay is deliberately "what the cut was at that age",
+ * not "could this swimmer have entered". Eligibility is enforced on the
+ * qualifying surfaces (matrix, road, tour qualification), which is where the
+ * "is my swimmer in?" question is actually answered.
+ */
+function galaRefsFor(tourDates: TourDateByGala): GalaRef[] {
+  return OVERLAY_TIER_ORDER.map((code) => ({
+    code,
+    tourDate: tourDates[code] ?? null,
+  }));
+}
 
 export type ProgressionSeries = {
   swimmerId: string;
@@ -125,11 +148,11 @@ export function ProgressionChart({
   standards: StandardRow[];
   // The target tier for the time-to-qualify projection (§5.6). Non-null only for
   // a single swimmer on LCM; the projection draws toward this tier's cut.
-  projectionTier?: Tier | null;
+  projectionTier?: GalaCode | null;
   // Training-note markers (§R16) — single-swimmer only; undefined/empty hides them.
   noteMarkers?: NoteMarker[];
   // Tour dates by tier — the projection targets the age-on-tour-day cut.
-  tourDates?: TourDateByTier;
+  tourDates?: TourDateByGala;
 }) {
   const reduced = usePrefersReducedMotion();
   // Phone-width: a slightly shorter plot and slimmer time gutter keep the
@@ -174,7 +197,15 @@ export function ProgressionChart({
   // with no cut, so nothing is faked). Drawn across the real swim range (not the
   // padding), so birthday steps line up with the plotted swims and the padding
   // stays clean breathing room at the edges.
-  const overlay = buildTierOverlay(series, standards, single, tMin, tMax);
+  const overlay = buildTierOverlay(
+    series,
+    standards,
+    single,
+    tMin,
+    tMax,
+    course,
+    tourDates,
+  );
 
   // Training-note markers (§R16) — single swimmer only. Group notes that share a
   // date into one flag (its title lists them) so a busy phase doesn't stack flags,
@@ -479,8 +510,8 @@ function buildProjection(
   standards: StandardRow[],
   single: boolean,
   course: "SCM" | "LCM",
-  tier: Tier | null,
-  tourDates: TourDateByTier,
+  tier: GalaCode | null,
+  tourDates: TourDateByGala,
 ): QualifyProjection | null {
   if (!single || course !== "LCM" || tier === null || series.length === 0) {
     return null;
@@ -490,12 +521,16 @@ function buildProjection(
   if (s.dob === null) return null;
   const dob = s.dob;
   const today = todayIso();
-  const rows = standards.filter((r) => r.gender === s.gender);
+  // This course's cuts only — a long-course projection never aims at a
+  // short-course standard (§4.2).
+  const rows = standards.filter(
+    (r) => r.gender === s.gender && r.course === course,
+  );
   // The projection aims at a FUTURE swim, so with a tour date it targets the
   // cut for the age the swimmer will be on tour day; else today's exact age.
   const tourDate = tourDates[tier];
   const cutAge = computeAge(dob, tourDate ?? today);
-  const cuts = pickApplicableStandards(rows, cutAge);
+  const cuts = pickApplicableStandards(rows, galaRefsFor(tourDates), cutAge);
   const cutMs = cuts[tier] ?? null;
   const meets = s.points
     .filter((p) => p.isMeet)
@@ -503,11 +538,8 @@ function buildProjection(
   return computeQualifyProjection(meets, cutMs, today);
 }
 
-const TIER_LABEL: Record<Tier, string> = {
-  LEVEL_2: "Level 2",
-  LEVEL_3: "Level 3",
-  SANJ: "SANJ",
-};
+// One label map, shared with every other gala surface (lib/galas.ts).
+const TIER_LABEL = GALA_MEDIUM;
 
 // A monthly drop reads more naturally to a coach than ms-per-day; slope is
 // negative (improving), so negate to state it as time gained.
@@ -522,7 +554,7 @@ function ProjectionNote({
   tourTarget,
 }: {
   projection: QualifyProjection;
-  tier: Tier;
+  tier: GalaCode;
   color: string;
   // Set when this tier has a tour date: the cut being targeted is the one for
   // the swimmer's age ON TOUR DAY, which can differ from today's — the chart's
@@ -648,11 +680,16 @@ function buildTierOverlay(
   single: boolean,
   x0: number,
   x1: number,
+  course: Course,
+  tourDates: TourDateByGala,
 ): TierOverlay | null {
   if (series.length === 0 || standards.length === 0) return null;
 
-  const cutsFor = (gender: "M" | "F"): Array<StandardCut & { tier: Tier }> =>
-    standards.filter((r) => r.gender === gender);
+  // Only the course being charted — every gala publishes its own short- and
+  // long-course cuts, so borrowing one across courses would draw a false line.
+  const cutsFor = (gender: "M" | "F"): Array<StandardRow> =>
+    standards.filter((r) => r.gender === gender && r.course === course);
+  const galaRefs = galaRefsFor(tourDates);
 
   if (single) {
     const s = series[0];
@@ -682,7 +719,7 @@ function buildTierOverlay(
       const segStart = breaks[i];
       const segEnd = breaks[i + 1];
       const age = computeAge(dob, new Date(segStart));
-      const cuts = pickApplicableStandards(rows, age);
+      const cuts = pickApplicableStandards(rows, galaRefs, age);
       for (const tier of OVERLAY_TIER_ORDER) {
         const y = cuts[tier];
         if (y === undefined) continue;
@@ -731,7 +768,7 @@ function buildTierOverlay(
     }
 
     // Legend anchors to the cut at the swimmer's age TODAY — "how close now".
-    const legend = legendFor(rows, computeAge(dob, todayIso()));
+    const legend = legendFor(rows, galaRefs, computeAge(dob, todayIso()));
     return lines.length > 0 ? { lines, legend } : null;
   }
 
@@ -749,7 +786,7 @@ function buildTierOverlay(
   if (!uniform) return null;
 
   const rows = cutsFor(gender);
-  const cuts = pickApplicableStandards(rows, age);
+  const cuts = pickApplicableStandards(rows, galaRefs, age);
   const lines: OverlayLine[] = [];
   for (const tier of OVERLAY_TIER_ORDER) {
     const y = cuts[tier];
@@ -765,14 +802,15 @@ function buildTierOverlay(
       x2: x1,
     });
   }
-  return lines.length > 0 ? { lines, legend: legendFor(rows, age) } : null;
+  return lines.length > 0 ? { lines, legend: legendFor(rows, galaRefs, age) } : null;
 }
 
 function legendFor(
-  rows: Array<StandardCut & { tier: Tier }>,
+  rows: Array<StandardRow>,
+  galaRefs: GalaRef[],
   age: number,
 ): OverlayLegendEntry[] {
-  const cuts = pickApplicableStandards(rows, age);
+  const cuts = pickApplicableStandards(rows, galaRefs, age);
   const entries: OverlayLegendEntry[] = [];
   for (const tier of OVERLAY_TIER_ORDER) {
     const cutMs = cuts[tier];

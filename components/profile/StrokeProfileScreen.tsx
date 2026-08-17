@@ -13,20 +13,25 @@ import { Select } from "@/components/ui/Select";
 import { FilterBar } from "@/components/ui/FilterBar";
 import { useContainerWidth } from "@/hooks/use-container-width";
 import { formatShortDate } from "@/lib/format";
-import { TIER_FULL, type TourDateByTier } from "@/lib/swim";
+import type { RingGala, TourDateByGala } from "@/lib/swim";
+import { GALA_FULL } from "@/lib/galas";
 import { trailForHref } from "@/lib/nav";
 
-function pinnedTierNames(tourDates: TourDateByTier): string[] {
-  return (["SANJ", "LEVEL_3", "LEVEL_2"] as const)
-    .filter((t) => tourDates[t] !== undefined)
-    .map((t) => TIER_FULL[t]);
+// Only the three galas the wheel draws rings for — SANS/SANY are not on it.
+const RING_GALAS: ReadonlyArray<RingGala> = ["SANJ", "LEVEL_3", "LEVEL_2"];
+
+function pinnedTierNames(tourDates: TourDateByGala): string[] {
+  return RING_GALAS.filter((code) => tourDates[code] !== undefined).map(
+    (code) => GALA_FULL[code],
+  );
 }
 import { StrokeWheel } from "./StrokeWheel";
 import { STROKE_META, WHEEL_STROKE_ORDER, type ProfileEvent } from "./strokeProfile";
 
 /*
   Stroke profile (Step 12.5, BRD §5). A radial wheel of a swimmer's events grouped
-  by stroke, calibrated per-event against the L2/L3/SANJ cuts (LCM only). Up to
+  by stroke, calibrated per-event against the three age-graded gala cuts (long
+  course). Up to
   four swimmers can sit on the same calibrated scale to read strength
   distributions (e.g. a coach picking medley-relay legs, or a parent comparing
   their children). The picker list is scoped server-side (listForProfile), so a
@@ -247,7 +252,7 @@ function WheelPanel({
           </header>
 
           {/* Same age-up context the Road screen gives, sized for this card.
-              Tiers pinned to a tour day are named — a birthday doesn't move
+              Galas pinned to a tour day are named — a birthday doesn't move
               those cuts, and the note must never claim otherwise. */}
           {data.agedUpAt && (
             <p className="w-full rounded-lg bg-surface-2 px-3 py-2 text-xs text-ink-muted">

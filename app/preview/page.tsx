@@ -18,7 +18,7 @@ import { Kbd } from "@/components/ui/Kbd";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { QualifyCelebration } from "@/components/me/QualifyCelebration";
 import { Segmented } from "@/components/ui/Segmented";
-import { TierBadge, type Tier } from "@/components/ui/TierBadge";
+import { TierBadge, type BadgeGala } from "@/components/ui/TierBadge";
 import { notify } from "@/lib/notify";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
@@ -55,7 +55,7 @@ function fmtAxis(ms: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-type Row = { name: string; age: number; event: string; pb: string; tier: Tier; gap: string };
+type Row = { name: string; age: number; event: string; pb: string; tier: BadgeGala; gap: string };
 
 const ROWS: Row[] = [
   { name: "Ntando Mbeki", age: 14, event: "200 Free", pb: "2:11:80", tier: "SANJ", gap: "qualified" },
@@ -94,7 +94,12 @@ export default function PreviewPage() {
             breadcrumb={[{ label: "Dashboard", href: "/" }, { label: "Dashboard" }]}
             description="The deep-water band carries the title and breadcrumb. Chrome only — no data lives here, so it never competes with the tier or stroke palettes."
           />
-          <QualifyCelebration tier="SANJ" eventLabel="50 Fly" timeMs={29880} />
+          <QualifyCelebration
+            gala="SANS"
+            eventLabel="50 Fly"
+            course="LCM"
+            timeMs={29880}
+          />
         </div>
       </section>
 
@@ -145,7 +150,7 @@ export default function PreviewPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <TierBadge tier="SANJ" />
+            <TierBadge gala="SANJ" />
             <span className="inline-flex items-center gap-1.5 rounded-sm bg-success-subtle px-2 py-1 text-xs font-medium text-success-ink">
               <CheckIcon /> Qualified
             </span>
@@ -253,7 +258,7 @@ export default function PreviewPage() {
                 <td className="px-4 py-3 text-ink-muted">{r.event}</td>
                 <td className="time px-4 py-3 text-right text-ink">{r.pb}</td>
                 <td className="px-4 py-3">
-                  <TierBadge tier={r.tier} />
+                  <TierBadge gala={r.tier} />
                 </td>
                 <td className="px-6 py-3 text-ink-muted">
                   {r.gap === "qualified" ? (
@@ -386,9 +391,9 @@ export default function PreviewPage() {
           greyscale and under colour-blindness.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-4">
-          {(["SANJ", "LEVEL_3", "LEVEL_2", "NONE"] as Tier[]).map((t) => (
+          {(["SANS", "SANY", "SANJ", "LEVEL_3", "LEVEL_2", "NONE"] as BadgeGala[]).map((t) => (
             <div key={t} className="flex items-center gap-2">
-              <TierBadge tier={t} />
+              <TierBadge gala={t} />
               <span className="text-sm text-ink-muted">
                 {t === "SANJ" ? "top" : t === "LEVEL_3" ? "mid" : t === "LEVEL_2" ? "entry" : "unranked"}
               </span>

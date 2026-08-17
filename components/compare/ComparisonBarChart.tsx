@@ -13,7 +13,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { formatTime, type Tier } from "@/lib/swim";
+import { formatTime, type GalaCode } from "@/lib/swim";
 import { formatShortDate } from "@/lib/format";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -43,17 +43,17 @@ export type CompareBar = {
   timeMs: number;
   swimDate: string;
   meetName: string | null;
-  highestTier: Tier | null;
+  highestGala: GalaCode | null;
 };
 
 /** Vertical cut lines for one pinned (age, gender); empty suppresses them. */
-export type ComparisonCut = { tier: Tier; timeMs: number };
+export type ComparisonCut = { tier: GalaCode; timeMs: number };
 
 // "No tier" must not read as a tier: on LCM the no-tier bar uses the gray
 // --tier-none the system reserves for it, never the brand accent (which would
 // read as an action, not a standard). SCM has no standards at all, so its bars
 // keep the plain brand accent.
-function barColor(tier: Tier | null, overlay: boolean): string {
+function barColor(tier: GalaCode | null, overlay: boolean): string {
   if (!overlay) return CHART.accent;
   return tier ? TIER_STYLE[tier].color : "var(--color-tier-none)";
 }
@@ -164,7 +164,7 @@ export function ComparisonBarChart({
             animationDuration={CHART_ANIM_MS}
           >
             {data.map((r) => (
-              <Cell key={r.swimmerId} fill={barColor(r.highestTier, overlay)} />
+              <Cell key={r.swimmerId} fill={barColor(r.highestGala, overlay)} />
             ))}
             <LabelList
               dataKey="timeMs"
@@ -182,12 +182,12 @@ export function ComparisonBarChart({
 }
 
 /** Colour + glyph key for the tier bars/lines; render only when standards show. */
-export function ComparisonTierLegend({ tiers }: { tiers: Tier[] }) {
+export function ComparisonTierLegend({ tiers }: { tiers: GalaCode[] }) {
   const present = OVERLAY_TIER_ORDER.filter((t) => tiers.includes(t));
   if (present.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
-      <span className="font-medium text-ink-muted">Tier met</span>
+      <span className="font-medium text-ink-muted">GalaCode met</span>
       {present.map((t) => {
         const st = TIER_STYLE[t];
         return (
