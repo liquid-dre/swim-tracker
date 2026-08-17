@@ -99,11 +99,27 @@ function collectNumericExtents(
   return { minValue, maxValue };
 }
 
+// LOCAL EDIT (ours, not bklit's — see DESIGN.md "chart layer").
+//
+// Everything below the `yDomain` short-circuit is upstream: for all-positive
+// data it returns `[0, max * 1.1]`, a zero baseline, because bklit charts count
+// things. Swim times are not counts — a 59-62s progression drawn from zero
+// compresses into the top 5% of the plot and the trajectory disappears. The
+// progression chart floors its axis one second under the world record for that
+// event/gender/course instead (see ProgressionChart), and `yScaleDomainMax`
+// only reaches the TOP of the domain, so an explicit override is the only way
+// to express that. If you re-pull this component from the registry, this is the
+// hunk to put back.
 function resolveTimeSeriesYDomain(
   data: Record<string, unknown>[],
   dataKeys: string[],
-  yScaleDomainMax: number | undefined
+  yScaleDomainMax: number | undefined,
+  yDomain: [number, number] | undefined
 ): [number, number] {
+  if (yDomain) {
+    return yDomain;
+  }
+
   if (yScaleDomainMax != null && yScaleDomainMax > 0) {
     return [0, yScaleDomainMax * 1.1];
   }
@@ -153,6 +169,19 @@ export interface TimeSeriesChartInnerProps {
   composedStackGap?: number;
   /** When set, drives the y-axis max instead of scanning `lines` (e.g. stacked bar totals). */
   yScaleDomainMax?: number;
+  /**
+   * LOCAL EDIT (ours). Explicit `[min, max]` y-domain, overriding the derived
+   * one. Needed because the default pins positive data to a zero baseline —
+   * see the note on `resolveTimeSeriesYDomain`.
+   */
+  yDomain?: [number, number];
+  /**
+   * LOCAL EDIT (ours). Formats the x tick labels that `XAxis` renders. Upstream
+   * hard-codes `shortDateFmt` ("Aug 17"), which drops the year — unreadable on
+   * a progression chart spanning seasons. Defaults to the upstream formatter, so
+   * omitting it is exactly the stock behaviour.
+   */
+  xLabelFormat?: (date: Date) => string;
   /** Loading vs ready — drives chart phase until transition orchestration lands. */
   chartStatus?: ChartStatus;
   loadingLabel?: string;
@@ -198,6 +227,8 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
   composedStackOffsets,
   composedStackGap,
   yScaleDomainMax,
+  yDomain,
+  xLabelFormat,
   chartStatus = DEFAULT_CHART_STATUS,
   loadingLabel,
   yDomainTween = true,
@@ -220,9 +251,14 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
         usesDefaultOnly && yScaleDomainMax != null
           ? yScaleDomainMax
           : undefined;
-      return resolveTimeSeriesYDomain(sourceData, dataKeys, domainMax);
+      return resolveTimeSeriesYDomain(
+        sourceData,
+        dataKeys,
+        domainMax,
+        yDomain
+      );
     },
-    [lines, yScaleDomainMax]
+    [lines, yScaleDomainMax, yDomain]
   );
 
   const skeletonData = useMemo(() => {
@@ -399,8 +435,11 @@ const TimeSeriesChartCore = memo(function TimeSeriesChartCore({
   );
 
   const dateLabels = useMemo(
-    () => visiblePlotData.map((d) => shortDateFmt.format(xAccessor(d))),
-    [visiblePlotData, xAccessor]
+    () =>
+      visiblePlotData.map((d) =>
+        (xLabelFormat ?? shortDateFmt.format)(xAccessor(d))
+      ),
+    [visiblePlotData, xAccessor, xLabelFormat]
   );
 
   const canInteract = isLoaded && isChartInteractionPhase(chartPhase);

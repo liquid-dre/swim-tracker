@@ -62,7 +62,14 @@ const CLIP_EXCLUDED_COMPONENT_NAMES = new Set([
   "LiveYAxis",
 ]);
 
-const UNDERLAY_COMPONENT_NAMES = new Set(["ReferenceArea", "BarColumnTrack"]);
+// "GalaCutOverlay" is a LOCAL EDIT (ours) — see components/charts/swim/. It is
+// listed here so qualifying-cut lines draw above the gridlines and below the
+// swim series: a cut is context for the data, never on top of it.
+const UNDERLAY_COMPONENT_NAMES = new Set([
+  "ReferenceArea",
+  "BarColumnTrack",
+  "GalaCutOverlay",
+]);
 
 /** Markers render after the interaction overlay so they stay clickable. */
 export function isPostOverlayComponent(child: ReactElement): boolean {

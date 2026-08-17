@@ -51,6 +51,18 @@ export interface LineChartProps {
   yDomainTweenDuration?: number;
   /** Animate y-domain when status or target domain changes. Default: true */
   yDomainTween?: boolean;
+  /**
+   * LOCAL EDIT (ours). Explicit `[min, max]` y-domain. Without it the shell
+   * pins all-positive data to a zero baseline, which flattens a swim-time
+   * chart — see the note on `resolveTimeSeriesYDomain` in
+   * time-series-chart-shell.tsx.
+   */
+  yDomain?: [number, number];
+  /**
+   * LOCAL EDIT (ours). Formats the x tick labels. Upstream hard-codes a
+   * month/day format that drops the year — see the shell for the reasoning.
+   */
+  xLabelFormat?: (date: Date) => string;
   /** Visible x-domain for brush zoom. */
   xDomain?: [Date, Date];
   /** Full dataset length for x-scale padding when `xDomain` is set. */
@@ -151,6 +163,8 @@ interface ChartInnerProps {
   loadingLabel?: string;
   yDomainTweenDuration: number;
   yDomainTween: boolean;
+  yDomain?: [number, number];
+  xLabelFormat?: (date: Date) => string;
   xDomain?: [Date, Date];
   xDomainSlotCount?: number;
   tweenYDomainOnXDomainChange?: boolean;
@@ -173,6 +187,8 @@ function ChartInner({
   loadingLabel,
   yDomainTweenDuration,
   yDomainTween,
+  yDomain,
+  xLabelFormat,
   xDomain,
   xDomainSlotCount,
   tweenYDomainOnXDomainChange,
@@ -202,6 +218,8 @@ function ChartInner({
       xDataKey={xDataKey}
       xDomain={xDomain}
       xDomainSlotCount={xDomainSlotCount}
+      xLabelFormat={xLabelFormat}
+      yDomain={yDomain}
       yDomainTween={yDomainTween}
       yDomainTweenDuration={yDomainTweenDuration}
     >
@@ -224,6 +242,8 @@ export function LineChart({
   loadingLabel,
   yDomainTweenDuration = DEFAULT_Y_DOMAIN_TWEEN_MS,
   yDomainTween = true,
+  yDomain,
+  xLabelFormat,
   xDomain,
   xDomainSlotCount,
   tweenYDomainOnXDomainChange = false,
@@ -281,6 +301,8 @@ export function LineChart({
             xDataKey={xDataKey}
             xDomain={xDomain}
             xDomainSlotCount={xDomainSlotCount}
+            xLabelFormat={xLabelFormat}
+            yDomain={yDomain}
             yDomainTween={yDomainTween}
             yDomainTweenDuration={yDomainTweenDuration}
           >
