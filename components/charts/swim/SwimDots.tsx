@@ -35,7 +35,17 @@ export interface SwimDotsProps {
 /** Radii, in one place so the four marks stay in proportion to each other. */
 const R = { pbRing: 7, pbCore: 4, meet: 3.5, trial: 3, gala: 4.5 } as const;
 
-function Mark({ mark, cx, cy, color }: { mark: SwimMark; cx: number; cy: number; color: string }) {
+function Mark({
+  mark,
+  cx,
+  cy,
+  color,
+}: {
+  mark: SwimMark;
+  cx: number;
+  cy: number;
+  color: string;
+}) {
   if (mark === "schoolGala") {
     // A distinct hollow DIAMOND in the warning tone — never a filled/PB dot and
     // never the same hollow circle as a trial, so it reads at a glance as "on

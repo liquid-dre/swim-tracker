@@ -3,6 +3,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useChart, useChartStable, useYScale } from "../chart-context";
+import { pickValueTicks } from "./geometry";
 
 /*
   Value-axis labels.
@@ -42,18 +43,20 @@ export interface ValueAxisProps {
   label?: string;
 }
 
-type ValueTick = { value: number; label: string; pos: number };
+/** A labelled tick, placed. `pos` is px along the axis the labels sit against. */
+type PositionedTick = { value: number; label: string; pos: number };
 
 export function ValueAxis(props: ValueAxisProps) {
   const { containerRef } = useChartStable();
-  const [mounted, setMounted] = useState(false);
+  // The portal target is read in an effect and held in state, not read from the
+  // ref during render — bklit's own axes do the latter, which React 19 flags.
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
+    setContainer(containerRef.current);
+  }, [containerRef]);
 
-  const container = containerRef.current;
-  if (!(mounted && container)) {
+  if (container === null) {
     return null;
   }
 
@@ -72,24 +75,14 @@ const ValueAxisInner = memo(function ValueAxisInner({
   const yScale = useYScale(yAxisId);
   const horizontal = orientation === "horizontal";
 
-  const ticks = useMemo<ValueTick[]>(() => {
-    const values = yScale.ticks(numTicks);
-    const seen = new Set<string>();
-    const out: ValueTick[] = [];
-    for (const value of values) {
-      const text = format(value);
-      // Two ticks that format identically are one tick as far as the reader is
-      // concerned — drawing both just thickens the label.
-      if (seen.has(text)) continue;
-      seen.add(text);
-      out.push({
-        value,
-        label: text,
-        pos: yScale(value) + (horizontal ? margin.left : margin.top),
-      });
-    }
-    return out;
-  }, [yScale, numTicks, format, horizontal, margin.left, margin.top]);
+  const ticks = useMemo<PositionedTick[]>(
+    () =>
+      pickValueTicks(yScale.ticks(numTicks), format).map((tick) => ({
+        ...tick,
+        pos: yScale(tick.value) + (horizontal ? margin.left : margin.top),
+      })),
+    [yScale, numTicks, format, horizontal, margin.left, margin.top],
+  );
 
   return createPortal(
     <div
@@ -102,7 +95,11 @@ const ValueAxisInner = memo(function ValueAxisInner({
           <div
             className="absolute flex justify-center"
             key={tick.value}
-            style={{ left: tick.pos, top: margin.top + innerHeight + 8, width: 0 }}
+            style={{
+              left: tick.pos,
+              top: margin.top + innerHeight + 8,
+              width: 0,
+            }}
           >
             <span className="whitespace-nowrap text-chart-label text-xs tabular-nums">
               {tick.label}

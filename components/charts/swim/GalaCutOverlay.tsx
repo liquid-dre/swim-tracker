@@ -1,6 +1,7 @@
 "use client";
 
 import { useChart, useYScale } from "../chart-context";
+import { cutSegment } from "./geometry";
 
 /*
   Qualifying-cut overlay (BRD §4.9).
@@ -49,6 +50,8 @@ export type NoteLine = {
   x: number;
   color: string;
   dash: string;
+  /** Hover/AT text. Renders a small flag at the top of the line when set. */
+  title?: string;
 };
 
 export interface GalaCutOverlayProps {
@@ -75,46 +78,39 @@ export function GalaCutOverlay({
   return (
     <g className="chart-gala-cuts">
       {notes.map((note) => (
+        <g key={note.key} style={{ cursor: "default" }}>
+          {note.title ? <title>{note.title}</title> : null}
+          <line
+            stroke={note.color}
+            strokeDasharray={note.dash}
+            strokeOpacity={0.5}
+            strokeWidth={1}
+            x1={atX(note.x)}
+            x2={atX(note.x)}
+            y1={0}
+            y2={innerHeight}
+          />
+          {note.title ? (
+            <g transform={`translate(${atX(note.x)}, 0)`}>
+              {/* A generous transparent hit area so the flag is easy to tap. */}
+              <rect fill="transparent" height={14} width={16} x={-4} y={-2} />
+              <path d="M0 1 L8 3.5 L0 6 Z" fill={note.color} />
+            </g>
+          ) : null}
+        </g>
+      ))}
+      {cuts.map((cut) => (
+        // Full-width rule, dated segment or birthday riser — cutSegment decides,
+        // and a test pins which shape each kind of cut gets.
         <line
-          key={note.key}
-          stroke={note.color}
-          strokeDasharray={note.dash}
-          strokeWidth={1}
-          x1={atX(note.x)}
-          x2={atX(note.x)}
-          y1={0}
-          y2={innerHeight}
+          key={cut.key}
+          stroke={cut.color}
+          strokeDasharray={cut.dash}
+          strokeOpacity={strokeOpacity}
+          strokeWidth={strokeWidth}
+          {...cutSegment(cut, atX, yScale, innerWidth)}
         />
       ))}
-      {cuts.map((cut) =>
-        cut.y2 === undefined ? (
-          <line
-            key={cut.key}
-            stroke={cut.color}
-            strokeDasharray={cut.dash}
-            strokeOpacity={strokeOpacity}
-            strokeWidth={strokeWidth}
-            x1={cut.full ? 0 : atX(cut.x1)}
-            x2={cut.full ? innerWidth : atX(cut.x2)}
-            y1={yScale(cut.y)}
-            y2={yScale(cut.y)}
-          />
-        ) : (
-          // Birthday riser: joins the cut before to the cut after, so a stepped
-          // standard reads as one continuous line rather than two orphans.
-          <line
-            key={cut.key}
-            stroke={cut.color}
-            strokeDasharray={cut.dash}
-            strokeOpacity={strokeOpacity}
-            strokeWidth={strokeWidth}
-            x1={atX(cut.x1)}
-            x2={atX(cut.x1)}
-            y1={yScale(cut.y)}
-            y2={yScale(cut.y2)}
-          />
-        ),
-      )}
     </g>
   );
 }
