@@ -22,10 +22,12 @@ file records the standing rules plus the prompts as they are issued.
   no 50 IM; 400 is Free/IM only. Reject anything off the whitelist.
 - **Course.** SCM and LCM PBs are separate; never merge or compare across course.
 - **Headline PB = fastest MEET time only.** Time trials and practice never count toward the PB.
-- **Qualifying standards** are LCM only, never shown on SCM. Tier order hardest→easiest is
-  **SANJ > LEVEL_3 > LEVEL_2**. Cuts match a swimmer's **exact single-year age**, not the two-year
-  display band. Respect §4.9 coverage (no 50m at L3/SANJ; no L2 above 200m) — render no line where no
-  cut exists; never interpolate.
+- **Qualifying standards** exist in BOTH courses and both are valid for entry, so a cut is only ever
+  compared against a PB of the same course — never borrowed across courses. Gala order hardest→easiest
+  is **SANS > SANY > SANJ > LEVEL_3 > LEVEL_2** (`GALA_ORDER` in `lib/galas.ts` is the only copy).
+  Cuts match a swimmer's **exact single-year age**, not the two-year display band, and only inside the
+  gala's entry age window. Respect §4.9 coverage (no 50m at L3/SANJ; no L2 above 200m) — render no line
+  where no cut exists; never interpolate.
 - **Roles.** Coaches edit; viewers are read-only and see only their linked swimmer(s), enforced
   server-side in every query and mutation.
 - **Design is gated (PRODUCT mode).** Use the committed design skills in `.claude/skills/`

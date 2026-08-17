@@ -54,8 +54,12 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   items, rotating chevron, subtle staggered entrance) for every select / picker / action menu.
 - **Collapsed sidebar:** the icon rail still reaches every subcategory — groups reveal a flyout of their
   sub-items on hover/focus; leaf items show a label tooltip.
-- **Target tier** is a persisted coach-level global default; the per-page tier toggles (Road to qualify,
-  Status matrix, progression projection) initialise from it, with per-session override.
+- **Target gala** is chosen per page, NOT persisted. Road to qualify and the progression projection each
+  own their own selection (`useState`), via the shared `TargetTierToggle` (a styled dropdown, since five
+  galas plus "All" no longer fit a segmented control). *A persisted coach-level default does not exist —
+  earlier revisions of this file claimed it did.*
+- **Course selector on qualifying surfaces.** Because both courses qualify, the status matrix and Road
+  carry a **Long / Short / Best-of-both** control, defaulting to Best-of-both.
 
 ## Non-negotiable domain invariants (do not drift, even across sessions or after compaction)
 - **Events:** 50/100/200/400/800/1500 per the whitelist. 100 IM is **SCM-only**; there is no 50 IM;
@@ -64,11 +68,24 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
 - **Headline PB = fastest MEET time only.** Time trials and practice never count toward the PB.
 - **Times:** integer ms internally; canonical text `m:ss:hh`. Bulletproof parser — 2 groups means
   `ss:hh` (so `59:09` = 59.09 s, never 59 minutes); the last group is always hundredths.
-- **Qualifying standards:** defined **long-course**; tier order **SANJ > LEVEL_3 > LEVEL_2**
-  (hardest → easiest); match a swimmer's **exact single-year age**, not the two-year display band;
-  respect coverage (no 50m at L3/SANJ, no L2 above 200m) — render no line where no cut exists, never
-  interpolate. **On SCM charts the same long-course cut is reused as the reference** (there are no
-  SCM-specific cuts today) — apply it to SCM times/overlays; still draw nothing where no cut exists.
+- **Five galas, not three.** `GALA_ORDER` in `lib/galas.ts` is the single difficulty order, hardest →
+  easiest: **SANS > SANY > SANJ > LEVEL_3 > LEVEL_2**. `SANS` = SA Senior National Aquatic Champs,
+  `SANY` = SA National Youth Champs. Never re-derive this order and never add a second rank map —
+  `dashboard.ts` used to carry a divergent copy.
+- **Cuts are per COURSE.** Every gala publishes separate long- and short-course standards and **both are
+  valid for entry**, so a PB is only ever compared against a cut of the **same course** — never borrowed,
+  never interpolated. "Qualified" = a headline MEET PB in **either** course beats that course's own cut.
+  (`data/qualifying-times.csv` holds all 948 rows; regenerate its Convex mirror with
+  `npm run seed:standards:gen`.)
+- **Two gala shapes.** `AGE_GRADED` (L2/L3/SANJ) has a cut per exact single-year age with a youngest
+  `&U` catch-all; `OPEN` (SANS/SANY) has one cut for every age. Match a swimmer's **exact single-year
+  age**, never the two-year display band.
+- **Entry age windows** are a separate gate from the cuts, stored on the gala and editable by the
+  super-user (Admin › Galas): SANS **15+**, SANY **17–25**, the age-graded galas **up to 16**. Outside
+  the window there is no cut to chase even though rows exist.
+- **Coverage is DATA**, on `galas.coveredEvents` — not a hardcoded switch. Still a hard rule: no 50m at
+  L3/SANJ, nothing above 200m at L2, no 200 Fly at L2/L3, no cut at all for 25m or 100 IM. Render no
+  line where no cut exists.
 - **Roles:** coaches edit; viewers are read-only and see only their linked swimmer(s), enforced
   server-side in every query and mutation.
 
