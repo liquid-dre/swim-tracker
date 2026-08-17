@@ -1,54 +1,76 @@
-// Tier badge — the standard hierarchy SANJ > LEVEL_3 > LEVEL_2 > none, rendered
-// on the shared shadcn Badge (components/ui/badge.tsx) so the tier scale reads as
-// one deliberate system across the status matrix, standards and Road screens.
+// Gala badge — the five qualifying galas plus "none", rendered on the shared
+// shadcn Badge (components/ui/badge.tsx) so the gala identity set reads as one
+// deliberate system across the status matrix, standards and Road screens.
 //
-// Colour is NEVER the sole signal: each badge carries its text label (SANJ / L3 /
-// L2 / —), so it reads in greyscale and under colour-blindness (DESIGN.md,
-// PRODUCT.md A11y). The medal glyph rides only on the top tier (SANJ) as an
-// optional flourish, aria-hidden, never the meaning itself.
+// Colour is NEVER the sole signal: each badge carries its text label (SANS /
+// SANY / SANJ / L3 / L2 / —), so it reads in greyscale and under colour-blindness
+// (DESIGN.md, PRODUCT.md A11y). Colour also never encodes difficulty ORDER —
+// with five galas the hues are categorical; order lives in GALA_ORDER.
+//
+// A course marker (L/S) can ride along when the surface needs to say WHICH
+// course earned the qualification, since both courses are valid for entry (§4.2).
+// It is plain text with a full-word title, never a colour or a glyph alone.
 
 import { Medal } from "lucide-react";
 
 import { Badge, type badgeVariants } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { GALA_FULL, GALA_SHORT, GALA_TOKEN, type GalaCode } from "@/lib/galas";
+import type { Course } from "@/lib/swim";
 import type { VariantProps } from "class-variance-authority";
 
-export type Tier = "SANJ" | "LEVEL_3" | "LEVEL_2" | "NONE";
+/** A gala, or the explicit "nothing met" state. */
+export type BadgeGala = GalaCode | "NONE";
 
 type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>["variant"]>;
 
-const TIER_VARIANT: Record<Tier, BadgeVariant> = {
-  SANJ: "sanj",
-  LEVEL_3: "l3",
-  LEVEL_2: "l2",
-  NONE: "none",
+function variantFor(gala: BadgeGala): BadgeVariant {
+  return gala === "NONE" ? "none" : (GALA_TOKEN[gala] as BadgeVariant);
+}
+
+function labelFor(gala: BadgeGala): string {
+  return gala === "NONE" ? "—" : GALA_SHORT[gala];
+}
+
+const COURSE_LABEL: Record<Course, string> = {
+  LCM: "L",
+  SCM: "S",
 };
 
-const TIER_LABEL: Record<Tier, string> = {
-  SANJ: "SANJ",
-  LEVEL_3: "L3",
-  LEVEL_2: "L2",
-  NONE: "—",
+const COURSE_FULL: Record<Course, string> = {
+  LCM: "long course",
+  SCM: "short course",
 };
 
 export function TierBadge({
-  tier,
+  gala,
+  course,
   className,
 }: {
-  tier: Tier;
+  gala: BadgeGala;
+  /** When set, names the course this qualification was earned in. */
+  course?: Course | null;
   className?: string;
 }) {
-  const isNone = tier === "NONE";
+  const isNone = gala === "NONE";
+  const title = isNone
+    ? "No gala standard met"
+    : `${GALA_FULL[gala]} standard met${
+        course ? ` on ${COURSE_FULL[course]}` : ""
+      }`;
   return (
     <Badge
-      variant={TIER_VARIANT[tier]}
+      variant={variantFor(gala)}
       className={cn("gap-0.5", className)}
-      title={isNone ? "No tier met" : `${TIER_LABEL[tier]} standard met`}
+      title={title}
     >
-      {tier === "SANJ" && (
+      {gala === "SANS" && (
         <Medal aria-hidden strokeWidth={2.25} className="-ml-0.5" />
       )}
-      <span>{TIER_LABEL[tier]}</span>
+      <span>{labelFor(gala)}</span>
+      {!isNone && course ? (
+        <span className="text-[0.9em] opacity-70">{COURSE_LABEL[course]}</span>
+      ) : null}
     </Badge>
   );
 }

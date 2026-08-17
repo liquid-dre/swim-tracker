@@ -78,14 +78,21 @@
   --shadow-sm: var(--shadow-theme-sm);
   --shadow-md: var(--shadow-theme-md);
 
-  /* ---- App-semantic tier tokens (DESIGN.md §3) — never colour-only ----
-     One distinctive hue per tier, forming an ascending prestige ramp:
-     sapphire (L2, entry) → purple (L3, mid) → gold (SANJ, top). Each is the
-     tier's ONE colour everywhere it appears (badges, cut lines, progress bars,
-     the matrix), so a colour reads as the same tier system-wide. Kept clear of
-     the reserved signals — green = qualified, red = error, brand indigo =
-     action — so a tier is never mistaken for a state. */
-  --color-tier-sanj: #f79009; /* gold — top (hardest) */
+  /* ---- App-semantic gala tokens (DESIGN.md §3) — never colour-only ----
+     Five galas cannot form a legible ordered ramp, so these hues are a
+     CATEGORICAL IDENTITY SET, not a scale: difficulty order is carried by
+     GALA_ORDER and by the badge label, never by colour. Two families:
+       • the AGE-GRADED ladder — sapphire (L2) → purple (L3) → gold (SANJ)
+       • the OPEN senior pair  — pink (SANY) and rose (SANS)
+     Grouping the two open galas chromatically is deliberate: they are the same
+     KIND of gala (one cut for every age, entry by window), and their labels do
+     the discriminating. Each hue is that gala's ONE colour everywhere it appears
+     (badges, cut lines, progress bars, the matrix). All are kept clear of the
+     reserved signals — green = qualified, red = error, brand indigo = action —
+     so a gala is never mistaken for a state. */
+  --color-tier-sans: #e31b54; /* rose — SA Senior Nationals (open, 15+) */
+  --color-tier-sany: #c11574; /* deep pink — SA National Youth (open, 17–25) */
+  --color-tier-sanj: #f79009; /* gold — top of the age-graded ladder */
   --color-tier-l3: #9333ea; /* vivid purple — mid */
   --color-tier-l2: #0086c9; /* sapphire / deep sky — entry */
   --color-tier-none: #98a2b3; /* gray-400 — no standard met */
@@ -123,7 +130,13 @@
   --color-water-2: #123f7a;
   --color-water-3: #0e5a73;
 
-  /* Derived tier badge tints (bg / ink / border) — a11y-tuned label colours. */
+  /* Derived gala badge tints (bg / ink / border) — a11y-tuned label colours. */
+  --color-tier-sans-bg: #fff1f3;
+  --color-tier-sans-ink: #c01048;
+  --color-tier-sans-border: #fecdd6;
+  --color-tier-sany-bg: #fdf2fa;
+  --color-tier-sany-ink: #9e165f;
+  --color-tier-sany-border: #fcceee;
   --color-tier-sanj-bg: #fffaeb;
   --color-tier-sanj-ink: #b54708;
   --color-tier-sanj-border: #fedf89;

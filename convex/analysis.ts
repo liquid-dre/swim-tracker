@@ -17,25 +17,76 @@ import {
   computeSeasonImprovements,
   eventLabel,
   eventSortKey,
-  highestTierMet,
-  pickApplicableStandardsPerTier,
-  resolveStandardTime,
+  emptyCutsByCourse,
+  galaCoversEvent,
+  galaResolutionAges,
+  isGalaAgeEligible,
+  highestGalaMet,
+  pickApplicableStandardsPerGala,
+  resolveGalaCut,
   rollingSeasonStart,
-  tierCoversEvent,
-  tierResolutionAges,
+  type Course,
+  type CourseMode,
+  type CutsByCourse,
+  type GalaCode,
+  type GalaRef,
   type ResultForPB,
   type SeasonSwim,
   type StandardCut,
-  type Tier,
 } from "../lib/swim";
-import { loadTourDates } from "./tours";
+import { galaCodeValidator, loadGalas, toGalaRefs, tourDatesByGala } from "./galas";
 
-// Tour dates by tier, as returned to screens that explain their resolution.
+// Tour dates by gala, as returned to screens that explain their resolution.
 const tourDatesValidator = v.object({
-  LEVEL_2: v.optional(v.string()),
-  LEVEL_3: v.optional(v.string()),
+  SANS: v.optional(v.string()),
+  SANY: v.optional(v.string()),
   SANJ: v.optional(v.string()),
+  LEVEL_3: v.optional(v.string()),
+  LEVEL_2: v.optional(v.string()),
 });
+
+/**
+ * Tag a raw standards row with its gala code and course so the pure resolvers
+ * can filter it, dropping pre-migration and orphaned rows. Cuts are NEVER used
+ * across courses (§4.2).
+ */
+function tagCuts(
+  rows: ReadonlyArray<Doc<"standards">>,
+  codeById: Map<Id<"galas">, GalaCode>,
+): Array<StandardCut & { gala: GalaCode; course: Course }> {
+  const out: Array<StandardCut & { gala: GalaCode; course: Course }> = [];
+  for (const r of rows) {
+    if (r.galaId === undefined || r.course === undefined) continue;
+    const gala = codeById.get(r.galaId);
+    if (gala === undefined) continue;
+    out.push({
+      gala,
+      course: r.course as Course,
+      age: r.age ?? null,
+      isCatchAllYoung: r.isCatchAllYoung,
+      isCatchAllOld: r.isCatchAllOld,
+      timeMs: r.timeMs,
+    });
+  }
+  return out;
+}
+
+/** Resolve every gala's cut for one event in BOTH courses at the swimmer's ages. */
+function resolveBothCourses(
+  tagged: ReadonlyArray<StandardCut & { gala: GalaCode; course: Course }>,
+  galaRefs: ReadonlyArray<GalaRef>,
+  ages: Record<GalaCode, number>,
+): CutsByCourse {
+  const out = emptyCutsByCourse();
+  for (const course of ["LCM", "SCM"] as const) {
+    out[course] = pickApplicableStandardsPerGala(
+      tagged.filter((c) => c.course === course),
+      galaRefs,
+      ages,
+    );
+  }
+  return out;
+}
 
 // Base analysis reads (BRD §5.5–5.6, Step 7). Two derived views over `results`:
 //   • getEventComparison — a leaderboard of headline MEET PBs for one event.
@@ -78,10 +129,10 @@ const distance = v.union(
   v.literal(1500),
 );
 const gender = v.union(v.literal("M"), v.literal("F"));
-const tier = v.union(
-  v.literal("LEVEL_2"),
-  v.literal("LEVEL_3"),
-  v.literal("SANJ"),
+const courseMode = v.union(
+  v.literal("LCM"),
+  v.literal("SCM"),
+  v.literal("BEST"),
 );
 const swimType = v.union(
   v.literal("MEET"),
@@ -117,10 +168,10 @@ const comparisonRow = v.object({
   timeMs: v.number(),
   swimDate: v.string(),
   meetName: v.union(v.string(), v.null()),
-  // Hardest qualifying tier this headline PB meets, at the swimmer's EXACT age
-  // (§4.9). The long-course cut is the reference on both courses; null only when
-  // no cut covers this event/age (e.g. an SCM-only event with no standard).
-  highestTier: v.union(tier, v.null()),
+  // Hardest gala this headline PB meets, at the swimmer's EXACT age (§4.9),
+  // judged against THIS COURSE's own cut — never a borrowed one. Null when no
+  // cut covers this event/age/course (e.g. 100 IM, which no gala has a cut for).
+  highestGala: v.union(galaCodeValidator, v.null()),
 });
 
 export const getEventComparison = query({
@@ -145,7 +196,9 @@ export const getEventComparison = query({
     // returns "ALL" for staff, so their leaderboard is unchanged.
     const { swimmerIds } = await accessibleSwimmerIds(ctx);
     const accessible = swimmerIds === "ALL" ? null : new Set(swimmerIds);
-    const tourDates = await loadTourDates(ctx);
+    const galas = await loadGalas(ctx);
+    const galaRefs = toGalaRefs(galas);
+    const codeById = new Map(galas.map((g) => [g._id, g.code as GalaCode]));
 
     const results = await ctx.db
       .query("results")
@@ -182,10 +235,9 @@ export const getEventComparison = query({
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // Standards are defined long-course, but the same cut is the reference on SCM
-    // too when no SCM-specific cut exists — so we colour each bar by the hardest
-    // tier its PB meets AT THE SWIMMER'S EXACT AGE on both courses, resolving cuts
-    // per (gender, exact age) from this event's cut rows, loaded once per gender.
+    // A comparison is for ONE course, so each bar is coloured by the hardest gala
+    // its PB meets against THAT COURSE's own cut at the swimmer's exact age —
+    // never a borrowed long-course cut. Cut rows are loaded once per gender.
     // (An event with no cut rows — e.g. a 100 IM SCM — simply resolves to none.)
     const cutsByGender = new Map<"M" | "F", Doc<"standards">[]>();
     async function loadCuts(g: "M" | "F"): Promise<Doc<"standards">[]> {
@@ -214,7 +266,7 @@ export const getEventComparison = query({
       timeMs: number;
       swimDate: string;
       meetName: string | null;
-      highestTier: Tier | null;
+      highestGala: GalaCode | null;
     }> = [];
 
     for (const [swimmerId, best] of bestBySwimmer) {
@@ -227,16 +279,20 @@ export const getEventComparison = query({
       if (args.ageGroup && band !== args.ageGroup) continue;
 
       const age = computeAge(swimmer.dob, today); // display age (as of today)
-      // Resolve each tier's cut at the age the swimmer IS FOR THE COMPETITION:
+      // Resolve each gala's cut at the age the swimmer IS FOR THE COMPETITION:
       // the tour date when one is set, else their current age (§4.9). NEVER the
       // age a past PB was swum — a swimmer who beat the easier 14-year-old cut
       // must not still read as qualified once they're 15 and need the 15 cut.
-      // Applied on both courses (SCM reuses the long-course cut).
-      const cuts = pickApplicableStandardsPerTier(
-        await loadCuts(swimmer.gender),
-        tierResolutionAges(swimmer.dob, age, tourDates),
+      const ages = galaResolutionAges(swimmer.dob, age, galaRefs);
+      const cuts = resolveBothCourses(
+        tagCuts(await loadCuts(swimmer.gender), codeById),
+        galaRefs,
+        ages,
       );
-      const highestTier: Tier | null = highestTierMet(best.timeMs, cuts);
+      // This leaderboard is a single course, so judge on that course alone.
+      const highestGala =
+        highestGalaMet({ [args.course]: best.timeMs }, cuts, args.course)?.gala ??
+        null;
 
       rows.push({
         swimmerId,
@@ -248,7 +304,7 @@ export const getEventComparison = query({
         timeMs: best.timeMs,
         swimDate: best.swimDate,
         meetName: best.meetName,
-        highestTier,
+        highestGala,
       });
     }
 
@@ -315,8 +371,9 @@ const progressionSeries = v.object({
 // than the server picking a single age, so a multi-year time series is honest.
 const standardCut = v.object({
   gender,
-  tier,
-  age: v.number(),
+  gala: galaCodeValidator,
+  course, // cuts are course-specific — never borrowed across courses (§4.2)
+  age: v.union(v.number(), v.null()), // null on an open standard (SANS/SANY)
   isCatchAllYoung: v.boolean(),
   isCatchAllOld: v.boolean(),
   timeMs: v.number(),
@@ -338,7 +395,7 @@ export const getProgression = query({
     // Projections are coach-only (docs/access-control.md) — the client shows the
     // time-to-qualify control only when this is true.
     canSeeProjections: v.boolean(),
-    // Tour dates by tier: the projection targets the cut for the swimmer's
+    // Tour dates by gala: the projection targets the cut for the swimmer's
     // age on tour day where one is set. (The historical stepped overlay
     // deliberately stays age-as-of-each-date — it describes the past.)
     tourDates: tourDatesValidator,
@@ -437,15 +494,20 @@ export const getProgression = query({
 
     series.sort((a, b) => a.name.localeCompare(b.name));
 
-    // Overlay cuts (§4.9). Standards are defined long-course, but the SAME cut is
-    // the reference on SCM too when no SCM-specific cut exists — so the chart
-    // overlays them regardless of course (never interpolated; a 100 IM SCM event
-    // simply has no LCM row and so draws no line). Load this event's cut rows for
-    // just the genders present in the selection — the chart resolves them per age.
+    // Overlay cuts (§4.9). Every row carries its gala AND its course, so the
+    // chart draws THIS course's own cut rather than borrowing the long-course one
+    // (never interpolated; an event with no row for a gala simply draws no line).
+    // Load this event's cut rows for just the genders present in the selection —
+    // the chart resolves them per age. `age` is null on an open standard.
+    const galasForOverlay = await loadGalas(ctx);
+    const overlayCodeById = new Map(
+      galasForOverlay.map((g) => [g._id, g.code as GalaCode]),
+    );
     const standards: Array<{
       gender: "M" | "F";
-      tier: Tier;
-      age: number;
+      gala: GalaCode;
+      course: Course;
+      age: number | null;
       isCatchAllYoung: boolean;
       isCatchAllOld: boolean;
       timeMs: number;
@@ -461,12 +523,16 @@ export const getProgression = query({
               .eq("distance", args.distance)
               .eq("stroke", args.stroke),
           )
-          .take(500);
+          .take(1000);
         for (const c of cuts) {
+          if (c.galaId === undefined || c.course === undefined) continue;
+          const gala = overlayCodeById.get(c.galaId);
+          if (gala === undefined) continue;
           standards.push({
             gender: c.gender,
-            tier: c.tier,
-            age: c.age,
+            gala,
+            course: c.course as Course,
+            age: c.age ?? null,
             isCatchAllYoung: c.isCatchAllYoung,
             isCatchAllOld: c.isCatchAllOld,
             timeMs: c.timeMs,
@@ -487,7 +553,7 @@ export const getProgression = query({
       // Projections are staff-only (docs/access-control.md): coaches and the
       // super-user, never a viewer — not even for their own swimmer.
       canSeeProjections: staff,
-      tourDates: await loadTourDates(ctx),
+      tourDates: tourDatesByGala(galasForOverlay),
     };
   },
 });
@@ -498,12 +564,17 @@ export const getProgression = query({
 //
 // A dense grid: rows = swimmers (after gender / age-band / squad filters),
 // columns = the LCM events. Each cell carries the HARDEST qualifying tier the
-// swimmer's headline MEET PB meets, plus the gap to the next tier up. LCM only —
-// standards are long-course (§4.2, §4.9). Cuts are resolved to each swimmer's
-// EXACT single-year age (never the two-year display band the filter uses), and
-// events with no cut at that age render blank/neutral. All the cell judgement is
-// the pure `computeMatrixCell`; here we only load and shape. Coach-only for now
-// (viewer scoping is Step 15). Bounded reads throughout (club scale, §11.1).
+// swimmer's headline MEET PB meets, plus the gap to the next gala up.
+//
+// `courseMode` picks what the grid means: "LCM"/"SCM" judge that course alone,
+// and "BEST" — the default and the honest answer to "is my swimmer in?" — judges
+// EITHER course against its own cut, because both are valid for entry (§4.2).
+// A PB is never measured against the other course's cut.
+//
+// Cuts are resolved to each swimmer's EXACT single-year age (never the two-year
+// display band the filter uses), and events with no cut at that age render
+// blank/neutral. All the cell judgement is the pure `computeMatrixCell`; here we
+// only load and shape. Bounded reads throughout (club scale, §11.1).
 
 const MATRIX_SWIMMERS_LIMIT = 500;
 const MATRIX_STANDARDS_LIMIT = 5000;
@@ -519,10 +590,14 @@ const matrixCell = v.object({
   stroke,
   label: v.string(),
   hasCut: v.boolean(), // a cut exists for this event at the swimmer's exact age
-  pbMs: v.union(v.number(), v.null()), // headline MEET LCM PB, or null
-  tier: v.union(tier, v.null()), // hardest tier met (null = none / no PB)
-  nextTier: v.union(tier, v.null()), // the next tier up to chase (null at top)
+  // Headline MEET PB in each active course (null = never raced it in that course).
+  pbLcmMs: v.union(v.number(), v.null()),
+  pbScmMs: v.union(v.number(), v.null()),
+  gala: v.union(galaCodeValidator, v.null()), // hardest gala met (null = none / no PB)
+  galaCourse: v.union(course, v.null()), // which course earned it (the L/S marker)
+  nextGala: v.union(galaCodeValidator, v.null()), // next gala up to chase (null at top)
   gapMs: v.union(v.number(), v.null()), // PB − next cut (≥ 0); null at top / no PB
+  gapCourse: v.union(course, v.null()), // the course `gapMs` was measured in
 });
 
 const matrixRow = v.object({
@@ -540,26 +615,40 @@ export const getQualificationMatrix = query({
     gender: v.optional(gender),
     ageBand: v.optional(v.string()),
     squadId: v.optional(v.id("squads")),
+    // Which course(s) the grid judges. Defaults to BEST (either course counts).
+    courseMode: v.optional(courseMode),
   },
   returns: v.object({
-    events: v.array(matrixEvent), // LCM columns, canonical 50→1500 order
+    events: v.array(matrixEvent), // columns, canonical 50→1500 order
     rows: v.array(matrixRow),
+    courseMode,
     // False until any cuts are imported — the screen explains the blank matrix
     // and points a coach at Standards instead of looking broken.
     hasStandards: v.boolean(),
-    // Which tiers are judged at age-on-tour-day (the screen says so).
+    // Which galas are judged at age-on-tour-day (the screen says so).
     tourDates: tourDatesValidator,
   }),
   handler: async (ctx, args) => {
     // Role-scoped. Staff get the full roster (optionally squad-filtered); a
     // viewer gets a matrix of only their linked swimmer(s).
     const { swimmerIds } = await accessibleSwimmerIds(ctx);
-    const tourDates = await loadTourDates(ctx);
+    const galas = await loadGalas(ctx);
+    const galaRefs = toGalaRefs(galas);
+    const codeById = new Map(galas.map((g) => [g._id, g.code as GalaCode]));
+    const mode: CourseMode = args.courseMode ?? "BEST";
+    const activeCourses: ReadonlyArray<Course> =
+      mode === "BEST" ? (["LCM", "SCM"] as const) : ([mode] as const);
 
-    // Columns: the active LCM events (standards are LCM-only), canonical order.
+    // Columns: every active event swimmable in an active course, canonical order.
+    // The only SCM-exclusive events (25 m, 100 IM) have no cut at any gala, so
+    // the column set is in practice identical whichever course mode is picked.
     const allEvents = await ctx.db.query("events").take(200);
     const lcmEvents = allEvents
-      .filter((e) => e.active && e.allowedCourses.includes("LCM"))
+      .filter(
+        (e) =>
+          e.active &&
+          activeCourses.some((c) => e.allowedCourses.includes(c)),
+      )
       .sort(
         (a, b) =>
           eventSortKey(a.distance, a.stroke) - eventSortKey(b.distance, b.stroke),
@@ -570,17 +659,27 @@ export const getQualificationMatrix = query({
     const allStandards = await ctx.db
       .query("standards")
       .take(MATRIX_STANDARDS_LIMIT);
-    const cutsByEvent = new Map<string, Array<StandardCut & { tier: Tier }>>();
+    const cutsByEvent = new Map<
+      string,
+      Array<StandardCut & { gala: GalaCode; course: Course }>
+    >();
+    // Group by event key. `tagCuts` drops pre-migration and orphaned rows, so a
+    // cell can never resolve against an untagged cut. Both courses are kept —
+    // `computeMatrixCell` picks the ones the active course mode asked for.
     for (const s of allStandards) {
+      if (s.galaId === undefined || s.course === undefined) continue;
+      const gala = codeById.get(s.galaId);
+      if (gala === undefined) continue;
       const key = `${s.gender}|${s.distance}|${s.stroke}`;
-      const arr = cutsByEvent.get(key);
-      const cut: StandardCut & { tier: Tier } = {
-        tier: s.tier,
-        age: s.age,
+      const cut = {
+        gala,
+        course: s.course as Course,
+        age: s.age ?? null,
         isCatchAllYoung: s.isCatchAllYoung,
         isCatchAllOld: s.isCatchAllOld,
         timeMs: s.timeMs,
       };
+      const arr = cutsByEvent.get(key);
       if (arr) arr.push(cut);
       else cutsByEvent.set(key, [cut]);
     }
@@ -629,44 +728,55 @@ export const getQualificationMatrix = query({
         .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmer._id))
         .take(SWIMMER_RESULTS_LIMIT);
       const pbs = computePersonalBests(results as ResultForPB[]);
-      const lcmPbByEvent = new Map<
-        string,
-        { timeMs: number; ageAtSwim: number | null }
-      >();
+      // Headline MEET PB per event PER COURSE — both are kept, because either
+      // course can qualify a swimmer (§4.2) and they are never merged.
+      const pbByEventCourse = new Map<string, number>();
       for (const pb of pbs) {
-        if (pb.course === "LCM" && pb.headline) {
-          lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, {
-            timeMs: pb.headline.timeMs,
-            ageAtSwim: pb.headline.ageAtSwim,
-          });
+        if (pb.headline) {
+          pbByEventCourse.set(
+            `${pb.distance}|${pb.stroke}|${pb.course}`,
+            pb.headline.timeMs,
+          );
         }
       }
 
       const age = computeAge(swimmer.dob, today); // display age (as of today)
       const ageBand = computeAgeGroup(swimmer.dob, today);
+      // Judge each gala's cut at the age the swimmer IS FOR THE COMPETITION:
+      // the tour date when one is set, else their current age (§4.9). Never the
+      // age a past PB was swum — a swimmer who beat the easier younger cut must
+      // not keep reading as qualified once they've aged into a harder one.
+      const ages = galaResolutionAges(swimmer.dob, age, galaRefs);
 
       const cells = lcmEvents.map((e) => {
-        const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
-        const pbMs = pb ? pb.timeMs : null;
-        // Judge each tier's cut at the age the swimmer IS FOR THE COMPETITION:
-        // the tour date when one is set, else their current age (§4.9). Never
-        // the age a past PB was swum — a swimmer who beat the easier younger
-        // cut must not keep reading as qualified once they've aged into a
-        // harder one they don't meet.
-        const applicable = pickApplicableStandardsPerTier(
+        const pbLcmMs =
+          pbByEventCourse.get(`${e.distance}|${e.stroke}|LCM`) ?? null;
+        const pbScmMs =
+          pbByEventCourse.get(`${e.distance}|${e.stroke}|SCM`) ?? null;
+        const cuts = resolveBothCourses(
           cutsByEvent.get(`${swimmer.gender}|${e.distance}|${e.stroke}`) ?? [],
-          tierResolutionAges(swimmer.dob, age, tourDates),
+          galaRefs,
+          ages,
         );
-        const cell = computeMatrixCell(pbMs, applicable);
+        const cell = computeMatrixCell(
+          { LCM: pbLcmMs, SCM: pbScmMs },
+          cuts,
+          mode,
+        );
         return {
           distance: e.distance,
           stroke: e.stroke,
           label: e.label,
           hasCut: cell.hasCut,
-          pbMs,
-          tier: cell.tier,
-          nextTier: cell.nextTier,
+          // Only surface the course(s) this mode is judging, so the cell can
+          // never show a time the grid is not measuring.
+          pbLcmMs: mode === "SCM" ? null : pbLcmMs,
+          pbScmMs: mode === "LCM" ? null : pbScmMs,
+          gala: cell.gala,
+          galaCourse: cell.galaCourse,
+          nextGala: cell.nextGala,
           gapMs: cell.gapMs,
+          gapCourse: cell.gapCourse,
         };
       });
 
@@ -688,8 +798,9 @@ export const getQualificationMatrix = query({
         label: e.label,
       })),
       rows,
+      courseMode: mode,
       hasStandards: allStandards.length > 0,
-      tourDates,
+      tourDates: tourDatesByGala(galas),
     };
   },
 });
@@ -725,6 +836,9 @@ const roadEvent = v.object({
   distance,
   stroke,
   label: v.string(),
+  // The course this row is measured in — the one the swimmer is closest in when
+  // the mode is BEST, since either course would qualify them (§4.2).
+  course,
   cutMs: v.number(),
   pbMs: v.union(v.number(), v.null()),
   gapMs: v.union(v.number(), v.null()),
@@ -736,7 +850,10 @@ const roadEvent = v.object({
 export const getRoadToQualify = query({
   args: {
     swimmerId: v.id("swimmers"),
-    tier,
+    gala: galaCodeValidator,
+    // Which course to chase. Defaults to BEST: the gap shown is to whichever
+    // course the swimmer is closest in, since either would qualify them (§4.2).
+    courseMode: v.optional(courseMode),
   },
   returns: v.union(
     v.null(), // swimmer vanished (deleted elsewhere) → caller shows empty state
@@ -748,17 +865,23 @@ export const getRoadToQualify = query({
         age: v.number(), // exact single-year age today — drives cut resolution
         active: v.boolean(),
       }),
-      tier,
+      gala: galaCodeValidator,
+      displayName: v.string(),
+      courseMode,
       events: v.array(roadEvent),
       // False when no cuts exist for this swimmer's gender at all — the screen
       // explains the empty road instead of looking broken.
       hasStandards: v.boolean(),
       // ISO date of the swimmer's birthday when it fell in the last 30 days —
-      // the screen notes which cuts moved. Null (suppressed) when this tier
+      // the screen notes which cuts moved. Null (suppressed) when this gala
       // has a tour date: cuts are pinned to age-on-tour-day, so a birthday
       // changes nothing here. Never the raw dob.
       agedUpAt: v.union(v.string(), v.null()),
-      // This tier's tour, when the super-user has set one — the screen says
+      // True when the swimmer's age falls outside this gala's entry window —
+      // there is no road to walk, and the screen must say why rather than
+      // showing an empty list that reads as "no cuts imported".
+      ineligible: v.boolean(),
+      // This gala's tour, when the super-user has set one — the screen says
       // "judged at age on tour day" with the name/date.
       tour: v.union(
         v.null(),
@@ -770,7 +893,7 @@ export const getRoadToQualify = query({
       ),
     }),
   ),
-  handler: async (ctx, { swimmerId, tier: targetTier }) => {
+  handler: async (ctx, { swimmerId, gala: targetGala, courseMode: modeArg }) => {
     // Coach → any swimmer; viewer → only their linked swimmer(s). A viewer's own
     // road-to-qualify (§5.9) is authorised here, server-side.
     await requireSwimmerAccess(ctx, swimmerId);
@@ -781,27 +904,41 @@ export const getRoadToQualify = query({
     const today = new Date().toISOString().slice(0, 10);
     const age = computeAge(swimmer.dob, today);
 
-    // Columns: active LCM events (standards are LCM-only), canonical 50→1500.
+    const mode: CourseMode = modeArg ?? "BEST";
+    const activeCourses: ReadonlyArray<Course> =
+      mode === "BEST" ? (["LCM", "SCM"] as const) : ([mode] as const);
+
+    const galas = await loadGalas(ctx);
+    const gala = galas.find((g) => g.code === targetGala);
+    const galaRef = gala ? toGalaRefs([gala])[0] : null;
+    const codeById = new Map(galas.map((g) => [g._id, g.code as GalaCode]));
+
+    // Columns: active events swimmable in a course we're judging, 50→1500.
     const allEvents = await ctx.db.query("events").take(200);
     const lcmEvents = allEvents
-      .filter((e) => e.active && e.allowedCourses.includes("LCM"))
+      .filter(
+        (e) =>
+          e.active && activeCourses.some((c) => e.allowedCourses.includes(c)),
+      )
       .sort(
         (a, b) =>
           eventSortKey(a.distance, a.stroke) - eventSortKey(b.distance, b.stroke),
       );
 
-    // This swimmer's gender's cuts, grouped by event so each resolves to the
-    // exact age. Small table at club scale; bounded read (guidelines).
+    // This swimmer's gender's cuts for the target gala, grouped by event and
+    // kept per course. Small table at club scale; bounded read (guidelines).
     const allStandards = await ctx.db
       .query("standards")
       .withIndex("by_lookup", (q) => q.eq("gender", swimmer.gender))
       .take(ROAD_STANDARDS_LIMIT);
-    const cutsByEvent = new Map<string, StandardCut[]>();
+    const cutsByEvent = new Map<string, Array<StandardCut & { course: Course }>>();
     for (const s of allStandards) {
-      if (s.tier !== targetTier) continue; // one target tier only (§5.10)
+      if (s.galaId === undefined || s.course === undefined) continue;
+      if (codeById.get(s.galaId) !== targetGala) continue; // one gala only (§5.10)
       const key = `${s.distance}|${s.stroke}`;
-      const cut: StandardCut = {
-        age: s.age,
+      const cut = {
+        course: s.course as Course,
+        age: s.age ?? null,
         isCatchAllYoung: s.isCatchAllYoung,
         isCatchAllOld: s.isCatchAllOld,
         timeMs: s.timeMs,
@@ -811,65 +948,84 @@ export const getRoadToQualify = query({
       else cutsByEvent.set(key, [cut]);
     }
 
-    // Headline MEET LCM PBs (same derivation as the profile board / matrix).
+    // Headline MEET PBs per event PER COURSE (same derivation as the matrix).
     const results = await ctx.db
       .query("results")
       .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
       .take(SWIMMER_RESULTS_LIMIT);
     const pbs = computePersonalBests(results as ResultForPB[]);
-    const lcmPbByEvent = new Map<
-      string,
-      { timeMs: number; ageAtSwim: number | null }
-    >();
+    const pbByEventCourse = new Map<string, number>();
     for (const pb of pbs) {
-      if (pb.course === "LCM" && pb.headline) {
-        lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, {
-          timeMs: pb.headline.timeMs,
-          ageAtSwim: pb.headline.ageAtSwim,
-        });
+      if (pb.headline) {
+        pbByEventCourse.set(
+          `${pb.distance}|${pb.stroke}|${pb.course}`,
+          pb.headline.timeMs,
+        );
       }
     }
 
-    // With a tour date for this tier, every cut resolves at the age the
-    // swimmer will be on tour day — the question this screen answers is "can
-    // they go?". Without one, judge against their CURRENT age (§4.9) — never
-    // the age a past PB was swum.
-    const tourDates = await loadTourDates(ctx);
-    const tourDate = tourDates[targetTier];
+    // With a tour date for this gala, every cut resolves at the age the swimmer
+    // will be on tour day — the question this screen answers is "can they go?".
+    // Without one, judge against their CURRENT age (§4.9) — never the age a past
+    // PB was swum.
+    const tourDate = gala?.tourDate ?? undefined;
     const tourAge = tourDate !== undefined ? computeAge(swimmer.dob, tourDate) : null;
-    const tourRow =
-      tourDate !== undefined
-        ? await ctx.db
-            .query("tours")
-            .withIndex("by_tier", (q) => q.eq("tier", targetTier))
-            .unique()
-        : null;
+    const cutAge = tourAge ?? age;
+    // Outside the gala's entry window there is no road at all — say so rather
+    // than returning an empty list that reads as "no standards imported".
+    const ineligible = galaRef !== null && !isGalaAgeEligible(galaRef, cutAge);
 
     const events = [];
     for (const e of lcmEvents) {
-      // Coverage is a HARD rule (§4.9): only render where the tier covers this
+      // Coverage is a HARD rule (§4.9): only render where the gala covers this
       // event AND a cut actually resolves for the applicable age.
-      if (!tierCoversEvent(targetTier, e.distance, e.stroke)) continue;
-      const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
-      // The cut the swimmer must meet FOR THE COMPETITION: tour-day age when a
-      // date is set, else their current age — never the age a past PB was swum.
-      const cutAge = tourAge ?? age;
-      const cutMs = resolveStandardTime(
-        cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [],
-        cutAge,
-      );
-      if (cutMs === null) continue;
+      if (gala === undefined || galaRef === null) break;
+      if (!galaCoversEvent(gala, e.distance, e.stroke)) continue;
 
-      const pbMs = pb ? pb.timeMs : null;
+      const eventCuts = cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [];
+
+      // Pick the course this row is measured in: the one the swimmer is CLOSEST
+      // in (or qualified in), since either course would get them there. With a
+      // single-course mode there is only ever one candidate.
+      let bestRow: {
+        course: Course;
+        cutMs: number;
+        pbMs: number | null;
+        pctOfCut: number | null;
+      } | null = null;
+      for (const c of activeCourses) {
+        const cutMs = resolveGalaCut(
+          galaRef,
+          eventCuts.filter((cut) => cut.course === c),
+          cutAge,
+        );
+        if (cutMs === null) continue;
+        const pbMs = pbByEventCourse.get(`${e.distance}|${e.stroke}|${c}`) ?? null;
+        const pctOfCut = pbMs === null ? null : (pbMs / cutMs) * 100;
+        if (bestRow === null) {
+          bestRow = { course: c, cutMs, pbMs, pctOfCut };
+          continue;
+        }
+        // A measurable row always beats an unmeasurable one; otherwise the
+        // smaller percentage-of-cut wins (closer to, or further inside, the line).
+        if (bestRow.pctOfCut === null) {
+          if (pctOfCut !== null) bestRow = { course: c, cutMs, pbMs, pctOfCut };
+        } else if (pctOfCut !== null && pctOfCut < bestRow.pctOfCut) {
+          bestRow = { course: c, cutMs, pbMs, pctOfCut };
+        }
+      }
+      if (bestRow === null) continue; // no cut in any active course → no row
+
+      const { course: rowCourse, cutMs, pbMs, pctOfCut } = bestRow;
       const gapMs = pbMs === null ? null : pbMs - cutMs;
       const gapPct = pbMs === null ? null : (gapMs! / cutMs) * 100;
-      const pctOfCut = pbMs === null ? null : (pbMs / cutMs) * 100;
       const qualified = pbMs !== null && pbMs <= cutMs;
 
       events.push({
         distance: e.distance,
         stroke: e.stroke,
         label: e.label,
+        course: rowCourse,
         cutMs,
         pbMs,
         gapMs,
@@ -900,13 +1056,16 @@ export const getRoadToQualify = query({
         age,
         active: swimmer.active,
       },
-      tier: targetTier,
+      gala: targetGala,
+      displayName: gala?.displayName ?? targetGala,
+      courseMode: mode,
       events: [...withTime, ...noTime],
       hasStandards: allStandards.length > 0,
       agedUpAt: tourAge !== null ? null : recentBirthday(swimmer.dob, today),
+      ineligible,
       tour:
         tourAge !== null && tourDate !== undefined
-          ? { name: tourRow?.name ?? null, date: tourDate, ageAtTour: tourAge }
+          ? { name: gala?.tourName ?? null, date: tourDate, ageAtTour: tourAge }
           : null,
     };
   },
@@ -952,7 +1111,7 @@ const strokeProfileEvent = v.object({
   // The PB on this event's calibrated L2->L3->SANJ scale (ring units). Null
   // when there is no PB; the wheel renders those spokes as an empty tick.
   calibratedRadius: v.union(v.number(), v.null()),
-  highestTier: v.union(tier, v.null()),
+  highestGala: v.union(galaCodeValidator, v.null()),
   // Convenience flag the client would otherwise recompute: all three cuts exist.
   fullCoverage: v.boolean(),
 });
@@ -1005,12 +1164,23 @@ export const getStrokeProfile = query({
       .query("standards")
       .withIndex("by_lookup", (q) => q.eq("gender", swimmer.gender))
       .take(ROAD_STANDARDS_LIMIT);
-    const cutsByEvent = new Map<string, Array<StandardCut & { tier: Tier }>>();
+    const profileGalas = await loadGalas(ctx);
+    const profileCodeById = new Map(
+      profileGalas.map((g) => [g._id, g.code as GalaCode]),
+    );
+    const cutsByEvent = new Map<
+      string,
+      Array<StandardCut & { gala: GalaCode; course: Course }>
+    >();
     for (const s of allStandards) {
+      if (s.galaId === undefined || s.course === undefined) continue;
+      const gala = profileCodeById.get(s.galaId);
+      if (gala === undefined) continue;
       const key = `${s.distance}|${s.stroke}`;
-      const cut: StandardCut & { tier: Tier } = {
-        tier: s.tier,
-        age: s.age,
+      const cut = {
+        gala,
+        course: s.course as Course,
+        age: s.age ?? null,
         isCatchAllYoung: s.isCatchAllYoung,
         isCatchAllOld: s.isCatchAllOld,
         timeMs: s.timeMs,
@@ -1039,32 +1209,44 @@ export const getStrokeProfile = query({
       }
     }
 
-    const tourDates = await loadTourDates(ctx);
+    const galaRefs = toGalaRefs(profileGalas);
+    const ages = galaResolutionAges(swimmer.dob, age, galaRefs);
 
     const events = [];
     for (const e of lcmEvents) {
       const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
-      // Calibrate each tier's ring to the cut the swimmer must meet FOR THE
-      // COMPETITION: tour-day age when a date is set, else current age (§4.9).
-      // Never the age a past PB was swum.
-      const applicable = pickApplicableStandardsPerTier(
-        cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? [],
-        tierResolutionAges(swimmer.dob, age, tourDates),
+      // Calibrate each ring to the cut the swimmer must meet FOR THE COMPETITION:
+      // tour-day age when a date is set, else current age (§4.9). Never the age a
+      // past PB was swum.
+      //
+      // The wheel has exactly three rings (L2 -> L3 -> SANJ) and reads long
+      // course. SANS/SANY are not placed on it: five concentric rings do not
+      // read, so extending the wheel to the open galas is its own design step.
+      const applicable = pickApplicableStandardsPerGala(
+        (cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? []).filter(
+          (c) => c.course === "LCM",
+        ),
+        galaRefs,
+        ages,
       );
       const l2Ms = applicable.LEVEL_2 ?? null;
       const l3Ms = applicable.LEVEL_3 ?? null;
       const sanjMs = applicable.SANJ ?? null;
 
-      // Applicable = at least one tier has a cut here at this age. Events with no
-      // cut at all can't be placed on any ring — omit them (§4.9).
+      // Applicable = at least one ring gala has a cut here at this age. Events
+      // with no cut at all can't be placed on any ring — omit them (§4.9).
       if (l2Ms === null && l3Ms === null && sanjMs === null) continue;
 
       const pbMs = pb ? pb.timeMs : null;
       const calibratedRadius = computeCalibratedRadius(pbMs, { l2Ms, l3Ms, sanjMs });
-      const highestTier =
+      const highestGala =
         pbMs === null
           ? null
-          : highestTierMet(pbMs, { LEVEL_2: l2Ms, LEVEL_3: l3Ms, SANJ: sanjMs });
+          : highestGalaMet(
+              { LCM: pbMs },
+              { LCM: applicable, SCM: {} },
+              "LCM",
+            )?.gala ?? null;
 
       events.push({
         distance: e.distance,
@@ -1075,7 +1257,7 @@ export const getStrokeProfile = query({
         l3Ms,
         sanjMs,
         calibratedRadius,
-        highestTier,
+        highestGala,
         fullCoverage: l2Ms !== null && l3Ms !== null && sanjMs !== null,
       });
     }
@@ -1098,15 +1280,14 @@ export const getStrokeProfile = query({
       },
       events,
       hasStandards: allStandards.length > 0,
-      // Suppressed once every tier is pinned to a tour date — a birthday
-      // changes nothing then.
-      agedUpAt:
-        tourDates.LEVEL_2 !== undefined &&
-        tourDates.LEVEL_3 !== undefined &&
-        tourDates.SANJ !== undefined
-          ? null
-          : recentBirthday(swimmer.dob, today),
-      tourDates,
+      // Suppressed once every RING gala is pinned to a tour date — a birthday
+      // changes nothing then. Only the three wheel galas matter here.
+      agedUpAt: (["LEVEL_2", "LEVEL_3", "SANJ"] as const).every(
+        (code) => profileGalas.find((g) => g.code === code)?.tourDate,
+      )
+        ? null
+        : recentBirthday(swimmer.dob, today),
+      tourDates: tourDatesByGala(profileGalas),
     };
   },
 });

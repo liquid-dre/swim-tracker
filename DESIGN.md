@@ -54,17 +54,26 @@ don't strip the system to chase points.
 }
 ```
 
-## 3. App-semantic tokens (qualifying tiers)
-Mapped onto the reference palette so they harmonise. **Tiers are never colour-only — every tier
-badge carries a text label** (`SANJ` / `L3` / `L2`), per the domain rules.
-**One distinctive hue per tier**, forming an ascending prestige ramp
-(sapphire → purple → gold) so each colour reads as the same tier everywhere it
-appears — badges, cut lines, progress bars, the matrix. Deliberately clear of
-the reserved signals (green = qualified, red = error, brand indigo = action) so
-a tier is never mistaken for a state.
+## 3. App-semantic tokens (qualifying galas)
+Mapped onto the reference palette so they harmonise. **Galas are never colour-only — every gala
+badge carries a text label** (`SANS` / `SANY` / `SANJ` / `L3` / `L2`), per the domain rules.
+
+With five galas these hues are a **categorical identity set, not an ordered ramp**: difficulty
+order is carried by `GALA_ORDER` (in `lib/galas.ts`) and by the label, *never* by colour. They
+split into two families that match the two kinds of gala:
+
+- **age-graded ladder** — sapphire (L2, entry) → purple (L3, mid) → gold (SANJ, top of the ladder)
+- **open senior pair** — pink (SANY) and rose (SANS): one cut for every age, entry by age window
+
+Grouping the two open galas chromatically is deliberate — they are the same *kind* of gala, and
+their labels do the discriminating. Each hue is that gala's ONE colour everywhere it appears
+(badges, cut lines, progress bars, the matrix). All are deliberately clear of the reserved signals
+(green = qualified, red = error, brand indigo = action) so a gala is never mistaken for a state.
 ```css
 :root {
-  --tier-sanj:  #f79009;  /* gold — top (hardest) */
+  --tier-sans:  #e31b54;  /* rose — SA Senior Nationals (open, 15+) */
+  --tier-sany:  #c11574;  /* deep pink — SA National Youth (open, 17–25) */
+  --tier-sanj:  #f79009;  /* gold — top of the age-graded ladder */
   --tier-l3:    #9333ea;  /* vivid purple — mid */
   --tier-l2:    #0086c9;  /* sapphire / deep sky — entry */
   --tier-none:  #98a2b3;  /* gray-400 — no standard met */
