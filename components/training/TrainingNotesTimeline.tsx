@@ -76,15 +76,12 @@ export function TrainingNotesTimeline({
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight text-ink">
-            Training notes
-          </h2>
-          <p className="text-sm text-ink-muted">
-            Dated coaching notes on training focus — personal and squad-wide.
-            Newest first; past phases stay as a record.
-          </p>
-        </div>
+        {/* No heading — this renders inside its own "Training notes" tab, which
+            already names and labels the panel. */}
+        <p className="text-sm text-ink-muted">
+          Dated coaching notes on training focus — personal and squad-wide.
+          Newest first; past phases stay as a record.
+        </p>
         {editable && !loading && notes.length > 0 && (
           <Button variant="secondary" size="sm" onClick={openNew}>
             <Plus className="size-4" /> Add note

@@ -219,7 +219,12 @@ export function DeletedTimesScreen() {
                     </td>
                     {/* The reason rides under the event rather than taking a
                         column of its own: free text of any length would wreck
-                        the grid every other row keeps. */}
+                        the grid every other row keeps. It WRAPS rather than
+                        truncating to a tooltip — this is the log a coach opens
+                        to find out why a swim vanished, and a reason reachable
+                        only by hovering a mouse is no answer on a phone. It is
+                        capped at 200 characters server-side, so it can't run
+                        away with the row. */}
                     <td className="px-4 py-3">
                       <span className="whitespace-nowrap">
                         <span className="font-medium text-ink">{r.label}</span>
@@ -228,10 +233,7 @@ export function DeletedTimesScreen() {
                         </span>
                       </span>
                       {r.reason && (
-                        <p
-                          title={r.reason}
-                          className="mt-0.5 max-w-[32ch] truncate text-xs text-ink-muted"
-                        >
+                        <p className="mt-0.5 max-w-[40ch] text-xs text-ink-muted">
                           {r.reason}
                         </p>
                       )}

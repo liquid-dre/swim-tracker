@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { CalendarClock, PlusCircle, Timer } from "lucide-react";
 
@@ -10,7 +10,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { Tabs } from "@/components/ui/Tabs";
+import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { notify } from "@/lib/notify";
 import { formatShortDate } from "@/lib/format";
 import { formatTime } from "@/lib/swim";
@@ -24,14 +24,23 @@ import { SchoolGalaSheet } from "@/components/me/SchoolGalaSheet";
 import { TrainingNotesTimeline } from "@/components/training/TrainingNotesTimeline";
 
 /*
-  Swimmer profile (Step 6, BRD §5.4). Identity sits above the swim data. For a
-  coach it splits into two tabs: **Times** (the PB board — derived headline meet
-  PBs × course — plus the improvement summary and full history with edit/delete)
-  and **Access** (coach control of who may view this swimmer), with a count pill
-  surfacing pending requests. For a viewer (the /me/swimmers/[id] route) the
-  Access tab is hidden entirely and the history is read-only — they see the same
-  numbers, nothing that edits. All swim data comes from `getSwimmerProfile`; PBs
-  are derived server-side (no PB table); access is enforced server-side too.
+  Swimmer profile (Step 6, BRD §5.4). Identity sits above the swim data, and
+  every section below it is ONE tab — personal bests, improvement, history,
+  training notes, attendance, access — rather than a single column a coach has
+  to scroll through to reach the history table at the bottom. Each panel answers
+  a different question, so each is one click, and `Tabs` leaves the closed ones
+  unmounted: attendance and the notes timeline don't subscribe until opened.
+
+  The tab set is derived from who is looking, and it is the ONLY gate: a viewer
+  on /me/swimmers/[id] has no Attendance or Access tab, and `?tab=access` in
+  their URL falls back to the default rather than rendering a panel they can't
+  have. That is convenience, not security — access is enforced server-side, and
+  every write below goes through the same authorization it always did.
+
+  The active tab lives in the URL (`?tab=history`) so it survives a refresh and
+  can be linked; `replace` rather than `push`, so tab clicks don't fill the back
+  button. All swim data comes from `getSwimmerProfile`; PBs are derived
+  server-side (there is no PB table).
 */
 export function SwimmerProfileScreen({
   swimmerId,
@@ -46,12 +55,14 @@ export function SwimmerProfileScreen({
   // coach can't reach /me/*), so there's no role-loading flash.
   const viewerArea = pathname.startsWith("/me");
 
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const data = useQuery(api.personalBests.getSwimmerProfile, { swimmerId });
   const deleteResult = useMutation(api.results.deleteResult);
 
   const [editing, setEditing] = useState<HistoryResult | null>(null);
   const [deleting, setDeleting] = useState<HistoryResult | null>(null);
-  const [tab, setTab] = useState("times");
   // Viewer (parent) school-gala entry (§R15): the one write a viewer gets, for a
   // swimmer they're already linked to (they reached this /me route via the
   // server-side access gate). `galaEditing` null = a new entry, else that row.
@@ -99,75 +110,120 @@ export function SwimmerProfileScreen({
     ? (row: HistoryResult) => row.swimType === "SCHOOL_GALA"
     : undefined;
 
-  // Training notes (§R16): the dated audit trail of what's being worked on,
-  // merging this swimmer's personal notes with their squads' notes. Shown to
-  // coaches and to the swimmer's viewers alike; writes are coach-only server-side.
-  // It LEADS the profile (above the PB board) so a reader sees the current
-  // training focus — the phase the swimmer is in — before the times it explains.
-  const notesContent = (
-    <TrainingNotesTimeline
-      swimmerId={swimmerId}
-      swimmerName={swimmer.name}
-      today={today}
-    />
-  );
-
-  // The Times sections — led by the training-notes log, then the read the profile
-  // is built around. History is editable only for a coach who manages this
-  // swimmer; a viewer edits just their own school-gala rows; any other-club coach
-  // gets it read-only.
-  const timesContent = (
-    <div className="flex flex-col gap-8">
-      {notesContent}
-
-      <Section
-        title="Personal bests"
-        hint="Fastest meet time per event and course. Trials, practice and school galas never set a PB."
-      >
-        {bestPoints && (
-          <BestPointsLine
-            best={bestPoints}
-            href={viewerArea ? "/me/points" : "/points"}
-          />
-        )}
-        <PbBoard pbs={personalBests} />
-      </Section>
-
-      <Section
-        title="Improvement"
-        hint="First logged swim to the current PB, per event."
-      >
-        <ImprovementSummary pbs={personalBests} />
-      </Section>
-
-      {editable && (
-        <Section
-          title="Attendance"
-          hint="Training attendance this season. Excused absences don't count against the rate."
+  // One tab per section. Built as a list rather than inline JSX because the URL
+  // validator below has to check against THIS role's tabs — that is what keeps
+  // `?tab=access` on /me from rendering the access panel.
+  const tabs: TabItem[] = [
+    {
+      value: "bests",
+      label: "Personal bests",
+      content: (
+        <Panel hint="Fastest meet time per event and course. Trials, practice and school galas never set a PB.">
+          {bestPoints && (
+            <BestPointsLine
+              best={bestPoints}
+              href={viewerArea ? "/me/points" : "/points"}
+            />
+          )}
+          <PbBoard pbs={personalBests} />
+        </Panel>
+      ),
+    },
+    {
+      value: "improvement",
+      label: "Improvement",
+      content: (
+        <Panel hint="First logged swim to the current PB, per event.">
+          <ImprovementSummary pbs={personalBests} />
+        </Panel>
+      ),
+    },
+    {
+      value: "history",
+      label: "History",
+      content: (
+        // Editable only for a coach who manages this swimmer; a viewer edits
+        // just their own school-gala rows; any other-club coach gets it
+        // read-only. The gating props above decide all three.
+        <Panel
+          hint={
+            editable
+              ? "Every logged swim. Filter, sort, edit or delete."
+              : canLogGala
+                ? "Every logged swim. Filter and sort. You can edit or remove the school gala times you add."
+                : "Every logged swim. Filter and sort."
+          }
         >
-          <AttendanceFigure swimmerId={swimmerId} />
-        </Section>
-      )}
-
-      <Section
-        title="History"
-        hint={
-          editable
-            ? "Every logged swim. Filter, sort, edit or delete."
-            : canLogGala
-              ? "Every logged swim. Filter and sort. You can edit or remove the school gala times you add."
-              : "Every logged swim. Filter and sort."
-        }
-      >
-        <HistoryTable
-          rows={history}
-          onEdit={historyOnEdit}
-          onDelete={historyOnDelete}
-          canEditRow={historyCanEditRow}
+          <HistoryTable
+            rows={history}
+            onEdit={historyOnEdit}
+            onDelete={historyOnDelete}
+            canEditRow={historyCanEditRow}
+          />
+        </Panel>
+      ),
+    },
+    {
+      // §R16 — the dated log of what is being worked on, merging this swimmer's
+      // notes with their squads'. Coaches and the swimmer's viewers both read
+      // it; writes are coach-only server-side.
+      value: "notes",
+      label: "Training notes",
+      content: (
+        <TrainingNotesTimeline
+          swimmerId={swimmerId}
+          swimmerName={swimmer.name}
+          today={today}
         />
-      </Section>
-    </div>
-  );
+      ),
+    },
+  ];
+
+  if (editable) {
+    tabs.push({
+      value: "attendance",
+      label: "Attendance",
+      content: (
+        <Panel hint="Training attendance this season. Excused absences don't count against the rate.">
+          <AttendanceFigure swimmerId={swimmerId} />
+        </Panel>
+      ),
+    });
+  }
+
+  if (!viewerArea) {
+    tabs.push({
+      value: "access",
+      label: "Access",
+      // The count rides the tab so a coach reading the PB board still sees
+      // someone is waiting on them.
+      badge: accessRequests?.length ?? 0,
+      content: (
+        <ViewerAccessSection
+          swimmerId={swimmerId}
+          swimmerName={swimmer.name}
+          editable={editable}
+        />
+      ),
+    });
+  }
+
+  // The PB board is the read this profile is built around, so it opens. An
+  // unknown or not-permitted `?tab=` falls back to it rather than erroring —
+  // a stale link should land somewhere sensible, not on a dead screen.
+  const requested = searchParams.get("tab");
+  const tab = tabs.some((t) => t.value === requested) ? requested! : tabs[0].value;
+
+  function selectTab(value: string) {
+    // Merge rather than overwrite: the tab is one param among whatever else
+    // the URL is carrying, and clobbering the query string here would quietly
+    // drop anything a future link adds.
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", value);
+    // replace, not push: six tabs would otherwise bury the page a coach
+    // actually came from under a stack of tab clicks.
+    router.replace(`${pathname}?${next}`, { scroll: false });
+  }
 
   return (
     <div className="flex min-w-0 flex-col gap-8">
@@ -213,32 +269,15 @@ export function SwimmerProfileScreen({
         )}
       </div>
 
-      {viewerArea ? (
-        // Viewer: the training-notes log leads, then the times — no tab bar and
-        // no access admin.
-        timesContent
-      ) : (
-        <Tabs
-          ariaLabel={`${swimmer.name} sections`}
-          value={tab}
-          onValueChange={setTab}
-          items={[
-            { value: "times", label: "Times", content: timesContent },
-            {
-              value: "access",
-              label: "Access",
-              badge: accessRequests?.length ?? 0,
-              content: (
-                <ViewerAccessSection
-                  swimmerId={swimmerId}
-                  swimmerName={swimmer.name}
-                  editable={editable}
-                />
-              ),
-            },
-          ]}
-        />
-      )}
+      {/* Same tab bar on both routes — a parent reads this on a phone, where a
+          four-section stack ending in the full history table is the worst
+          version of the scroll this replaces. */}
+      <Tabs
+        ariaLabel={`${swimmer.name} sections`}
+        value={tab}
+        onValueChange={selectTab}
+        items={tabs}
+      />
 
       {/* Edit — keyed per target so the form seeds from the row on open. */}
       <ResultEditSheet
@@ -366,21 +405,19 @@ function Divider() {
   return <span aria-hidden className="h-3.5 w-px bg-border" />;
 }
 
-function Section({
-  title,
-  hint,
-  children,
-}: {
-  title: string;
-  hint: string;
-  children: React.ReactNode;
-}) {
+/**
+ * One tab's contents, led by its hint.
+ *
+ * No heading: the tab is the heading, and the panel is already
+ * `aria-labelledby` it — repeating the label inside would be the same word
+ * twice on a screen whose whole problem was clutter. The hint stays, because
+ * it carries a domain rule the reader needs at the point of reading (why a
+ * trial isn't a PB; why an excused absence doesn't count).
+ */
+function Panel({ hint, children }: { hint: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-3">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
-        <p className="text-sm text-ink-muted">{hint}</p>
-      </div>
+      <p className="text-sm text-ink-muted">{hint}</p>
       {children}
     </section>
   );
@@ -425,7 +462,7 @@ function BestPointsLine({
   );
 }
 
-function ProfileSkeleton() {
+export function ProfileSkeleton() {
   return (
     <div className="flex flex-col gap-8" aria-busy>
       <div className="flex flex-col gap-4">
@@ -433,12 +470,23 @@ function ProfileSkeleton() {
         <div className="h-7 w-56 animate-pulse rounded-sm bg-surface-2" />
         <div className="h-4 w-80 animate-pulse rounded-sm bg-surface-2" />
       </div>
-      {[0, 1].map((i) => (
-        <div key={i} className="flex flex-col gap-3">
-          <div className="h-5 w-40 animate-pulse rounded-sm bg-surface-2" />
-          <div className="h-40 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm" />
+      {/* Stand in for the tab rail as well as the panel: without it the whole
+          page jumps down by a rail's height the moment the data lands. */}
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-6 border-b border-border pb-3">
+          {[28, 22, 16, 26].map((w, i) => (
+            <div
+              key={i}
+              style={{ width: `${w * 4}px` }}
+              className="h-4 animate-pulse rounded-sm bg-surface-2"
+            />
+          ))}
         </div>
-      ))}
+        <div className="flex flex-col gap-3">
+          <div className="h-4 w-96 max-w-full animate-pulse rounded-sm bg-surface-2" />
+          <div className="h-64 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm" />
+        </div>
+      </div>
     </div>
   );
 }
