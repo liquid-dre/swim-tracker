@@ -1,7 +1,8 @@
 import { GALA_ORDER, type GalaCode } from "@/lib/galas";
 
-// Shared chart tokens (Step 7). Recharts takes plain SVG paint strings, so we
-// reference the DESIGN.md CSS variables directly — no ad-hoc hex, no new colours.
+// Shared chart tokens (Step 7). The chart layer takes plain SVG paint strings,
+// so these reference the DESIGN.md CSS variables directly — no ad-hoc hex, no
+// new colours.
 // One accent (brand) + neutral gridlines is the house style; the series palette
 // below is only drawn on for GROUP progression, where one line per swimmer needs
 // to be told apart. All values resolve to tokens already defined in globals.css.

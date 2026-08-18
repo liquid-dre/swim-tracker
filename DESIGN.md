@@ -173,7 +173,7 @@ it, and it is excluded from eslint for that reason. Our own chart parts live in
 `components/charts/swim/`, which is linted and tested normally; its `index.ts` lists what each one
 exists for and why bklit has no equivalent.
 
-**Six deliberate edits do live in the vendored tree**, each marked `LOCAL EDIT` in a comment
+**Eight deliberate edits do live in the vendored tree**, each marked `LOCAL EDIT` in a comment
 naming the upstream behaviour it overrides:
 
 | Edit | Where | Why |
@@ -183,13 +183,21 @@ naming the upstream behaviour it overrides:
 | `valueDomain` | `bar-chart.tsx` | Our bars come from `SwimBars`, so bklit finds no `dataKey` to scan and falls back to `[0, 110]`. |
 | `maxLabelWidth` | `bar-y-axis.tsx` | The category gutter has to size to the longest swimmer name without clipping or over-reserving. |
 | **null metric values** | `radar-area.tsx`, `radar-context.tsx` | Upstream coerces a missing metric to `0`, drawing "never raced this stroke" identically to "slowest possible at it". A null now breaks the polygon. |
+| `labelFor` | `bar-y-axis.tsx` | Upstream uses a band's KEY as its LABEL, forcing them to be one string. `bar-chart.tsx` feeds the key domain to `scaleBand`, which interns it — so two swimmers named "Jane Smith" collapsed into one band while the table beside the chart listed two. Charts now key on the swimmer id and label by lookup. |
+| **skip missing points** | `series-path-utils.ts` | Upstream coerced a missing value to `y: 0`, the TOP of the plot. Invisible on a one-series chart; on the group progression chart every date one swimmer raced and another did not spiked the other's line to the ceiling. Missing rows are now dropped, so a line joins that swimmer's own consecutive races. |
 | **bar tooltip anchor** | `tooltip/chart-tooltip.tsx` | Upstream anchors the panel to `lines[0]` and falls back to `0` with no line configs — which is every chart where `SwimBars` draws the bars, so the tooltip pinned to the top of the plot instead of the hovered bar. Now falls back to the hovered bar's band centre. |
 
 Most of these are one shape of the same problem: the upstream default is right for counting web
-analytics and wrong for swim times. The two edits with real logic keep it in **our** tree —
+analytics and wrong for swim times. The edits with real logic keep it in **our** tree —
 `components/charts/swim/radarPaths.ts` and `components/charts/swim/barTooltipAnchor.ts`, both
 linted and tested — so the vendored diff is an import rather than an algorithm. Prefer that shape
-for any future edit big enough to need one.
+for any future edit big enough to need one; where the edit is a one-line guard, test it from
+`components/charts/swim/` instead (see `seriesPathPoints.test.ts`).
+
+Three of these eight are the SAME upstream habit: a missing value silently becomes `0`. It is
+worth assuming the next vendored chart does it too, because none of them is visible to the
+typechecker, the linter or the detector — all three shipped through a green build and were only
+caught by rendering the chart.
 
 **Theming:** bklit ships its own greyscale `--chart-*` palette; every value is repointed at the
 ramp in §2/§3 (`app/globals.css`), in both themes. A chart never introduces a colour the rest of

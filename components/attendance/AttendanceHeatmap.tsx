@@ -10,8 +10,10 @@ import {
   HeatmapTooltip,
   HeatmapXAxis,
   HeatmapYAxis,
-  useHeatmapInteractionOptional,
 } from "@/components/charts/heatmap";
+// Imported from the file rather than the barrel, which does not re-export it;
+// reaching past the barrel is cheaper than editing the vendored index.
+import { HeatmapLegendSwatch } from "@/components/charts/heatmap/heatmap-legend-swatch";
 import { SWIM_TOOLTIP_PANEL } from "@/components/charts/swim";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import { CHART_ANIM_MS } from "@/components/analysis/chartTheme";
@@ -21,6 +23,7 @@ import {
   statusLevel,
   RATE_LEVEL_LABELS,
   RATE_LEVEL_STYLES,
+  seasonSummary,
   STATUS_LEVEL_LABELS,
   STATUS_LEVEL_STYLES,
   type HeatmapDay,
@@ -43,7 +46,15 @@ import type { CalendarVariant } from "./types";
 
 export type { HeatmapDay };
 
-/** Words per level, so the legend never depends on the swatch alone. */
+/**
+ * Words per level, with the swatch drawn by the SAME code that paints the cells.
+ *
+ * This used to be a hand-rolled CSS approximation of the pattern, on the belief
+ * that a legend swatch could not reuse an SVG pattern. It can:
+ * `HeatmapLegendSwatch` calls the very `renderPatternPreset` the cells call, so
+ * the key now matches the thing it describes by construction rather than by two
+ * sets of hand-tuned numbers drifting apart.
+ */
 function Legend({ variant }: { variant: CalendarVariant }) {
   const styles = variant === "swimmer" ? STATUS_LEVEL_STYLES : RATE_LEVEL_STYLES;
   const labels = variant === "swimmer" ? STATUS_LEVEL_LABELS : RATE_LEVEL_LABELS;
@@ -52,75 +63,15 @@ function Legend({ variant }: { variant: CalendarVariant }) {
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
       {labels.map((label, i) => (
         <span key={label} className="flex items-center gap-1.5 text-xs text-ink-muted">
-          <span
-            aria-hidden
-            className="size-2.5 rounded-sm border border-black/5"
-            style={swatchStyle(styles[i])}
+          <HeatmapLegendSwatch
+            cellSize={10}
+            cornerRadius={2}
+            level={i}
+            style={styles[i]}
           />
           {label}
         </span>
       ))}
-    </div>
-  );
-}
-
-/*
-  A CSS echo of the cell's pattern fill. The cells themselves are painted with
-  @visx/pattern inside the SVG, which a legend swatch cannot reuse — so the
-  swatch approximates the same texture in CSS. It only has to be recognisable:
-  the words beside it carry the actual meaning.
-*/
-function swatchStyle(style: {
-  color: string;
-  fillMode?: string;
-  pattern?: string;
-  patternColor?: string;
-}): React.CSSProperties {
-  if (style.fillMode !== "pattern") return { background: style.color };
-  const line = style.patternColor ?? style.color;
-
-  switch (style.pattern) {
-    case "diagonal":
-      return {
-        background: `repeating-linear-gradient(45deg, ${line} 0 1px, transparent 1px 3px)`,
-      };
-    case "cross":
-      return {
-        background: `repeating-linear-gradient(45deg, ${line} 0 1px, transparent 1px 3px), repeating-linear-gradient(-45deg, ${line} 0 1px, transparent 1px 3px)`,
-      };
-    case "dots":
-      return {
-        background: `radial-gradient(${line} 0.8px, transparent 0.9px) 0 0 / 3px 3px`,
-      };
-    default:
-      return { background: style.color };
-  }
-}
-
-/**
- * Turns a click anywhere on the grid into "show me that month", using whichever
- * cell the pointer is over. The heatmap exposes hover state but no per-cell
- * click, so this reads the hovered cell out of the interaction context.
- */
-function MonthJump({
-  onSelectMonth,
-  children,
-}: {
-  onSelectMonth?: (year: number, month: number) => void;
-  children: React.ReactNode;
-}) {
-  const interaction = useHeatmapInteractionOptional();
-
-  if (!onSelectMonth) return <>{children}</>;
-
-  return (
-    <div
-      onClick={() => {
-        const d = interaction?.tooltipData?.date;
-        if (d) onSelectMonth(d.getFullYear(), d.getMonth());
-      }}
-    >
-      {children}
     </div>
   );
 }
@@ -131,7 +82,6 @@ export function AttendanceHeatmap({
   to,
   variant,
   swimmerName,
-  onSelectMonth,
 }: {
   days: HeatmapDay[];
   from: string;
@@ -139,7 +89,6 @@ export function AttendanceHeatmap({
   variant: CalendarVariant;
   /** Named when the strip is showing one swimmer, for the caption and summary. */
   swimmerName?: string;
-  onSelectMonth?: (year: number, month: number) => void;
 }) {
   const reduced = usePrefersReducedMotion();
   const perSwimmer = variant === "swimmer";
@@ -151,11 +100,22 @@ export function AttendanceHeatmap({
 
   const labels = perSwimmer ? STATUS_LEVEL_LABELS : RATE_LEVEL_LABELS;
   const marked = days.filter((d) => d.marked > 0).length;
+  const summary = seasonSummary(days, perSwimmer);
+
+  // ~10px cells plus the 2px gap. Below this the squares are smaller than the
+  // gaps between them and the strip is texture, not data — so the card scrolls
+  // rather than letting `layout="fluid"` shrink a 52-week season to noise.
+  const minWidth = columns.length * 12;
 
   if (columns.length === 0) return null;
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
+    /*
+      Desktop only. On a phone a 52-week season lands at roughly 4px a cell,
+      which is unreadable, and the parent looking at one child's month is
+      already served by the agenda below. Hiding it beats shipping a smear.
+    */
+    <section className="hidden flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:flex md:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-ink">
           {perSwimmer
@@ -164,16 +124,18 @@ export function AttendanceHeatmap({
         </h2>
         <p className="text-xs text-ink-faint">
           {marked} day{marked === 1 ? "" : "s"} with attendance
-          {onSelectMonth ? " · select a day to open its month" : ""}
         </p>
       </div>
 
+      {/* The strip's text equivalent. The month grid below is NOT one: it shows
+          a single month against this whole season, and below `lg` it is replaced
+          by the agenda entirely. */}
+      <p className="sr-only">{summary}</p>
+
       <HeatmapInteractionProvider>
         <HeatmapInteractionBoundary>
-          <MonthJump onSelectMonth={onSelectMonth}>
-            {/* Decorative: the summary sentence and the month grid below carry
-                the same information for assistive tech. */}
-            <div aria-hidden="true">
+          <div className="overflow-x-auto custom-scrollbar">
+            <div aria-hidden="true" style={{ minWidth }}>
               <HeatmapChart
                 animate={!reduced}
                 animationDuration={CHART_ANIM_MS}
@@ -195,7 +157,7 @@ export function AttendanceHeatmap({
                 />
               </HeatmapChart>
             </div>
-          </MonthJump>
+          </div>
         </HeatmapInteractionBoundary>
       </HeatmapInteractionProvider>
 

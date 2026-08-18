@@ -100,7 +100,10 @@ export function StrokeRadar({
           <RadarAxis />
           <RadarLabels />
           {data.map((d, i) => (
-            <RadarArea index={i} key={d.label} />
+            // showGlow defaults ON upstream, firing a 12px coloured
+            // drop-shadow on hover. DESIGN.md §6 allows motion that conveys
+            // state; a glow behind a polygon conveys none.
+            <RadarArea index={i} key={d.label} showGlow={false} />
           ))}
         </RadarChart>
       </div>

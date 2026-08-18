@@ -12,6 +12,7 @@ import {
   TooltipRows,
   TooltipTitle,
   TooltipValue,
+  ValueAxis,
   ValueThresholds,
   type SwimBar,
   type Threshold,
@@ -28,17 +29,19 @@ import { squadMedianPct, type SeasonBar } from "./seasonBars";
   the same reason: the list carries the exact figures, so this SVG is decorative
   and hidden from assistive tech.
 
-  The scale is deliberately LEADER-NORMALISED, not absolute. Bar length answers
-  "where does this swimmer sit in the squad", not "how much did they drop" — the
-  −X.X% in the list answers that, and printing it twice in two precisions would
-  just invite the eye to compare lengths it cannot read accurately. So there is
-  no value axis.
+  The domain is zero-based and runs to the squad's best drop, so bar LENGTH is
+  proportional to the improvement — the leader fills the track and everyone else
+  reads against them. That is a real quantity, which is why the axis is drawn.
+  It shipped without one for a while, and the effect was that a squad whose
+  leader dropped 1.2% and one whose leader dropped 14% rendered identically: the
+  shape was honest and completely unreadable, because nothing on screen said
+  what the track was worth.
 
-  What stops the bar being PURE rank is the one threshold line: the squad's
-  MEDIAN improvement. Median, not mean, because a single big improver drags a
-  mean past most of the squad and the line stops separating anyone. With it, a
-  bar carries a real read a coach acts on — above or below the middle of the
-  squad — while the ordering still does the ranking.
+  The one threshold line is the squad's MEDIAN improvement. Median, not mean,
+  because a single big improver drags a mean past most of the squad and the line
+  stops separating anyone. It gives each bar a second read a coach acts on —
+  above or below the middle of the squad — on top of the magnitude the axis now
+  supplies.
 */
 
 /** Renders children at rest (no enter animation) when motion is reduced. */
@@ -77,9 +80,14 @@ export function SeasonBarChart({ bars }: { bars: SeasonBar[] }) {
   const maxPct = bars.reduce((m, b) => Math.max(m, b.pct), 0);
   const median = squadMedianPct(bars);
 
+  // Key on the swimmer's ID, not the name — see ComparisonBarChart. /season
+  // ranks the whole squad at once, so it is the likeliest place to hit a
+  // duplicate name.
+  const nameById = new Map(bars.map((b) => [b.swimmerId, b.name]));
+
   const swimBars: SwimBar[] = bars.map((b) => ({
     key: b.swimmerId,
-    category: b.name,
+    category: b.swimmerId,
     value: b.pct,
     // One accent: season improvement carries no tier meaning, so colour here
     // would be decoration inventing a category that does not exist.
@@ -118,7 +126,7 @@ export function SeasonBarChart({ bars }: { bars: SeasonBar[] }) {
           margin={{
             top: thresholds.length > 0 ? 22 : 4,
             right: narrow ? 52 : 72,
-            bottom: 12,
+            bottom: 24,
             left: yWidth,
           }}
           className="h-full"
@@ -128,7 +136,7 @@ export function SeasonBarChart({ bars }: { bars: SeasonBar[] }) {
           // near the end of the track: this is the normalised scale, expressed
           // as a domain so the median line lands in the same coordinate space.
           valueDomain={[0, Math.max(maxPct, median ?? 0) * 1.08]}
-          xDataKey="name"
+          xDataKey="swimmerId"
         >
           <Grid
             horizontal={false}
@@ -136,9 +144,12 @@ export function SeasonBarChart({ bars }: { bars: SeasonBar[] }) {
             strokeDasharray="3 3"
             vertical
           />
-          {/* Names down the side. No ValueAxis: the scale is relative, so tick
-              percentages would claim a precision the bar lengths do not have. */}
-          <BarYAxis maxLabelWidth={yWidth - 8} />
+          {/* Names down the side, percent dropped along the bottom. */}
+          <BarYAxis
+            labelFor={(id) => nameById.get(id) ?? id}
+            maxLabelWidth={yWidth - 8}
+          />
+          <ValueAxis format={(v) => `${v.toFixed(1)}%`} label="Time dropped" />
           <ValueThresholds thresholds={thresholds} />
           <SwimBars bars={swimBars} labelColor={CHART.ink} maxBarSize={22} />
           <ChartTooltip

@@ -53,13 +53,26 @@ export function ValueThresholds({
   const yScale = useYScale(yAxisId);
   const horizontal = orientation === "horizontal";
 
+  /*
+    Labels are staggered onto two rows on a horizontal chart. Gala cuts for one
+    event at one age sit close together by nature — a 14-year-old's L2/L3/SANJ
+    100 Free cuts land within a few seconds of each other, which at plot scale
+    is a few dozen pixels, against labels ~60px wide. On one row they overlap in
+    exactly the case the overlay exists for. Alternating rows buys each label
+    roughly double the horizontal room before it can collide.
+
+    Sorted by position first, so "alternating" follows what the eye sees rather
+    than the order the caller happened to pass.
+  */
+  const ordered = [...thresholds]
+    .map((t) => ({ t, at: yScale(t.value) }))
+    .filter(({ at }) => Number.isFinite(at))
+    .sort((a, b) => a.at - b.at);
+
   return (
     <g className="chart-value-thresholds">
-      {thresholds.map((t) => {
-        const at = yScale(t.value);
-        // Off-scale would draw the line on the axis and read as a threshold of
-        // zero. Better to draw nothing than to draw it in the wrong place.
-        if (!Number.isFinite(at)) return null;
+      {ordered.map(({ t, at }, i) => {
+        const labelY = horizontal && i % 2 === 1 ? -21 : -8;
         return horizontal ? (
           <g key={t.key}>
             <line
@@ -78,7 +91,7 @@ export function ValueThresholds({
               fontWeight={600}
               textAnchor="middle"
               x={at}
-              y={-8}
+              y={labelY}
             >
               {t.label}
             </text>

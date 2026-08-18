@@ -33,7 +33,9 @@ import { CHART, CHART_ANIM_MS } from "@/components/analysis/chartTheme";
   ever saying 12%.
 
   Shorter bar = closer, which is the same orientation as everything else in the
-  app: less is better.
+  app: less is better. Qualified events are in the SAME chart at zero rather
+  than in a second one with inverted semantics — see the note in RoadScreen on
+  why the old "Qualifying progress" chart was removed.
 */
 
 export type GapBar = {
@@ -44,6 +46,8 @@ export type GapBar = {
   cutMs: number;
   gapMs: number;
   gapPct: number;
+  /** At or past the cut — plotted at zero, since there is no gap left. */
+  qualified: boolean;
 };
 
 /** Renders children at rest (no enter animation) when motion is reduced. */
@@ -80,10 +84,12 @@ export function RoadGapChart({ bars }: { bars: GapBar[] }) {
     key: b.key,
     category: b.label,
     value: b.gapPct,
-    // One accent: every bar here is the same kind of thing — an event still
-    // being chased. Colour would invent a category the data does not have.
-    fill: CHART.accent,
-    label: `+${formatSeconds(b.gapMs)}s`,
+    // Two states, and they are a real distinction: still chasing, or done.
+    fill: b.qualified ? "var(--color-qualified)" : CHART.accent,
+    // A qualified event draws no bar, because zero seconds remain — so the
+    // label is what carries the row. Saying "+0.0s" would read as a rounding
+    // artefact rather than as an achievement.
+    label: b.qualified ? "Qualified" : `+${formatSeconds(b.gapMs)}s`,
   }));
 
   return (
@@ -126,7 +132,9 @@ function GapTooltip({ row }: { row: GapBar }) {
   return (
     <TooltipRows>
       <TooltipTitle>{row.label}</TooltipTitle>
-      <TooltipValue>+{formatSeconds(row.gapMs)}s</TooltipValue>
+      <TooltipValue>
+        {row.qualified ? "Qualified" : `+${formatSeconds(row.gapMs)}s`}
+      </TooltipValue>
       <TooltipMeta>
         <span>
           {formatTime(row.pbMs)} → {formatTime(row.cutMs)} ·{" "}

@@ -100,8 +100,8 @@ export function ComparisonBarChart({
   // Decorative-only trade-off — the leaderboard table carries the full names.
   const narrow = useMediaQuery("(max-width: 639px)");
 
-  // Fastest first in the leaderboard = top of the chart. Recharts plots the
-  // first category at the bottom by default, so reverse the axis to match.
+  // Fastest first in the leaderboard = top of the chart; bklit's band scale
+  // takes the data in order, so the two stay in step with no reversal.
   const data = rows;
   const rowHeight = 44;
   const height = Math.max(
@@ -119,9 +119,14 @@ export function ComparisonBarChart({
   const maxCut = cuts.reduce((m, c) => Math.max(m, c.timeMs), 0);
   const maxTime = data.reduce((m, r) => Math.max(m, r.timeMs), 0);
 
+  // Bands key on the swimmer's ID, never the display name: bar-chart.tsx feeds
+  // the key domain to scaleBand, which interns it, so two swimmers with the
+  // same name would collapse into one band while the table below lists two.
+  const nameById = new Map(data.map((r) => [r.swimmerId, r.name]));
+
   const bars: SwimBar[] = data.map((r) => ({
     key: r.swimmerId,
-    category: r.name,
+    category: r.swimmerId,
     value: r.timeMs,
     fill: barColor(r.highestGala, overlay),
     // The exact time at the end of every bar, so the chart never asks the eye to
@@ -155,7 +160,8 @@ export function ComparisonBarChart({
           data={data}
           // Reserve headroom for the threshold labels sitting above the plot.
           margin={{
-            top: cuts.length > 0 ? 22 : 4,
+            // 34, not 22: ValueThresholds staggers its labels onto two rows.
+            top: cuts.length > 0 ? 34 : 4,
             right: narrow ? 52 : 72,
             bottom: 24,
             left: yWidth,
@@ -171,7 +177,7 @@ export function ComparisonBarChart({
           // no cuts: a [0, 0] domain is degenerate and the skeleton bars would
           // have nothing to scale against.
           valueDomain={[0, (Math.max(maxTime, maxCut) || 1) * 1.08]}
-          xDataKey="name"
+          xDataKey="swimmerId"
         >
           <Grid
             horizontal={false}
@@ -182,7 +188,10 @@ export function ComparisonBarChart({
           {/* Swimmer names down the side; times along the bottom. On a horizontal
               bar chart bklit's BarYAxis is the CATEGORY axis, and the value axis
               has no labels at all — hence ValueAxis. */}
-          <BarYAxis maxLabelWidth={yWidth - 8} />
+          <BarYAxis
+            labelFor={(id) => nameById.get(id) ?? id}
+            maxLabelWidth={yWidth - 8}
+          />
           <ValueAxis format={formatTime} label="Time" />
           {/* One vertical line per eligible gala at the pinned age, in this
               course. A bar ending left of a line has met that gala. */}
@@ -207,7 +216,7 @@ export function ComparisonTierLegend({ tiers }: { tiers: GalaCode[] }) {
   if (present.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
-      <span className="font-medium text-ink-muted">GalaCode met</span>
+      <span className="font-medium text-ink-muted">Highest gala met</span>
       {present.map((t) => {
         const st = TIER_STYLE[t];
         return (

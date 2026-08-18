@@ -4,6 +4,9 @@ import {
   buildHeatmapColumns,
   rateLevel,
   statusLevel,
+  RATE_LEVEL_STYLES,
+  seasonSummary,
+  STATUS_LEVEL_STYLES,
   type HeatmapDay,
 } from "./attendanceHeatmap";
 
@@ -124,5 +127,103 @@ describe("buildHeatmapColumns", () => {
     );
     expect(new Set(isos).size).toBe(isos.length);
     expect(isos.length).toBe(cols.length * 7);
+  });
+});
+
+describe("STATUS_LEVEL_STYLES", () => {
+  /*
+    The bug this guards: `heatmapLevelPatternRenderOptions` strokes the pattern
+    in `patternColor` and paints the tile beneath it in `color`. Set both to the
+    same token and the hatching is drawn in the tile's own colour and vanishes,
+    leaving four categories told apart by hue alone — a DESIGN.md §8 violation
+    that renders correctly in every unit test and only shows up on screen.
+  */
+  it("never strokes a pattern in its own tile colour", () => {
+    for (const style of STATUS_LEVEL_STYLES) {
+      if (style.fillMode !== "pattern") continue;
+      expect(style.patternColor).toBeDefined();
+      expect(style.patternColor).not.toBe(style.color);
+    }
+  });
+
+  it("gives every patterned level a real pattern", () => {
+    for (const style of STATUS_LEVEL_STYLES) {
+      if (style.fillMode !== "pattern") continue;
+      expect(style.pattern).toBeDefined();
+      expect(style.pattern).not.toBe("none");
+    }
+  });
+
+  it("distinguishes the four statuses by more than hue", () => {
+    // Levels 1-4 are Absent / Excused / Late / Present. Three carry a texture;
+    // Present is deliberately solid, so three distinct patterns is the bar.
+    const patterns = STATUS_LEVEL_STYLES.slice(1)
+      .filter((s) => s.fillMode === "pattern")
+      .map((s) => s.pattern);
+    expect(new Set(patterns).size).toBe(patterns.length);
+    expect(patterns.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps every level a distinct colour as well", () => {
+    const colors = STATUS_LEVEL_STYLES.map((s) => s.color);
+    expect(new Set(colors).size).toBe(colors.length);
+  });
+
+  it("leaves the ordinal rate ramp unpatterned", () => {
+    // The rate ramp IS ordinal, so intensity is the honest encoding and texture
+    // would be noise.
+    for (const style of RATE_LEVEL_STYLES) {
+      expect(style.fillMode).toBe("solid");
+    }
+  });
+});
+
+describe("seasonSummary", () => {
+  it("says so plainly when nothing is recorded", () => {
+    expect(seasonSummary([], false)).toMatch(/No attendance recorded/);
+    expect(seasonSummary([day({ marked: 0 })], true)).toMatch(/No attendance recorded/);
+  });
+
+  it("counts a swimmer's season by status, with late counted as attended", () => {
+    const out = seasonSummary(
+      [
+        day({ date: "2026-01-05", marked: 1, status: "PRESENT" }),
+        day({ date: "2026-01-06", marked: 1, status: "LATE" }),
+        day({ date: "2026-01-07", marked: 1, status: "ABSENT" }),
+        day({ date: "2026-01-08", marked: 1, status: "EXCUSED" }),
+      ],
+      true,
+    );
+    expect(out).toContain("4 session days");
+    expect(out).toContain("2 attended (1 late)");
+    expect(out).toContain("1 absent");
+    expect(out).toContain("1 excused");
+  });
+
+  it("averages the squad rate and names the extremes", () => {
+    const out = seasonSummary(
+      [
+        day({ date: "2026-01-05", marked: 8, ratePct: 100 }),
+        day({ date: "2026-01-06", marked: 8, ratePct: 50 }),
+      ],
+      false,
+    );
+    expect(out).toContain("averaging 75% turnout");
+    expect(out).toContain("best 100%");
+    expect(out).toContain("worst 50%");
+  });
+
+  it("ignores unrateable days when averaging", () => {
+    // An all-excused day has marks but no eligible denominator; it must not be
+    // averaged in as a zero.
+    const out = seasonSummary(
+      [
+        day({ date: "2026-01-05", marked: 4, ratePct: null }),
+        day({ date: "2026-01-06", marked: 8, ratePct: 80 }),
+      ],
+      false,
+    );
+    expect(out).toContain("averaging 80% turnout");
+    expect(out).toContain("2 session days");
   });
 });

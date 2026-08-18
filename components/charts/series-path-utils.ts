@@ -16,14 +16,32 @@ export function computeSeriesPathPoints(
   yScale: (value: number) => number | undefined,
   dataKey: string
 ): SeriesPathPoint[] {
-  return data.map((datum, index) => {
-    const xValue = xAccessor(datum);
+  /*
+    LOCAL EDIT (ours). Rows where this series has no value are DROPPED, not
+    plotted at y = 0.
+
+    Upstream coerced a missing value to 0, which in SVG is the top of the plot.
+    On a single-series chart that never fires, because every row carries that
+    series' key. On a GROUP progression chart it fires constantly: the swimmers
+    merge onto one shared date axis, so every date one swimmer raced and another
+    did not gave the other a spike to the ceiling. Two steadily improving
+    swimmers rendered as a zigzag through times nobody swam.
+
+    Dropping the row instead joins the swimmer's own consecutive races across
+    the gap, which is what a progression line means and what the single-swimmer
+    chart has always drawn.
+  */
+  return data.flatMap((datum, index) => {
     const yValue = datum[dataKey];
-    return {
-      x: xScale(xValue) ?? 0,
-      y: typeof yValue === "number" ? (yScale(yValue) ?? 0) : 0,
-      key: String(xValue.getTime?.() ?? index),
-    };
+    if (typeof yValue !== "number") return [];
+    const xValue = xAccessor(datum);
+    return [
+      {
+        x: xScale(xValue) ?? 0,
+        y: yScale(yValue) ?? 0,
+        key: String(xValue.getTime?.() ?? index),
+      },
+    ];
   });
 }
 

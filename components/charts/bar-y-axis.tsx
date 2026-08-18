@@ -18,6 +18,18 @@ export interface BarYAxisProps {
    * Default: 70, i.e. exactly the upstream behaviour.
    */
   maxLabelWidth?: number;
+  /**
+   * LOCAL EDIT (ours). Maps a band's KEY to the text drawn for it. Upstream uses
+   * the key as the label, which forces the two to be the same string — and that
+   * is a correctness bug, not just an inconvenience: `bar-chart.tsx` feeds the
+   * key domain straight to `scaleBand`, which interns it, so two swimmers called
+   * "Jane Smith" collapse into one band and draw on top of each other while the
+   * table beside the chart lists two rows.
+   *
+   * With this, charts key bands on the swimmer's id (unique by construction) and
+   * still render the name. Omit it and the behaviour is exactly upstream's.
+   */
+  labelFor?: (category: string) => string;
 }
 
 interface BarYAxisLabelProps {
@@ -88,6 +100,7 @@ const BarYAxisInner = memo(function BarYAxisInner({
   showAllLabels = true,
   maxLabels = 20,
   maxLabelWidth = 70,
+  labelFor,
   container,
 }: BarYAxisProps & { container: HTMLDivElement }) {
   const { margin, barScale, bandWidth, barXAccessor, data, hoveredBarIndex } =
@@ -100,8 +113,10 @@ const BarYAxisInner = memo(function BarYAxisInner({
     }
 
     const allLabels = data.map((d, i) => {
-      const label = barXAccessor(d);
-      const bandY = barScale(label) ?? 0;
+      const key = barXAccessor(d);
+      // LOCAL EDIT: the band KEY and the drawn LABEL are separate concerns.
+      const label = labelFor ? labelFor(key) : key;
+      const bandY = barScale(key) ?? 0;
       // Center the label vertically within the band
       const y = bandY + margin.top;
       return { label, y, bandHeight: bandWidth, index: i };
@@ -123,6 +138,7 @@ const BarYAxisInner = memo(function BarYAxisInner({
     margin.top,
     showAllLabels,
     maxLabels,
+    labelFor,
   ]);
 
   return createPortal(

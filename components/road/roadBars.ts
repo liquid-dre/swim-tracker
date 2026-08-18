@@ -85,19 +85,3 @@ export function byEventOrder(a: { key: string }, b: { key: string }): number {
     Number(da) - Number(db) || (STROKE_RANK[sa] ?? 99) - (STROKE_RANK[sb] ?? 99)
   );
 }
-
-/**
- * Progress toward one gala's cut: 1 at or past it, else how near the PB is.
- *
- * The ratio is cut/pb, not pb/cut, because a SLOWER time is a BIGGER number —
- * so the faster the swimmer gets, the closer this climbs to 1.
- */
-export function fillFraction(bar: {
-  pbMs: number;
-  cutMs: number;
-  qualified: boolean;
-}): number {
-  if (bar.qualified) return 1;
-  if (!(bar.pbMs > 0)) return 0;
-  return Math.max(0, Math.min(1, bar.cutMs / bar.pbMs));
-}
