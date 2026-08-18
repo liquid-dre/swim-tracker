@@ -372,7 +372,7 @@ describe("stroke radar (percent-of-world-record comparison)", () => {
     });
     // Zero would draw the polygon collapsed at the hub, which reads as "slowest
     // possible" rather than "has not raced".
-    expect(res.swimmers[0].strokes.every((s) => s.pct === null)).toBe(true);
+    expect(res.swimmers[0].strokes.every((s) => s.value === null)).toBe(true);
     expect(res.swimmers[0].strokes.every((s) => s.events === 0)).toBe(true);
   });
 

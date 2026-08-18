@@ -26,6 +26,7 @@ describe("navForRole — role decides which nav renders", () => {
       "/me/compare",
       "/me/progression",
       "/me/stroke-profile",
+      "/me/points",
       "/me/season",
       "/me/status",
       "/me/road",
@@ -46,6 +47,16 @@ describe("navForRole — role decides which nav renders", () => {
     expect(coach).toContain("/dashboard");
     expect(coach).toContain("/road");
     for (const href of coach) expect(href.startsWith("/me")).toBe(false);
+  });
+
+  it("gives both roles Points, under Performance", () => {
+    expect(hrefsFor("COACH")).toContain("/points");
+    expect(hrefsFor("VIEWER")).toContain("/me/points");
+    // Deny-by-default: the viewer route only works because it opted in.
+    expect(isRouteAllowed("VIEWER", "/me/points")).toBe(true);
+    expect(isRouteAllowed("COACH", "/points")).toBe(true);
+    expect(isRouteAllowed("VIEWER", "/points")).toBe(false);
+    expect(isRouteAllowed("COACH", "/me/points")).toBe(false);
   });
 
   it("gives a coach the attendance surface but not the viewer calendar", () => {
@@ -74,6 +85,7 @@ describe("isRouteAllowed — read-only scoping holds via direct URL", () => {
       "/me/status",
       "/me/road",
       "/me/standards",
+      "/me/points",
       "/me/find",
     ]) {
       expect(isRouteAllowed("VIEWER", href)).toBe(true);

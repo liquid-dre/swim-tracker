@@ -41,7 +41,7 @@ export interface RadarData {
   /** Color for this data series (defaults to chart-1 through chart-5) */
   color?: string;
   /**
-   * Metric values (key -> value, normalized 0-100).
+   * Metric values (key -> value), on the chart's own 0..`valueMax` scale.
    *
    * LOCAL EDIT: `null` (or an absent key) means NO DATA for that metric, and is
    * rendered as a gap in the polygon rather than as a value. Upstream coerced a
@@ -65,6 +65,15 @@ export interface RadarStableContextValue {
   size: number;
   radius: number;
   levels: number;
+  /**
+   * LOCAL EDIT: the top of the value scale. Upstream hard-codes 100 in both
+   * radar-chart.tsx and radar-grid.tsx, so a radar could only ever plot a
+   * percentage. The stroke profile also plots World Aquatics points, which top
+   * out at 1000, and rescaling those to 0-100 by hand would put a number on the
+   * ring labels that is not the number in the tooltip. Defaults to 100, so every
+   * existing caller is unchanged.
+   */
+  valueMax: number;
 
   // Animation
   animate: boolean;
@@ -107,6 +116,7 @@ export function RadarProvider({
       size: value.size,
       radius: value.radius,
       levels: value.levels,
+      valueMax: value.valueMax,
       animate: value.animate,
       enterDurationMs: value.enterDurationMs,
       staggerScale: value.staggerScale,
@@ -123,6 +133,7 @@ export function RadarProvider({
       value.size,
       value.radius,
       value.levels,
+      value.valueMax,
       value.animate,
       value.enterDurationMs,
       value.staggerScale,

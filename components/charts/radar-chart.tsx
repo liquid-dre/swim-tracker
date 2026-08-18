@@ -23,6 +23,14 @@ export interface RadarChartProps {
   size?: number;
   /** Number of concentric grid circles. Default: 5 */
   levels?: number;
+  /**
+   * LOCAL EDIT: top of the value scale. Default 100 (upstream's hard-coded
+   * percentage domain), so every existing caller is unchanged. The stroke
+   * profile passes 1000 to plot World Aquatics points on their own scale rather
+   * than pre-dividing them, which would make the ring labels disagree with the
+   * numbers in the tooltip and the table.
+   */
+  valueMax?: number;
   /** Margin around the chart. Default: 60 */
   margin?: number;
   /** Enable animations. Default: true */
@@ -51,6 +59,8 @@ interface RadarChartInnerProps {
   data: RadarData[];
   metrics: RadarMetric[];
   levels: number;
+  /** LOCAL EDIT: top of the value scale — see RadarChartProps.valueMax. */
+  valueMax: number;
   margin: number;
   animate: boolean;
   enterDurationMs: number;
@@ -68,6 +78,7 @@ function RadarChartInner({
   data,
   metrics,
   levels,
+  valueMax,
   margin,
   animate,
   enterDurationMs,
@@ -100,16 +111,18 @@ function RadarChartInner({
   const size = Math.min(width, height);
   const radius = (size - margin * 2) / 2;
 
-  // Scale for converting values (0-100) to radius
+  // Scale for converting values to radius.
+  // LOCAL EDIT: the domain top is `valueMax` (default 100) rather than a
+  // hard-coded 100, so a radar can plot a scale that is not a percentage.
   const yScale = useCallback(
     (value: number) => {
       const scale = scaleLinear<number>({
         range: [0, radius],
-        domain: [0, 100],
+        domain: [0, valueMax],
       });
       return scale(value) ?? 0;
     },
-    [radius]
+    [radius, valueMax]
   );
 
   // Get angle for a metric index (rotated so first metric is at top)
@@ -158,6 +171,7 @@ function RadarChartInner({
     size,
     radius,
     levels,
+    valueMax,
     hoveredIndex,
     setHoveredIndex,
     animate,
@@ -192,6 +206,7 @@ export function RadarChart({
   metrics,
   size: fixedSize,
   levels = 5,
+  valueMax = 100,
   margin = 60,
   animate = true,
   enterDurationMs = 1100,
@@ -223,6 +238,7 @@ export function RadarChart({
           motionReplayKey={motionReplayKey}
           onHoverChange={onHoverChange}
           staggerScale={staggerScale}
+          valueMax={valueMax}
           width={fixedSize}
         >
           {children}
@@ -249,6 +265,7 @@ export function RadarChart({
             motionReplayKey={motionReplayKey}
             onHoverChange={onHoverChange}
             staggerScale={staggerScale}
+            valueMax={valueMax}
             width={width}
           >
             {children}

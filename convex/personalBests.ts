@@ -15,6 +15,7 @@ import {
   type ResultForPB,
 } from "../lib/swim";
 import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
+import { bestPointsSwim, POINTS_BASE_YEAR } from "../lib/points";
 
 // Personal bests + swimmer profile (BRD §4.6, §5.4, Step 6). PBs are DERIVED —
 // there is NO personalBests table. Every read recomputes from `results` over the
@@ -185,6 +186,26 @@ export const getSwimmerProfile = query({
     // Whether the caller may EDIT this swimmer (own-club coach / super-user) —
     // drives the write controls (edit, log, viewer access) on the profile page.
     editable: v.boolean(),
+    /**
+     * The swimmer's World Aquatics points: their single highest-scoring meet
+     * PB, long course. Derived here rather than by a second query, because it
+     * comes off the PB board this handler already computed.
+     *
+     * Null when nothing scores — no long-course meet time, or only events
+     * World Aquatics publishes no table for.
+     */
+    bestPoints: v.union(
+      v.null(),
+      v.object({
+        points: v.number(),
+        label: v.string(),
+        timeMs: v.number(),
+        swimDate: v.string(),
+        meetName: v.union(v.string(), v.null()),
+        course,
+        baseYear: v.number(),
+      }),
+    ),
   }),
   handler: async (ctx, args) => {
     // Coach → any swimmer; viewer → only their linked swimmer(s). The read is
@@ -286,6 +307,21 @@ export const getSwimmerProfile = query({
       personalBests,
       history,
       editable,
+      // Long course only: the short-course base times are not loaded, and a
+      // number borrowed across course would be wrong (see lib/points.ts).
+      bestPoints: (() => {
+        const best = bestPointsSwim(personalBests, "LCM", swimmer.gender);
+        if (best === null) return null;
+        return {
+          points: best.points,
+          label: best.label,
+          timeMs: best.timeMs,
+          swimDate: best.swimDate,
+          meetName: best.meetName,
+          course: best.course,
+          baseYear: POINTS_BASE_YEAR,
+        };
+      })(),
     };
   },
 });
