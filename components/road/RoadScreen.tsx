@@ -25,6 +25,7 @@ import {
   type SingleBar,
 } from "./QualifyingProgress";
 import { AllTierResults } from "./RoadAllResults";
+import { RoadGapChart, type GapBar } from "./RoadGapChart";
 
 /*
   Road to qualify (Step 12 / R3, BRD §5.10–5.11). For one swimmer at one target,
@@ -289,10 +290,19 @@ export function RoadResults({
   const qualified = useMemo(() => events.filter((e) => e.qualified), [events]);
   const noTime = useMemo(() => events.filter((e) => e.pbMs === null), [events]);
 
-  // The gap bars are normalised against the widest gap in the chasing set, so
-  // the closest events read as slivers and the farthest fill the track.
-  const maxGapPct = useMemo(
-    () => chasing.reduce((m, e) => Math.max(m, e.gapPct ?? 0), 0),
+  // Chart rows for the gap view. The scale is absolute (percent over the cut),
+  // so the chart derives its own domain rather than being handed a normaliser.
+  const gapBars = useMemo<GapBar[]>(
+    () =>
+      chasing.map((e) => ({
+        key: `${e.distance}|${e.stroke}`,
+        label: e.label,
+        course: e.course,
+        pbMs: e.pbMs as number,
+        cutMs: e.cutMs,
+        gapMs: e.gapMs as number,
+        gapPct: e.gapPct as number,
+      })),
     [chasing],
   );
 
@@ -337,13 +347,15 @@ export function RoadResults({
         </div>
 
         {chasing.length > 0 ? (
-          <GapGroup
-            heading="Closest to the cut"
-            count={chasing.length}
-            rows={chasing}
-            maxGapPct={maxGapPct}
-            showCourse={showCourse}
-          />
+          <>
+            <RoadGapChart bars={gapBars} />
+            <GapGroup
+              heading="Closest to the cut"
+              count={chasing.length}
+              rows={chasing}
+              showCourse={showCourse}
+            />
+          </>
         ) : (
           <p className="text-sm text-ink-muted">
             No events left to chase at this gala — every applicable event is
@@ -369,7 +381,7 @@ export function RoadResults({
               Full bar = qualified · {GALA_MEDIUM[gala]}
             </p>
           </div>
-          <SingleTierProgress bars={progressBars} />
+          <SingleTierProgress bars={progressBars} gala={gala} />
           <SingleTierLegend tierLabel={GALA_MEDIUM[gala]} />
         </section>
       )}
@@ -495,13 +507,11 @@ function GapGroup({
   heading,
   count,
   rows,
-  maxGapPct,
   showCourse,
 }: {
   heading: string;
   count: number;
   rows: RoadEvent[];
-  maxGapPct: number;
   showCourse: boolean;
 }) {
   return (
@@ -513,7 +523,6 @@ function GapGroup({
           <GapRow
             key={`${e.distance}|${e.stroke}`}
             e={e}
-            maxGapPct={maxGapPct}
             showCourse={showCourse}
           />
         ))}
@@ -524,21 +533,17 @@ function GapGroup({
 
 function GapRow({
   e,
-  maxGapPct,
   showCourse,
 }: {
   e: RoadEvent;
-  maxGapPct: number;
   showCourse: boolean;
 }) {
   const gapMs = e.gapMs as number;
   const gapPct = e.gapPct as number;
-  // Sliver floor so the closest events are still a visible mark, not nothing.
-  const width = maxGapPct > 0 ? Math.max(4, (gapPct / maxGapPct) * 100) : 4;
 
   return (
-    <li className="flex items-center gap-4 py-3">
-      <div className="w-24 shrink-0 sm:w-28">
+    <li className="flex items-center gap-4 py-2.5">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="font-medium text-ink">{e.label}</span>
           <CourseTag course={e.course} show={showCourse} />
@@ -546,15 +551,6 @@ function GapRow({
         <div className="time tnum mt-0.5 text-xs text-ink-faint">
           {formatTime(e.pbMs as number)} → {formatTime(e.cutMs)}
         </div>
-      </div>
-      <div
-        className="h-2 min-w-16 flex-1 overflow-hidden rounded-full bg-gray-100"
-        aria-hidden
-      >
-        <div
-          className="h-full rounded-full bg-brand-500 transition-[width] [transition-duration:var(--dur-2)]"
-          style={{ width: `${width}%` }}
-        />
       </div>
       <div className="w-20 shrink-0 text-right sm:w-24">
         <div className="font-medium tabular-nums text-ink">

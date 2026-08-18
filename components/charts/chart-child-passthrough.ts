@@ -62,15 +62,16 @@ const CLIP_EXCLUDED_COMPONENT_NAMES = new Set([
   "LiveYAxis",
 ]);
 
-// "GalaCutOverlay" and "ValueThresholds" are LOCAL EDITS (ours) — see
-// components/charts/swim/. They are listed here so qualifying-cut lines draw
-// above the gridlines and below the data: a cut is context for the swim, never
-// on top of it.
+// "GalaCutOverlay", "ValueThresholds" and "ValueZones" are LOCAL EDITS (ours) —
+// see components/charts/swim/. They are listed here so qualifying-cut lines and
+// their tinted zones draw above the gridlines and below the data: a cut is
+// context for the swim, never on top of it.
 const UNDERLAY_COMPONENT_NAMES = new Set([
   "ReferenceArea",
   "BarColumnTrack",
   "GalaCutOverlay",
   "ValueThresholds",
+  "ValueZones",
 ]);
 
 /** Markers render after the interaction overlay so they stay clickable. */

@@ -37,6 +37,11 @@ export { SwimDots, type SwimMark } from "./SwimDots";
 export { ValueAxis } from "./ValueAxis";
 export { ValueThresholds, type Threshold } from "./ValueThresholds";
 export {
+  ValueZones,
+  type CategoryZones,
+  type ZoneBand,
+} from "./ValueZones";
+export {
   SWIM_TOOLTIP_PANEL,
   TooltipMeta,
   TooltipMetaDivider,
