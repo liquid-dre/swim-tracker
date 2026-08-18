@@ -47,9 +47,12 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
 ## UI conventions (apply on every screen from Step 4 on)
 - **App shell:** every screen renders inside a collapsible sidebar + slim top bar (shadcn Sidebar,
   lucide icons, TailAdmin-style but on our tokens). Nav IA (coach view): **Dashboard**; **Swimmers**
-  (Roster, Squads, Log a time); **Performance** (Comparison, Progression, Season improvement);
-  **Qualifying** (Status matrix, Road to qualify, Standards — coach only). Viewers get their own
-  compartmentalised nav — **Overview / Progress / Road to qualify / History** — each its own route, not a single info-dump page.
+  (Roster, Squads, Log a time); **Performance** (Comparison, Progression, Stroke profile, Points,
+  Season improvement); **Qualifying** (Status matrix, Road to qualify, Gala qualification, Standards).
+  The viewer nav is a **mirror of that IA under `/me`** — the same groups and the same screens, minus
+  anything that edits — not the older Overview / Progress / History shape earlier revisions of this
+  file described. `lib/nav.ts` is the single source of truth; it is deny-by-default, so a new viewer
+  route must opt in via `roles`.
 - **Breadcrumbs on every page** via the shared `<PageHeader>` / `<AppBreadcrumb>` — real hierarchy, last
   crumb `aria-current="page"`, dynamic segments resolve real names (e.g. *Swimmers / Jane Doe*).
 - **Feedback on every action** via `lib/notify` (Sonner) — `notify.promise` wraps async mutations
@@ -108,6 +111,27 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
 - **Coverage is DATA**, on `galas.coveredEvents` — not a hardcoded switch. Still a hard rule: no 50m at
   L3/SANJ, nothing above 200m at L2, no 200 Fly at L2/L3, no cut at all for 25m or 100 IM. Render no
   line where no cut exists.
+- **World Aquatics points** are the app's ONLY cross-EVENT scale — seconds cannot rank a 200 breast
+  against a 50 free. `points = floor(1000 × (baseMs / timeMs)³)`, **truncated, never rounded** (World
+  Aquatics' own rule, and what meet software implements). Base times live in `lib/points.ts` as a
+  dated code constant, **not** a Convex table — 68 published numbers that change once a year.
+  - **Meet times only**, from the headline PB. Trials, practice and school galas never score.
+  - **Per COURSE, never borrowed.** Base times are published per course; a course with none loaded
+    returns `null` and the UI says so. **Long course only today** — the short-course tables have not
+    been supplied. Adding them is an edit to `BASE_TIMES_MS` alone.
+  - **`null`, never `0`,** for an event with no base time (25 m, 100 IM long course). "Cannot be
+    scored" and "scored nothing" are different facts.
+  - **One current table scores every swim**, however old, so points stay a pure function of
+    (time, event, course, sex). Scoring each swim against its own year's table would re-measure the
+    whole squad's history every January and drop trend lines without anyone swimming slower.
+  - **"A swimmer's points" = their single best swim**, never a sum across events — a sum rewards
+    racing twelve events over racing four well.
+  - It is called **"World Aquatics points"**, never "aqua points": `aqua` is a reserved colour token
+    (`DESIGN.md` §3c) and may not carry a data category.
+- **The stroke radar's metric follows the course**: points where base times are loaded, percent of
+  world record where they are not. Those are different scales, so `radarMetric` returns the metric and
+  its maximum with the data, and the ring labels, caption and accessible table all name which is
+  active. Never let the two be compared spoke-for-spoke.
 - **Roles:** coaches edit; viewers are read-only and see only their linked swimmer(s), enforced
   server-side in every query and mutation.
 

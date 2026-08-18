@@ -69,7 +69,7 @@ export function SwimmerProfileScreen({
 
   if (data === undefined) return <ProfileSkeleton />;
 
-  const { swimmer, personalBests, history } = data;
+  const { swimmer, personalBests, history, bestPoints } = data;
 
   const breadcrumb = viewerArea
     ? [{ label: "My swimmers", href: "/me/swimmers" }, { label: swimmer.name }]
@@ -124,6 +124,12 @@ export function SwimmerProfileScreen({
         title="Personal bests"
         hint="Fastest meet time per event and course. Trials, practice and school galas never set a PB."
       >
+        {bestPoints && (
+          <BestPointsLine
+            best={bestPoints}
+            href={viewerArea ? "/me/points" : "/points"}
+          />
+        )}
         <PbBoard pbs={personalBests} />
       </Section>
 
@@ -373,6 +379,45 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * The swimmer's World Aquatics points, in one line above the PB board.
+ *
+ * One line, not a metric tile: the number is the loud thing, and a card of its
+ * own would make it compete with the PB board it is derived from. It says which
+ * swim earned it, because a points figure with no swim behind it is a score
+ * rather than a fact.
+ */
+function BestPointsLine({
+  best,
+  href,
+}: {
+  best: {
+    points: number;
+    label: string;
+    timeMs: number;
+    swimDate: string;
+    meetName: string | null;
+    baseYear: number;
+  };
+  href: string;
+}) {
+  return (
+    <p className="text-sm text-ink-muted">
+      <Link
+        className="font-medium text-brand-500 underline-offset-2 hover:underline"
+        href={href}
+      >
+        <span className="tabular-nums">{best.points}</span> World Aquatics points
+      </Link>{" "}
+      — {best.label} in{" "}
+      <span className="tabular-nums text-ink">{formatTime(best.timeMs)}</span>,{" "}
+      {formatShortDate(best.swimDate)}
+      {best.meetName ? ` · ${best.meetName}` : ""}. Long course, {best.baseYear}{" "}
+      base times.
+    </p>
   );
 }
 

@@ -106,6 +106,11 @@ stroke, a status or a chart series** — it lives only in chrome (the header ban
 wave), focus energy, and the celebration moment. That is what lets it never be mistaken for a tier or
 a state. `--color-aqua-ink` (#0e7490) is the AA-safe text tone on white (4.6:1); raw `--color-aqua-500`
 is a fill / large-element colour only.
+
+**"Aqua" is a colour, never a metric.** The scoring metric is called **World Aquatics points** in
+every surface, label and axis — never "aqua points", and never painted in the aqua ramp. Points are
+a data category, and the rule above forbids aqua from carrying one; the points charts colour by
+stroke and use the neutral grid ink for their reference lines.
 ```css
 @theme {
   --color-aqua-50:#ecfeff; --color-aqua-100:#cff9fe; --color-aqua-400:#22d3ee;
@@ -231,10 +236,19 @@ lower / further out.
 because it answers a different question on a different scale. The wheel asks what a swimmer can
 ENTER and measures against the gala cuts they are eligible for — age-fair, but only comparable
 inside one entry window, since ring 2 means Level 3 at 14 and SANY at 18. The radar asks what a
-swimmer is GOOD at, on percent of world record, which is universal and so lets any swimmers overlay.
-That scale is age-blind, which is why the radar's read is the SHAPE of a polygon, never its size.
-One course per chart, always — an SCM and an LCM percentage are measured against different records
-and must never average onto one spoke (§4.2).
+swimmer is GOOD at, on a universal scale, so any swimmers overlay. That scale is age-blind, which is
+why the radar's read is the SHAPE of a polygon, never its size.
+
+**Which universal scale depends on the course.** World Aquatics points (0–1000) wherever base times
+are loaded; percent of world record (0–100) where they are not — short course, until those tables are
+supplied. Those are different rulers, so the metric is never assumed by the component: `radarMetric`
+returns it with the data, and the ring labels, the caption above the chart, the caption below it and
+the accessible table all name the active metric and change together. One course per chart, always —
+the two courses are measured against different references and must never average onto one spoke (§4.2).
+
+**Reference lines on a points chart are not cuts.** Everywhere else a dashed line across a bar chart
+is a qualifying standard; on the points charts the 400 / 600 / 800 markers are scale rulers drawn in
+the neutral grid ink, and a caption says so in words. Never let the two read alike.
 
 ## 6. Spacing & motion
 - 8px spacing grid. Section gaps `gap-5`/`gap-6`. Page content max width ~`1440px`, generous gutters.

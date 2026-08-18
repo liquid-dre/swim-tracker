@@ -219,9 +219,23 @@ export function StrokeProfileScreen() {
               radar === undefined ? (
                 <WheelSkeleton />
               ) : (
-                <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
+                <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
+                  {/* The metric changes with the course, so it is stated at the
+                      top of the card as well as under the chart — a coach must
+                      never have to work out which yardstick is on screen. */}
+                  <p className="text-sm text-ink-muted">
+                    Scored in{" "}
+                    <span className="font-medium text-ink">
+                      {radar.metric === "POINTS"
+                        ? "World Aquatics points"
+                        : "percent of world record"}
+                    </span>{" "}
+                    · {radarCourse === "LCM" ? "long" : "short"} course
+                  </p>
                   <StrokeRadar
                     course={radarCourse}
+                    max={radar.max}
+                    metric={radar.metric}
                     size={radarSize}
                     swimmers={radar.swimmers}
                   />

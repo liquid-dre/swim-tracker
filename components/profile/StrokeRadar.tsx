@@ -9,7 +9,11 @@ import { RadarGrid } from "@/components/charts/radar-grid";
 import { RadarLabels } from "@/components/charts/radar-labels";
 import type { RadarData, RadarMetric } from "@/components/charts/radar-context";
 
-import { RADAR_STROKES, STROKE_LABEL } from "@/lib/strokeRadar";
+import {
+  RADAR_STROKES,
+  STROKE_LABEL,
+  type RadarMetricKind,
+} from "@/lib/strokeRadar";
 import type { Course, Stroke } from "@/lib/swim";
 import { seriesColor } from "@/components/analysis/chartTheme";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
@@ -23,7 +27,15 @@ import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
   swimmer can ENTER, measuring each event against the gala cuts they are
   eligible for; that is age-fair but only comparable within an entry window,
   since ring 2 means Level 3 at 14 and SANY at 18. The radar asks what a swimmer
-  is GOOD at, on percent of world record — universal, so any swimmers overlay.
+  is GOOD at, on a universal scale, so any swimmers overlay.
+
+  WHICH universal scale depends on the course: World Aquatics points (0-1000)
+  where base times are loaded, percent of world record (0-100) where they are
+  not — short course, today. Those are different rulers, so the metric is never
+  assumed here. It arrives with the data and is named in three places that all
+  change together: the ring labels, the caption, and the accessible table. A
+  coach flipping the course toggle must never have to work out which yardstick
+  they are looking at.
 
   Age-blind is the honest trade for that: a younger swimmer's polygon is smaller
   everywhere, so the read is its SHAPE — where it bulges, where it dents — not
@@ -40,10 +52,26 @@ export type RadarSwimmer = {
   name: string;
   strokes: Array<{
     stroke: Stroke;
-    pct: number | null;
+    /** On the chart's own 0..max scale — see `metric`. */
+    value: number | null;
     events: number;
     bestEvent: string | null;
   }>;
+};
+
+/** How each metric names itself, everywhere it is written down. */
+const METRIC_COPY: Record<
+  RadarMetricKind,
+  { name: string; format: (v: number) => string }
+> = {
+  POINTS: {
+    name: "World Aquatics points",
+    format: (v) => `${Math.round(v)} pts`,
+  },
+  WR_PCT: {
+    name: "percentage of the world record",
+    format: (v) => `${v.toFixed(1)}%`,
+  },
 };
 
 const METRICS: RadarMetric[] = RADAR_STROKES.map((s) => ({
@@ -54,10 +82,16 @@ const METRICS: RadarMetric[] = RADAR_STROKES.map((s) => ({
 export function StrokeRadar({
   swimmers,
   course,
+  metric,
+  max,
   size = 380,
 }: {
   swimmers: RadarSwimmer[];
   course: Course;
+  /** Which scale the values are on. Never inferred — the query decides. */
+  metric: RadarMetricKind;
+  /** Top of that scale, so the rings label themselves in the right units. */
+  max: number;
   size?: number;
 }) {
   const reduced = usePrefersReducedMotion();
@@ -65,13 +99,16 @@ export function StrokeRadar({
 
   if (swimmers.length === 0) return null;
 
+  const copy = METRIC_COPY[metric];
+  const courseWord = course === "LCM" ? "long" : "short";
+
   const data: RadarData[] = swimmers.map((s, i) => ({
     label: s.name,
     color: seriesColor(i),
     values: Object.fromEntries(
       // A null stays null: the vendored RadarArea carries a LOCAL EDIT that
       // draws it as a break in the outline instead of a point on the axis.
-      s.strokes.map((st) => [st.stroke, st.pct]),
+      s.strokes.map((st) => [st.stroke, st.value]),
     ),
   }));
 
@@ -80,7 +117,9 @@ export function StrokeRadar({
   const gaps = swimmers
     .map((s) => ({
       name: s.name,
-      missing: s.strokes.filter((st) => st.pct === null).map((st) => STROKE_LABEL[st.stroke]),
+      missing: s.strokes
+        .filter((st) => st.value === null)
+        .map((st) => STROKE_LABEL[st.stroke]),
     }))
     .filter((g) => g.missing.length > 0);
 
@@ -95,6 +134,9 @@ export function StrokeRadar({
           metrics={METRICS}
           onHoverChange={setHovered}
           size={size}
+          // The rings label themselves in the active metric's units, so a
+          // "600" ring is 600 points and never a mis-read percentage.
+          valueMax={max}
         >
           <RadarGrid showLabels />
           <RadarAxis />
@@ -108,15 +150,22 @@ export function StrokeRadar({
         </RadarChart>
       </div>
 
-      {/* The scale, in words. "80" on a ring means nothing without this. */}
+      {/* The scale, in words. "600" on a ring means nothing without this, and
+          it is the metric — not just the number — that changes with course. */}
       <p className="text-center text-xs text-ink-faint">
         Each spoke is the swimmer’s average{" "}
-        <strong className="font-medium text-ink-muted">
-          percentage of the world record
-        </strong>{" "}
-        across the {course === "LCM" ? "long" : "short"}-course events they have
-        raced in that stroke — further out is faster. Compare the SHAPE:
-        an older swimmer’s polygon is larger everywhere.
+        <strong className="font-medium text-ink-muted">{copy.name}</strong>{" "}
+        across the {courseWord}-course events they have raced in that stroke —
+        further out is faster, and the rings run to {max}. Compare the SHAPE: an
+        older swimmer’s polygon is larger everywhere.
+        {metric === "WR_PCT" && (
+          <>
+            {" "}
+            Short course is scored this way because World Aquatics’ short-course
+            base times are not loaded yet, so it cannot be compared spoke-for-spoke
+            with the long-course chart.
+          </>
+        )}
       </p>
 
       <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
@@ -147,8 +196,7 @@ export function StrokeRadar({
       {/* The chart is decorative; this table is what assistive tech reads. */}
       <table className="sr-only">
         <caption>
-          Stroke profile as a percentage of the world record,{" "}
-          {course === "LCM" ? "long" : "short"} course
+          Stroke profile as {copy.name}, {courseWord} course
         </caption>
         <thead>
           <tr>
@@ -166,7 +214,7 @@ export function StrokeRadar({
               <th scope="row">{s.name}</th>
               {s.strokes.map((st) => (
                 <td key={st.stroke}>
-                  {st.pct === null ? "Not raced" : `${st.pct.toFixed(1)}%`}
+                  {st.value === null ? "Not raced" : copy.format(st.value)}
                 </td>
               ))}
             </tr>

@@ -17,7 +17,7 @@
                      each. Attendance keeps bklit's Bar, which suffices there.
     tooltip          the panel is bklit's; only the stack inside it was duplicated.
 
-  Four deliberate edits DO live in the vendored tree, each commented LOCAL EDIT:
+  Five deliberate edits DO live in the vendored tree, each commented LOCAL EDIT:
 
     yDomain          time-series-chart-shell.tsx + line-chart.tsx — the derived
                      domain pins positive data to a zero baseline.
@@ -27,6 +27,11 @@
                      own bars, and cannot reach past the slowest threshold.
     maxLabelWidth    bar-y-axis.tsx — the category label was capped at 70px
                      regardless of the gutter reserved for it.
+    valueMax         radar-chart.tsx + radar-grid.tsx + radar-context.tsx — the
+                     radar's value scale was hard-coded to 0-100, so it could
+                     only plot a percentage. The stroke profile also plots World
+                     Aquatics points (0-1000); pre-dividing them would make the
+                     ring labels disagree with the tooltip. Defaults to 100.
 
   Plus the two names in the underlay set in chart-child-passthrough.ts.
 */

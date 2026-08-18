@@ -39,7 +39,13 @@ import {
   type StandardCut,
 } from "../lib/swim";
 import { galaCodeValidator, loadGalas, toGalaRefs, tourDatesByGala } from "./galas";
-import { strokeRadarScores } from "../lib/strokeRadar";
+import { radarMetric, strokeRadarScores } from "../lib/strokeRadar";
+import {
+  courseHasBaseTimes,
+  perMeetBest,
+  POINTS_BASE_YEAR,
+  scoreEventPbs,
+} from "../lib/points";
 
 /** The radar caps at four polygons — past that, overlaid shapes stop reading. */
 const STROKE_RADAR_MAX = 4;
@@ -1682,9 +1688,12 @@ function sortSeasonRows<T extends { name: string; insufficient: boolean }>(
 // bulges, where it dents), not its size. Own gender's record throughout, or
 // every female polygon would be systematically smaller than every male one.
 //
-// One COURSE for the whole chart. An SCM percentage and an LCM percentage are
-// measured against different records, so averaging them onto one spoke would be
-// the cross-course merge the domain forbids (§4.2).
+// One COURSE for the whole chart, and the metric follows from it: World
+// Aquatics points wherever base times are loaded, percent of world record for a
+// course still waiting on them. The two are different scales, so `metric` and
+// `max` come back with the data and the client renders what it is told rather
+// than assuming a percentage. Mixing courses onto one spoke would be the
+// cross-course merge the domain forbids (§4.2).
 
 export const getStrokeRadar = query({
   args: {
@@ -1693,6 +1702,10 @@ export const getStrokeRadar = query({
   },
   returns: v.object({
     course,
+    /** Which scale the values are on — the client must not assume. */
+    metric: v.union(v.literal("POINTS"), v.literal("WR_PCT")),
+    /** Top of that scale: 1000 for points, 100 for percent of world record. */
+    max: v.number(),
     swimmers: v.array(
       v.object({
         swimmerId: v.id("swimmers"),
@@ -1704,7 +1717,7 @@ export const getStrokeRadar = query({
             // Null = never raced this stroke in this course. NOT zero — the
             // client draws a gap, because "not raced" and "very slow" are
             // different facts and a spoke at the hub says the wrong one.
-            pct: v.union(v.number(), v.null()),
+            value: v.union(v.number(), v.null()),
             events: v.number(),
             bestEvent: v.union(v.string(), v.null()),
           }),
@@ -1737,6 +1750,96 @@ export const getStrokeRadar = query({
       });
     }
 
-    return { course: args.course, swimmers };
+    const { metric, max } = radarMetric(args.course);
+    return { course: args.course, metric, max, swimmers };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 8. World Aquatics points — one swimmer, one course
+// ---------------------------------------------------------------------------
+//
+// Points are the app's only cross-EVENT scale: seconds cannot rank a 200 breast
+// against a 50 free, so this is the query behind "what is this swimmer actually
+// good at". Everything it returns derives from meet PBs, because `aquaPoints`
+// is fed from `computePersonalBests` — a practice swim never scores.
+//
+// One COURSE for the whole read, for the same reason the radar takes one: base
+// times are published per course and are never borrowed across it (§4.2). A
+// course with no loaded base times yields empty lists and `hasBaseTimes: false`,
+// which is what the screen renders its "not loaded" copy from — never a zero.
+
+const scoredEvent = v.object({
+  distance,
+  stroke,
+  course,
+  label: v.string(),
+  timeMs: v.number(),
+  points: v.number(),
+  swimDate: v.string(),
+  meetName: v.union(v.string(), v.null()),
+});
+
+const meetPoint = v.object({
+  key: v.string(),
+  meetName: v.union(v.string(), v.null()),
+  swimDate: v.string(),
+  points: v.number(),
+  label: v.string(),
+  timeMs: v.number(),
+});
+
+export const getSwimmerPoints = query({
+  args: {
+    swimmerId: v.id("swimmers"),
+    course,
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      swimmerId: v.id("swimmers"),
+      name: v.string(),
+      gender,
+      course,
+      /** The validity year of the base times used — shown as provenance. */
+      baseYear: v.number(),
+      /** False until this course's published base times are loaded. */
+      hasBaseTimes: v.boolean(),
+      /** The headline number: the single highest-scoring meet PB. */
+      best: v.union(scoredEvent, v.null()),
+      /** Every scoreable meet PB, strongest first. */
+      events: v.array(scoredEvent),
+      /** One entry per meet — that meet's best-scoring swim. */
+      meets: v.array(meetPoint),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    // Coach → any swimmer; viewer → only their linked swimmer(s). Rejected
+    // server-side, so a viewer cannot read another swimmer's points by id.
+    await requireSwimmerAccess(ctx, args.swimmerId);
+    const swimmer = await ctx.db.get(args.swimmerId);
+    if (!swimmer) return null;
+
+    const results = await ctx.db
+      .query("results")
+      .withIndex("by_swimmer", (q) => q.eq("swimmerId", args.swimmerId))
+      .take(SWIMMER_RESULTS_LIMIT);
+
+    // Reuse the one PB derivation rather than re-deriving "fastest meet time";
+    // that rule lives in exactly one place (§4.6).
+    const pbs = computePersonalBests(results as ResultForPB[]);
+    const events = scoreEventPbs(pbs, args.course, swimmer.gender);
+
+    return {
+      swimmerId: args.swimmerId,
+      name: swimmer.name,
+      gender: swimmer.gender,
+      course: args.course,
+      baseYear: POINTS_BASE_YEAR,
+      hasBaseTimes: courseHasBaseTimes(args.course),
+      best: events[0] ?? null,
+      events,
+      meets: perMeetBest(results as ResultForPB[], args.course, swimmer.gender),
+    };
   },
 });

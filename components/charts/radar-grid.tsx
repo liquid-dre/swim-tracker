@@ -27,6 +27,7 @@ export function RadarGrid({
     metrics,
     radius,
     levels,
+    valueMax,
     animate,
     enterTransition,
     staggerScale,
@@ -115,7 +116,9 @@ export function RadarGrid({
               x={4}
               y={-((i + 1) * radius) / levels}
             >
-              {((i + 1) * 100) / levels}
+              {/* LOCAL EDIT: scale off `valueMax`, not a hard-coded 100, so
+                  the ring labels read in the chart's own units. */}
+              {Math.round(((i + 1) * valueMax) / levels)}
             </text>
           </motion.g>
         ))}
