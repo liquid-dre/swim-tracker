@@ -19,26 +19,19 @@ import { usePickerSwimmers } from "@/lib/usePickerSwimmers";
 import { formatTime, type Course, type CourseMode } from "@/lib/swim";
 import { GALA_FULL, GALA_MEDIUM, GALA_ORDER, type GalaCode } from "@/lib/galas";
 import { formatSeconds, formatShortDate } from "@/lib/format";
-import {
-  SingleTierLegend,
-  SingleTierProgress,
-  type SingleBar,
-} from "./QualifyingProgress";
 import { AllTierResults } from "./RoadAllResults";
 import { RoadGapChart, type GapBar } from "./RoadGapChart";
 
 /*
   Road to qualify (Step 12 / R3, BRD §5.10–5.11). For one swimmer at one target,
-  two linked reads of readiness. The target is any of the five galas, or All:
+  the readiness read for one gala. The target is any of the five galas, or All:
 
     • Gap to cut — the anchor. One horizontal bar per applicable event, closest
       to the cut first, so the low-hanging events surface immediately. Qualified
       events (PB ≤ cut) are flagged in the success green and grouped; events with
       no meet time are listed separately, never drawn as a huge gap.
-    • Qualifying progress — single-gala: one bar per event filling toward that
-      gala's cut, most-complete first. All: one bar per event with the age-graded
-      cuts as fixed calibrated zones, filled to the swimmer's PB and coloured by
-      the highest gala met.
+    • All galas — one bar per event with the age-graded cuts as fixed calibrated
+      zones, filled to the swimmer's PB and coloured by the highest gala met.
 
   Both courses qualify (§4.2), so each row is measured in whichever course the
   swimmer is CLOSEST in and says which one that was; the course selector pins it
@@ -290,38 +283,33 @@ export function RoadResults({
   const qualified = useMemo(() => events.filter((e) => e.qualified), [events]);
   const noTime = useMemo(() => events.filter((e) => e.pbMs === null), [events]);
 
-  // Chart rows for the gap view. The scale is absolute (percent over the cut),
-  // so the chart derives its own domain rather than being handed a normaliser.
+  /*
+    Chart rows for the gap view. The scale is absolute (percent over the cut),
+    so the chart derives its own domain rather than being handed a normaliser.
+
+    QUALIFIED events sit in the same chart at zero rather than in a second chart
+    of their own. There used to be a "Qualifying progress" card below this one:
+    a second horizontal bar chart of the same events, captioned "full bar =
+    qualified" against this one's "shorter bar = closer" — two stacked charts
+    encoding the same quantity with OPPOSITE length semantics, which is a trap
+    when scanning. It also could not do its job: its value was cut/pb clamped to
+    1, so a swimmer 4% off the cut plotted at 96 and one 12% off at 89, putting
+    every bar within a few percent of the same length. This chart discriminates;
+    that one did not. Zero is the honest length for "no gap left".
+  */
   const gapBars = useMemo<GapBar[]>(
     () =>
-      chasing.map((e) => ({
+      [...qualified, ...chasing].map((e) => ({
         key: `${e.distance}|${e.stroke}`,
         label: e.label,
         course: e.course,
         pbMs: e.pbMs as number,
         cutMs: e.cutMs,
-        gapMs: e.gapMs as number,
-        gapPct: e.gapPct as number,
+        gapMs: e.qualified ? 0 : (e.gapMs as number),
+        gapPct: e.qualified ? 0 : (e.gapPct as number),
+        qualified: e.qualified,
       })),
-    [chasing],
-  );
-
-  // Qualifying progress: every event WITH a meet time (qualified + chasing).
-  // SingleTierProgress orders them most-complete first.
-  const progressBars = useMemo<SingleBar[]>(
-    () =>
-      events
-        .filter((e) => e.pbMs !== null)
-        .map((e) => ({
-          key: `${e.distance}|${e.stroke}`,
-          label: e.label,
-          course: e.course,
-          pbMs: e.pbMs as number,
-          cutMs: e.cutMs,
-          gapMs: e.gapMs as number,
-          qualified: e.qualified,
-        })),
-    [events],
+    [chasing, qualified],
   );
 
   return (
@@ -342,20 +330,19 @@ export function RoadResults({
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-sm font-semibold text-ink">Gap to the cut</h2>
           <p className="text-xs text-ink-faint">
-            Shorter bar = closer · {GALA_MEDIUM[gala]}
+            Shorter bar = closer · no bar = qualified · {GALA_MEDIUM[gala]}
           </p>
         </div>
 
+        {gapBars.length > 0 && <RoadGapChart bars={gapBars} />}
+
         {chasing.length > 0 ? (
-          <>
-            <RoadGapChart bars={gapBars} />
-            <GapGroup
-              heading="Closest to the cut"
-              count={chasing.length}
-              rows={chasing}
-              showCourse={showCourse}
-            />
-          </>
+          <GapGroup
+            heading="Closest to the cut"
+            count={chasing.length}
+            rows={chasing}
+            showCourse={showCourse}
+          />
         ) : (
           <p className="text-sm text-ink-muted">
             No events left to chase at this gala — every applicable event is
@@ -372,19 +359,6 @@ export function RoadResults({
         )}
       </section>
 
-      {/* Qualifying progress — one bar per event filling toward this gala's cut */}
-      {progressBars.length > 0 && (
-        <section className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 className="text-sm font-semibold text-ink">Qualifying progress</h2>
-            <p className="text-xs text-ink-faint">
-              Full bar = qualified · {GALA_MEDIUM[gala]}
-            </p>
-          </div>
-          <SingleTierProgress bars={progressBars} gala={gala} />
-          <SingleTierLegend tierLabel={GALA_MEDIUM[gala]} />
-        </section>
-      )}
     </div>
   );
 }

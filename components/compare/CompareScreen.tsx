@@ -9,6 +9,7 @@ import { ArrowDown, ArrowUp, BarChart3 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
+import { TierBadge } from "@/components/ui/TierBadge";
 import { Select } from "@/components/ui/Select";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { trailForHref } from "@/lib/nav";
@@ -290,6 +291,14 @@ export function CompareScreen() {
                               onClick={() => toggleSort("time")}
                             />
                           </th>
+                          {/* The chart colours each bar by the hardest gala that
+                              swimmer's PB meets, but the chart is aria-hidden and a
+                              hue is not a label. Without this column that fact has
+                              no text carrier anywhere on the page, which is the
+                              colour-only meaning DESIGN.md 8 bans. */}
+                          <th scope="col" className="px-4 py-2.5 font-medium">
+                            Tier
+                          </th>
                           <th scope="col" className="hidden px-4 py-2.5 text-right font-medium md:table-cell">
                             Gap
                           </th>
@@ -327,6 +336,9 @@ export function CompareScreen() {
                               </td>
                               <td className="time tnum px-4 py-3 text-right font-medium text-ink">
                                 {formatTime(r.timeMs)}
+                              </td>
+                              <td className="px-4 py-3">
+                                <TierBadge gala={r.highestGala ?? "NONE"} />
                               </td>
                               <td className="hidden px-4 py-3 text-right text-ink-muted tabular-nums md:table-cell">
                                 {gap === 0 ? (

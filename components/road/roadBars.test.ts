@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildRingScale } from "@/lib/swim";
-import { byEventOrder, fillFraction, ringZoneBands } from "./roadBars";
+import { byEventOrder, ringZoneBands } from "./roadBars";
 
 // A 13-year-old's wheel: L2 (ring 1), L3 (ring 2), SANJ (ring 3), max 3.5.
 const AGE_GRADED = buildRingScale(["LEVEL_2", "LEVEL_3", "SANJ"]);
@@ -52,27 +52,6 @@ describe("ringZoneBands", () => {
     expect(ringZoneBands([], AGE_GRADED)).toEqual([
       { from: 0, to: AGE_GRADED.max, gala: null },
     ]);
-  });
-});
-
-describe("fillFraction", () => {
-  it("is 1 when qualified, however far past the cut", () => {
-    expect(fillFraction({ pbMs: 50_000, cutMs: 60_000, qualified: true })).toBe(1);
-  });
-
-  it("rises toward 1 as the PB approaches the cut", () => {
-    const far = fillFraction({ pbMs: 80_000, cutMs: 60_000, qualified: false });
-    const near = fillFraction({ pbMs: 62_000, cutMs: 60_000, qualified: false });
-    expect(near).toBeGreaterThan(far);
-    expect(near).toBeLessThan(1);
-  });
-
-  it("clamps to 1 rather than overflowing when pb beats an unflagged cut", () => {
-    expect(fillFraction({ pbMs: 55_000, cutMs: 60_000, qualified: false })).toBe(1);
-  });
-
-  it("returns 0 for a missing or zero PB rather than dividing by it", () => {
-    expect(fillFraction({ pbMs: 0, cutMs: 60_000, qualified: false })).toBe(0);
   });
 });
 

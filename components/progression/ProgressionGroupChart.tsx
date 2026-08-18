@@ -151,9 +151,13 @@ export function ProgressionGroupChart({
   const [yFloor, yTop] = progressionYDomain([...allTimes, ...cutYs], wr);
 
   const height = narrow ? 300 : 360;
-  const summary = `Progression for ${series
-    .map((s) => s.name)
-    .join(", ")}. ${allTimes.length} swims plotted; lower is faster.`;
+  // Says the same things the single-swimmer chart's label says, including the
+  // axis floor — the two charts have identical geometry, so describing it
+  // differently would be describing a chart that does not exist.
+  const summary =
+    `Progression for ${series.map((s) => s.name).join(", ")}. ` +
+    `${allTimes.length} swims plotted; lower is faster. ` +
+    `The axis floor sits just under the world record, not at zero.`;
 
   return (
     <div className="flex flex-col gap-3">

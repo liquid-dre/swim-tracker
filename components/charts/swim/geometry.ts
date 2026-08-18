@@ -38,6 +38,46 @@ export function pickValueTicks(
   return out;
 }
 
+/** Rough px width of a tick label, plus the breathing room it needs. */
+export function tickLabelWidth(label: string): number {
+  return label.length * 7 + 10;
+}
+
+/**
+ * Thin an ALREADY-POSITIONED tick list so no label overprints its neighbour.
+ *
+ * `numTicks` asks d3 for a count; d3 nices it and knows nothing about how wide
+ * the labels turn out. A swim-time axis formats `0:20:00` — seven characters —
+ * so five ticks on a narrow plot renders `0:00:0020:00:0040:01…`, which is what
+ * /compare shipped. Dropping a tick is always better than printing two on top
+ * of each other: the grid lines still mark the intervals.
+ *
+ * Thinning takes every Nth tick rather than dropping crowded ones one at a
+ * time, because d3 hands back an evenly spaced list and a reader assumes the
+ * survivors are evenly spaced too. Greedy dropping broke that: /season kept
+ * 0% / 4% / 10%, three labels at two different intervals, which reads as a
+ * non-linear axis. Counting back from the LAST tick keeps the axis maximum,
+ * since an axis that stops short of its own top reads as truncated.
+ */
+export function thinTicks<T extends { label: string; pos: number }>(
+  ticks: ReadonlyArray<T>,
+): T[] {
+  if (ticks.length <= 1) return [...ticks];
+
+  const sorted = [...ticks].sort((a, b) => a.pos - b.pos);
+  const clears = (a: T, b: T) =>
+    b.pos - a.pos >= (tickLabelWidth(a.label) + tickLabelWidth(b.label)) / 2;
+
+  for (let stride = 1; stride < sorted.length; stride++) {
+    const kept: T[] = [];
+    for (let i = sorted.length - 1; i >= 0; i -= stride) kept.unshift(sorted[i]);
+    if (kept.every((tick, i) => i === 0 || clears(kept[i - 1], tick))) return kept;
+  }
+
+  // Even first-and-last collide: one label beats two on top of each other.
+  return [sorted[sorted.length - 1]];
+}
+
 // ---------------------------------------------------------------------------
 // GalaCutOverlay
 // ---------------------------------------------------------------------------

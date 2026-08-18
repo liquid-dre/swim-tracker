@@ -136,7 +136,14 @@ export function StrokeProfileScreen() {
       <PageHeader
         title="Stroke profile"
         breadcrumb={trailForHref(pathname)}
-        description="Each bar is one event’s fastest long-course meet time, placed on that event’s own L2/L3/SANJ scale — further out is faster. Bars are grouped into coloured stroke arcs. Trials and practice never count."
+        // The two views measure different things on different scales, so one
+        // description cannot serve both: in radar mode there are no bars, no
+        // stroke arcs and no L2/L3/SANJ scale, and the course can be short.
+        description={
+          view === "radar"
+            ? "Each spoke is a stroke, scored as the swimmer’s average percentage of the world record across the events they’ve raced in it — further out is faster. Overlay up to four swimmers to compare shapes. Trials and practice never count."
+            : "Each bar is one event’s fastest long-course meet time, placed on that event’s own L2/L3/SANJ scale — further out is faster. Bars are grouped into coloured stroke arcs. Trials and practice never count."
+        }
       />
 
       {/* Slim toolbar: who inline; coverage on the right. The wheel leads. */}

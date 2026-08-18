@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useChart, useChartStable, useYScale } from "../chart-context";
-import { pickValueTicks } from "./geometry";
+import { pickValueTicks, thinTicks } from "./geometry";
 
 /*
   Value-axis labels.
@@ -77,10 +77,12 @@ const ValueAxisInner = memo(function ValueAxisInner({
 
   const ticks = useMemo<PositionedTick[]>(
     () =>
-      pickValueTicks(yScale.ticks(numTicks), format).map((tick) => ({
-        ...tick,
-        pos: yScale(tick.value) + (horizontal ? margin.left : margin.top),
-      })),
+      thinTicks(
+        pickValueTicks(yScale.ticks(numTicks), format).map((tick) => ({
+          ...tick,
+          pos: yScale(tick.value) + (horizontal ? margin.left : margin.top),
+        })),
+      ),
     [yScale, numTicks, format, horizontal, margin.left, margin.top],
   );
 

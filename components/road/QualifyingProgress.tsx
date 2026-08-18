@@ -14,7 +14,6 @@ import {
   TooltipRows,
   TooltipTitle,
   TooltipValue,
-  ValueAxis,
   ValueThresholds,
   ValueZones,
   type CategoryZones,
@@ -36,7 +35,6 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
 import { CHART, CHART_ANIM_MS, TIER_STYLE } from "@/components/analysis/chartTheme";
 import {
   byEventOrder,
-  fillFraction,
   ringZoneBands,
   HEADROOM_FILL,
   NONE_FILL,
@@ -45,28 +43,26 @@ import {
 } from "./roadBars";
 
 /*
-  Qualifying progress (Step R3, BRD §5.11) — the per-event readiness view. Two
-  shapes driven by the target toggle, both now bklit bar charts over the same
-  stack /compare uses, each with the figures listed beneath it:
+  All-gala qualifying progress (Step R3, BRD §5.11) — one bar per event on the
+  shared calibrated ring scale, with each gala's cut as a threshold line.
+  Because `computeCalibratedRadius` puts every event on ONE scale in ring units,
+  a single set of lines labels every bar, which is exactly what ValueThresholds
+  is for. The fill runs to the swimmer's calibrated PB and is coloured by the
+  HIGHEST gala met.
 
-    • SINGLE GALA — one bar per event filling toward that gala's cut, in the
-      course the swimmer is nearest in. The cut is a threshold line at 100%, so
-      a bar reaching it has qualified; those bars turn green and carry a check
-      in the list. Ordered 50→ by distance, then IM, Free, Back, Breast, Fly.
+  The tinted ZONES are per event, not chart-wide (ValueZones): coverage is per
+  event (§4.9), so an event with no L3 cut gets neutral track over that range
+  rather than a borrowed tint. Drawing the band anyway would invent a standard
+  the event does not have.
 
-    • ALL — one bar per event on the shared calibrated ring scale, with each
-      gala's cut as a threshold line. Because `computeCalibratedRadius` puts
-      every event on ONE scale in ring units, a single set of lines labels every
-      bar — which is exactly what ValueThresholds is for. The fill runs to the
-      swimmer's calibrated PB and is coloured by the HIGHEST gala met.
+  The single-gala view has no chart of its own. It used to, and it encoded the
+  same events as RoadGapChart with the opposite length semantics; worse, its
+  value (cut/pb, clamped) put every bar within a few percent of the same length,
+  so it could not discriminate 0.2s-to-go from 4s-to-go. RoadGapChart answers
+  that question, and qualified events fold into it at zero.
 
-      The tinted ZONES are per event, not chart-wide (ValueZones): coverage is
-      per event (§4.9), so an event with no L3 cut gets neutral track over that
-      range rather than a borrowed tint. Drawing the band anyway would invent a
-      standard the event does not have.
-
-  Both: headline MEET PBs, tabular figures. The charts are decorative and hidden
-  from assistive tech — every number in them is carried in the list below, which
+  Headline MEET PBs, tabular figures. The chart is decorative and hidden
+  from assistive tech — every number in it is carried in the list below, which
   is also where the tier badges and the gap-to-next-gala text live.
 */
 
@@ -104,171 +100,6 @@ function useChartBox(labels: ReadonlyArray<string>) {
       ? Math.min(96, Math.max(64, longest * 7.5))
       : Math.min(140, Math.max(72, longest * 7.5)),
   };
-}
-
-// ---------------------------------------------------------------------------
-// Single-tier progress
-// ---------------------------------------------------------------------------
-
-export type SingleBar = {
-  key: string;
-  label: string;
-  pbMs: number;
-  cutMs: number;
-  gapMs: number; // pbMs − cutMs (≤ 0 when qualified)
-  qualified: boolean;
-};
-
-/**
- * The value scale runs a little past the cut so the threshold line sits inside
- * the plot rather than on the right-hand edge, where it would read as the axis
- * instead of as the standard a bar has to reach.
- */
-const SINGLE_DOMAIN_MAX = 112;
-
-type SingleDatum = SingleBar & { pct: number };
-
-export function SingleTierProgress({
-  bars,
-  gala,
-}: {
-  bars: SingleBar[];
-  /** The target gala, so the threshold line can name the cut it marks. */
-  gala: GalaCode;
-}) {
-  // Fixed event order: 50→ by distance, then IM, Free, Back, Breast, Fly. (Every
-  // bar here has a time; no-time events are listed separately by the screen.)
-  const ordered = [...bars].sort(byEventOrder);
-  const data: SingleDatum[] = ordered.map((b) => ({
-    ...b,
-    pct: fillFraction(b) * 100,
-  }));
-
-  return (
-    <div className="flex flex-col gap-4">
-      <SingleTierChart data={data} gala={gala} />
-      <ul className="flex flex-col divide-y divide-gray-100">
-        {ordered.map((b) => (
-          <SingleBarRow key={b.key} bar={b} gala={gala} />
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function SingleTierChart({
-  data,
-  gala,
-}: {
-  data: SingleDatum[];
-  gala: GalaCode;
-}) {
-  const reduced = usePrefersReducedMotion();
-  const { narrow, height, yWidth } = useChartBox(data.map((d) => d.label));
-
-  if (data.length === 0) return null;
-
-  const st = TIER_STYLE[gala];
-  const swimBars: SwimBar[] = data.map((d) => ({
-    key: d.key,
-    category: d.label,
-    value: d.pct,
-    // Green once the cut is met, brand accent while still chasing — the same
-    // two-state colouring the list's check mark carries in words.
-    fill: d.qualified ? "var(--color-qualified)" : CHART.accent,
-    label: formatTime(d.pbMs),
-  }));
-
-  const thresholds: Threshold[] = [
-    {
-      key: gala,
-      value: 100,
-      color: st.color,
-      ink: st.ink,
-      dash: st.dash,
-      // Glyph + label: a gala is never colour-only (DESIGN.md §3).
-      label: `${st.glyph} ${st.label} cut`,
-    },
-  ];
-
-  return (
-    // Decorative: the list beneath carries every time, gap and qualified state.
-    <div style={{ width: "100%", height }} aria-hidden="true">
-      <MaybeStatic reduced={reduced}>
-        <BarChart
-          animationDuration={CHART_ANIM_MS}
-          aspectRatio=""
-          barGap={0.28}
-          data={data}
-          margin={{ top: 22, right: narrow ? 56 : 76, bottom: 24, left: yWidth }}
-          className="h-full"
-          orientation="horizontal"
-          // Bars come from SwimBars, not <Bar>, so bklit finds no dataKey to
-          // scan and would fall back to [0, 110].
-          valueDomain={[0, SINGLE_DOMAIN_MAX]}
-          xDataKey="label"
-        >
-          <Grid horizontal={false} stroke={CHART.grid} strokeDasharray="3 3" vertical />
-          <BarYAxis maxLabelWidth={yWidth - 8} />
-          <ValueAxis format={(v) => `${Math.round(v)}%`} label="Of the cut" />
-          <ValueThresholds thresholds={thresholds} />
-          <SwimBars bars={swimBars} labelColor={CHART.ink} maxBarSize={22} />
-          <ChartTooltip
-            panelStyle={SWIM_TOOLTIP_PANEL}
-            showDots={false}
-            content={({ point }) => (
-              <SingleTooltip row={point as unknown as SingleDatum} gala={gala} />
-            )}
-          />
-        </BarChart>
-      </MaybeStatic>
-    </div>
-  );
-}
-
-function SingleTooltip({ row, gala }: { row: SingleDatum; gala: GalaCode }) {
-  if (!row?.label) return null;
-  return (
-    <TooltipRows>
-      <TooltipTitle>{row.label}</TooltipTitle>
-      <TooltipValue>{formatTime(row.pbMs)}</TooltipValue>
-      <TooltipMeta>
-        <span>
-          {GALA_MEDIUM[gala]} cut {formatTime(row.cutMs)}
-          {row.qualified
-            ? " · qualified"
-            : ` · ${formatSeconds(row.gapMs)}s to go`}
-        </span>
-      </TooltipMeta>
-    </TooltipRows>
-  );
-}
-
-function SingleBarRow({ bar: b, gala }: { bar: SingleBar; gala: GalaCode }) {
-  return (
-    <li className="flex items-center gap-3 py-2.5 sm:gap-4">
-      <div className="min-w-0 flex-1">
-        <div className="font-medium text-ink">{b.label}</div>
-        <div className="time tnum mt-0.5 text-xs text-ink-faint">
-          {formatTime(b.pbMs)} → {formatTime(b.cutMs)}
-          <span className="sr-only"> ({GALA_MEDIUM[gala]} cut)</span>
-        </div>
-      </div>
-
-      <div className="w-24 shrink-0 text-right sm:w-28">
-        {b.qualified ? (
-          <span className="inline-flex items-center justify-end gap-1 font-medium text-success-ink">
-            <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
-            Qualified
-          </span>
-        ) : (
-          <div className="font-medium tabular-nums text-ink">
-            {formatSeconds(b.gapMs)}s to go
-          </div>
-        )}
-      </div>
-    </li>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -346,13 +177,18 @@ export function AllTierProgress({
 
 function AllTierChart({ rows, scale }: { rows: AllRow[]; scale: RingScale }) {
   const reduced = usePrefersReducedMotion();
-  const { narrow, height, yWidth } = useChartBox(rows.map((r) => r.label));
+  /*
+    Only events with a time are plotted. A no-time event used to get a category
+    label and tinted zone bands with no bar and nothing saying why — a row that
+    looks like a zero rather than an absence. The list beneath names them
+    explicitly ("No time"), which is the honest place for it.
+  */
+  const plotted = rows.filter((r) => r.pbMs !== null && r.calibratedRadius !== null);
+  const { narrow, height, yWidth } = useChartBox(plotted.map((r) => r.label));
 
-  if (rows.length === 0 || scale.max <= 0) return null;
+  if (plotted.length === 0 || scale.max <= 0) return null;
 
-  const swimBars: SwimBar[] = rows
-    .filter((r) => r.pbMs !== null && r.calibratedRadius !== null)
-    .map((r) => ({
+  const swimBars: SwimBar[] = plotted.map((r) => ({
       key: r.key,
       category: r.label,
       value: r.calibratedRadius as number,
@@ -361,7 +197,7 @@ function AllTierChart({ rows, scale }: { rows: AllRow[]; scale: RingScale }) {
     }));
 
   // Per-event zones: only the galas THIS event has a cut for tint their range.
-  const zones: CategoryZones[] = rows.map((r) => ({
+  const zones: CategoryZones[] = plotted.map((r) => ({
     key: r.key,
     category: r.label,
     bands: ringZoneBands(r.present, scale).map((b) => ({
@@ -381,6 +217,7 @@ function AllTierChart({ rows, scale }: { rows: AllRow[]; scale: RingScale }) {
       color: st.color,
       ink: st.ink,
       dash: st.dash,
+      glyph: st.glyph,
       label: `${st.glyph} ${st.label}`,
     };
   });
@@ -393,8 +230,9 @@ function AllTierChart({ rows, scale }: { rows: AllRow[]; scale: RingScale }) {
           animationDuration={CHART_ANIM_MS}
           aspectRatio=""
           barGap={0.28}
-          data={rows}
-          margin={{ top: 22, right: narrow ? 56 : 76, bottom: 12, left: yWidth }}
+          data={plotted}
+          // 34, not 22: ValueThresholds staggers its labels onto two rows.
+          margin={{ top: 34, right: narrow ? 56 : 76, bottom: 12, left: yWidth }}
           className="h-full"
           orientation="horizontal"
           // Ring units on the shared calibrated scale, not milliseconds — raw
@@ -490,32 +328,6 @@ function AllRowView({ row }: { row: AllRow }) {
 // ---------------------------------------------------------------------------
 // Legends
 // ---------------------------------------------------------------------------
-
-export function SingleTierLegend({ tierLabel }: { tierLabel: string }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3 text-xs text-ink-muted">
-      <span className="inline-flex items-center gap-1.5">
-        <span
-          aria-hidden
-          className="size-2.5 rounded-sm"
-          style={{ background: "var(--color-qualified)" }}
-        />
-        Qualified (PB ≤ cut)
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span
-          aria-hidden
-          className="size-2.5 rounded-sm"
-          style={{ background: "var(--color-brand-500)" }}
-        />
-        Still chasing {tierLabel}
-      </span>
-      <span className="text-ink-faint">
-        Bar fills toward the cut · the gap is the time left to drop.
-      </span>
-    </div>
-  );
-}
 
 export function AllTierLegend({ scale }: { scale: RingScale }) {
   return (

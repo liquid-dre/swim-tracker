@@ -16,9 +16,10 @@ import type { AttendanceStatus } from "./types";
 
     • swimmer — one of PRESENT / LATE / EXCUSED / ABSENT. Categorical. Rendering
       four categories as four intensities of one hue would claim an order that
-      does not exist, so each level gets its own semantic colour AND its own
-      pattern fill. That keeps the meaning off colour alone (DESIGN.md §3) and
-      keeps it readable in greyscale and under colour-blindness.
+      does not exist, so each level gets its own semantic colour, and the three
+      that need noticing also get a distinct texture (see STATUS_LEVEL_STYLES).
+      That keeps the meaning off colour alone (DESIGN.md §8) and keeps it
+      readable in greyscale and under colour-blindness.
 
   Level 0 means "no session" in both, which is why the status levels start at 1.
 */
@@ -75,8 +76,20 @@ export const RATE_LEVEL_STYLES: HeatmapLevelStyles = [
 ];
 
 /**
- * The per-swimmer status styles: four distinct semantic colours, each with its
- * own pattern, so the four categories never rely on hue to be told apart.
+ * The per-swimmer status styles: four semantic colours, three of them carrying a
+ * distinct TEXTURE as well, so the four categories are never told apart by hue
+ * alone (DESIGN.md §8).
+ *
+ * The stroke colour is what makes the texture exist. `heatmapLevelPatternRenderOptions`
+ * takes the pattern's stroke from `patternColor` and the tile beneath it from
+ * `color`; set those to the same token and the hatching is drawn in the tile's
+ * own colour and vanishes, which is exactly the bug this file shipped with. So
+ * every pattern here strokes in a value that CONTRASTS with its tile: near-white
+ * on the saturated fills, dark grey on the light one.
+ *
+ * Present is deliberately solid. It is the resting, expected state and the one
+ * that should read calmest; texture is reserved for the three that need
+ * noticing.
  */
 export const STATUS_LEVEL_STYLES: HeatmapLevelStyles = [
   { color: "var(--color-gray-100)", fillMode: "solid", pattern: "none" },
@@ -84,19 +97,19 @@ export const STATUS_LEVEL_STYLES: HeatmapLevelStyles = [
     color: "var(--color-error-500)",
     fillMode: "pattern",
     pattern: "cross",
-    patternColor: "var(--color-error-500)",
+    patternColor: "var(--color-gray-25)",
   },
   {
-    color: "var(--color-gray-400)",
+    color: "var(--color-gray-300)",
     fillMode: "pattern",
     pattern: "diagonal",
-    patternColor: "var(--color-gray-500)",
+    patternColor: "var(--color-gray-600)",
   },
   {
     color: "var(--color-warning-500)",
     fillMode: "pattern",
     pattern: "dots",
-    patternColor: "var(--color-warning-500)",
+    patternColor: "var(--color-gray-25)",
   },
   { color: "var(--color-success-500)", fillMode: "solid", pattern: "none" },
 ];
@@ -187,4 +200,47 @@ export function buildHeatmapColumns(
   }
 
   return columns;
+}
+
+/**
+ * A one-sentence season summary in words, for the `sr-only` equivalent of the
+ * strip.
+ *
+ * The strip is `aria-hidden`, and its old justification — "the month grid below
+ * carries the same information" — was false twice over: the grid shows ONE
+ * month against the strip's whole season, and below `lg` the grid is replaced
+ * by the agenda entirely. A chart with no text equivalent is not accessible
+ * because a different chart nearby is.
+ */
+export function seasonSummary(
+  days: ReadonlyArray<HeatmapDay>,
+  perSwimmer: boolean,
+): string {
+  const marked = days.filter((d) => d.marked > 0);
+  if (marked.length === 0) return "No attendance recorded this season yet.";
+
+  if (perSwimmer) {
+    const counts = { PRESENT: 0, LATE: 0, EXCUSED: 0, ABSENT: 0 };
+    for (const d of marked) if (d.status) counts[d.status] += 1;
+    const attended = counts.PRESENT + counts.LATE;
+    return (
+      `${marked.length} session day${marked.length === 1 ? "" : "s"} this season: ` +
+      `${attended} attended (${counts.LATE} late), ` +
+      `${counts.ABSENT} absent, ${counts.EXCUSED} excused.`
+    );
+  }
+
+  const rated = marked.filter((d) => d.ratePct !== null);
+  if (rated.length === 0) {
+    return `${marked.length} session days this season; none with a rateable turnout.`;
+  }
+  const mean = Math.round(
+    rated.reduce((sum, d) => sum + (d.ratePct as number), 0) / rated.length,
+  );
+  const best = Math.max(...rated.map((d) => d.ratePct as number));
+  const worst = Math.min(...rated.map((d) => d.ratePct as number));
+  return (
+    `${marked.length} session day${marked.length === 1 ? "" : "s"} this season, ` +
+    `averaging ${mean}% turnout (best ${best}%, worst ${worst}%).`
+  );
 }

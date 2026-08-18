@@ -1,6 +1,7 @@
 "use client";
 
 import { useChart, useYScale } from "../chart-context";
+import { assignLabelRows, LABEL_MIN_GAP } from "./thresholdLabelRows";
 
 /*
   Threshold lines at fixed values on a BAR chart's value axis.
@@ -32,8 +33,15 @@ export type Threshold = {
    */
   ink: string;
   dash: string;
-  /** Rendered beside the line, e.g. "◆ SANJ". Never omit — colour alone is not a label. */
+  /** Rendered beside the line, e.g. "SANJ". Never omit — colour alone is not a label. */
   label: string;
+  /**
+   * The gala's SHAPE channel, e.g. "◆". Drawn alone when the lines are too
+   * close together for full labels — three cuts for one event at one age sit
+   * within a few dozen pixels, and a glyph is ~14px against a label's ~64px.
+   * The legend decodes it, so a glyph is still a non-colour label.
+   */
+  glyph?: string;
 };
 
 export interface ValueThresholdsProps {
@@ -53,13 +61,46 @@ export function ValueThresholds({
   const yScale = useYScale(yAxisId);
   const horizontal = orientation === "horizontal";
 
+  /*
+    Labels are staggered onto two rows on a horizontal chart. Gala cuts for one
+    event at one age sit close together by nature — a 14-year-old's L2/L3/SANJ
+    100 Free cuts land within a few seconds of each other, which at plot scale
+    is a few dozen pixels, against labels ~60px wide. On one row they overlap in
+    exactly the case the overlay exists for. Alternating rows buys each label
+    roughly double the horizontal room before it can collide.
+
+    Sorted by position first, so "alternating" follows what the eye sees rather
+    than the order the caller happened to pass.
+  */
+  const ordered = [...thresholds]
+    .map((t) => ({ t, at: yScale(t.value) }))
+    .filter(({ at }) => Number.isFinite(at))
+    .sort((a, b) => a.at - b.at);
+
+  const rowOf = horizontal
+    ? assignLabelRows(ordered.map((o) => o.at))
+    : ordered.map(() => 0);
+
+  /*
+    When even two staggered rows cannot separate the full labels, every label
+    drops to its glyph — all of them, not just the crowded ones, because a mix
+    of "◆" and "● L3" reads as two different kinds of thing. The legend maps
+    glyph to gala, so this stays a labelled line, never a colour-only one.
+  */
+  const tightest = ordered.reduce(
+    (min, cur, i) => (i === 0 ? min : Math.min(min, cur.at - ordered[i - 1].at)),
+    Number.POSITIVE_INFINITY,
+  );
+  const glyphOnly =
+    horizontal &&
+    ordered.length > 2 &&
+    tightest < LABEL_MIN_GAP &&
+    ordered.every(({ t }) => t.glyph);
+
   return (
     <g className="chart-value-thresholds">
-      {thresholds.map((t) => {
-        const at = yScale(t.value);
-        // Off-scale would draw the line on the axis and read as a threshold of
-        // zero. Better to draw nothing than to draw it in the wrong place.
-        if (!Number.isFinite(at)) return null;
+      {ordered.map(({ t, at }, i) => {
+        const labelY = rowOf[i] === 1 ? -21 : -8;
         return horizontal ? (
           <g key={t.key}>
             <line
@@ -78,9 +119,9 @@ export function ValueThresholds({
               fontWeight={600}
               textAnchor="middle"
               x={at}
-              y={-8}
+              y={labelY}
             >
-              {t.label}
+              {glyphOnly ? t.glyph : t.label}
             </text>
           </g>
         ) : (
