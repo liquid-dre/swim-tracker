@@ -42,7 +42,7 @@ type Gala = {
   tourName: string | null;
 };
 
-export function AdminToursScreen() {
+export function AdminGalasScreen() {
   const galas = useQuery(api.galas.listGalas, {});
   const byCode = useMemo(
     () => new Map((galas ?? []).map((g) => [g.code as GalaCode, g as Gala])),
@@ -53,7 +53,7 @@ export function AdminToursScreen() {
     <div className="flex flex-col gap-8">
       <PageHeader
         title="Galas"
-        breadcrumb={trailForHref("/admin/tours")}
+        breadcrumb={trailForHref("/admin/galas")}
         description="Each gala's tour date and the age range it accepts. With a date set, the qualifying screens judge swimmers against the cut for their age on that day (the progression chart's historical overlay keeps showing what applied when each swim happened). Clear a date and that gala reverts to judging at the swimmer's current age."
       />
 

@@ -18,12 +18,13 @@ import { formatSeconds } from "@/lib/format";
 import { formatTime, GALA_FULL, GALA_ORDER } from "@/lib/swim";
 
 /*
-  Tour qualification — who is going to which tour. Each swimmer appears once,
-  under the HIGHEST tier they qualify for (SANJ > L3 > L2), with the events
-  that got them there. Long-course meet times only. Cuts follow the tour
-  rule: a tier with a tour date judges at each swimmer's age ON TOUR DAY; a
-  tier without one judges each PB at the swimmer's current age (§4.9). Coach-only —
-  this is a cross-roster planning surface.
+  Gala qualification — which gala each swimmer is going to. Each swimmer appears
+  once, under the HIGHEST gala they qualify for (GALA_ORDER: SANS > SANY > SANJ >
+  L3 > L2), with the events that got them there. Either course can qualify them;
+  trials and practice never count. Cuts follow the tour rule: a gala with a tour
+  date judges at each swimmer's age ON TOUR DAY; a gala without one judges each PB
+  at the swimmer's current age (§4.9). Coach-only — a cross-roster planning
+  surface.
 */
 
 export function QualificationScreen() {
@@ -53,7 +54,7 @@ export function QualificationScreen() {
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <PageHeader
-        title="Tour qualification"
+        title="Gala qualification"
         breadcrumb={trailForHref(pathname)}
         description={
           isViewer
@@ -101,7 +102,7 @@ export function QualificationScreen() {
                       <>
                         {" · "}
                         <Link
-                          href="/admin/tours"
+                          href="/admin/galas"
                           className="rounded-sm font-medium text-brand-500 outline-none hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           set a date

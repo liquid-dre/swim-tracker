@@ -105,7 +105,9 @@ the swimmer's own-club coach (or the super-user) can add or revoke viewers.
    nav/guards (`/admin/*` reserved). Standards + season start/end are
    super-user-write / everyone-read; the editors show read-only for coaches. New
    `convex/clubs.ts` (create/rename clubs, assign/remove coaches) + a super-user
-   `/admin/clubs` screen (impeccable 36/40). Tour dates still deferred.
+   `/admin/clubs` screen (impeccable 36/40). Tour dates were deferred at this
+   point; they landed later as `/admin/galas`, which sets each gala's tour date
+   and its entry age window.
 5. **Club-scoped editing** *(done)* — `authz.assertCoachManagesSwimmer` gates
    every coach write (swimmer add/update/active, result add/edit/delete, squad
    add/remove) on `swimmer.clubId === coach.clubId`; a super-user bypasses.
