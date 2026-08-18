@@ -13,7 +13,6 @@ import {
   TooltipTitle,
   TooltipValue,
   ValueAxis,
-  ValueThresholds,
 } from "@/components/charts/swim";
 
 import { CHART, CHART_ANIM_MS } from "@/components/analysis/chartTheme";
@@ -28,7 +27,6 @@ import {
   eventsByKey,
   pointsBars,
   pointsDomain,
-  referenceThresholds,
   strokesPresent,
 } from "./pointsRows";
 
@@ -45,6 +43,12 @@ import {
   where a bar length is a TIME and shorter is faster. That inversion is safe
   because the quantity is different and named on the axis, and because every bar
   carries its own number — nothing is read off length alone.
+
+  NO reference lines. An earlier revision drew dashed markers at 400/600/800 as
+  "rulers" for short bars, with a caption insisting they were not qualifying
+  cuts. Rendering it showed the value axis already prints 0/200/…/1000 with a
+  gridline at each, so the markers reprinted numbers the axis was showing and
+  the caption existed only to defend an ambiguous mark. The axis is the ruler.
 */
 
 /** Renders children at rest (no enter animation) when motion is reduced. */
@@ -78,9 +82,6 @@ export function PointsBarChart({ events }: { events: ScoredEvent[] }) {
 
   const domain = pointsDomain(events.map((e) => e.points));
   const bars = pointsBars(events);
-  // Neutral grid ink, never a tier colour: these are rulers for the eye, not
-  // standards, and must not read as cuts the swimmer is chasing.
-  const thresholds = referenceThresholds(domain, CHART.grid);
 
   // BarChart's band scale takes the data in order, so the bar order is the
   // order `scoreEventPbs` returned: strongest at the top. Rows key on the
@@ -100,13 +101,7 @@ export function PointsBarChart({ events }: { events: ScoredEvent[] }) {
             barGap={0.28}
             className="h-full"
             data={data}
-            margin={{
-              // Room for the reference-line labels above the plot.
-              top: thresholds.length > 0 ? 34 : 4,
-              right: narrow ? 44 : 56,
-              bottom: 24,
-              left: yWidth,
-            }}
+            margin={{ top: 4, right: narrow ? 44 : 56, bottom: 24, left: yWidth }}
             orientation="horizontal"
             // Bars come from SwimBars, not <Bar>, so bklit finds no dataKey to
             // scan and would fall back to [0, 110]. Fixed 0–1000 is the point of
@@ -128,7 +123,6 @@ export function PointsBarChart({ events }: { events: ScoredEvent[] }) {
               maxLabelWidth={yWidth - 8}
             />
             <ValueAxis format={(v) => String(Math.round(v))} label="Points" />
-            <ValueThresholds strokeOpacity={0.7} thresholds={thresholds} />
             <SwimBars bars={bars} labelColor={CHART.ink} maxBarSize={26} />
             <ChartTooltip
               panelStyle={SWIM_TOOLTIP_PANEL}
@@ -143,20 +137,7 @@ export function PointsBarChart({ events }: { events: ScoredEvent[] }) {
         </MaybeStatic>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <StrokeLegend events={events} />
-        {/* Everywhere else in this app a dashed vertical line on a bar chart is
-            a QUALIFYING CUT (comparison, road to qualify). These are not, and a
-            coach must not have to guess — so they say what they are rather than
-            relying on their neutral grey to carry the difference. */}
-        {thresholds.length > 0 && (
-          <p className="text-xs text-ink-faint">
-            The dashed lines at{" "}
-            {thresholds.map((t) => t.value).join(", ")} are scale markers, not
-            qualifying cuts. Points are not a standard anyone has to meet.
-          </p>
-        )}
-      </div>
+      <StrokeLegend events={events} />
     </div>
   );
 }

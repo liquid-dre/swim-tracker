@@ -312,6 +312,16 @@ const ChartCore = memo(function ChartCore({
       data,
       innerHeight,
       resolveDomain: (dataKeys) => {
+        // LOCAL EDIT (ours): an explicit `valueDomain` wins in VERTICAL
+        // orientation too. Upstream applied it only to the horizontal value
+        // scale above, so a vertical chart silently rescaled to its own data
+        // however emphatically the caller asked for a fixed axis — which for
+        // World Aquatics points would destroy the fixed 0-1000 scale the whole
+        // metric depends on, and which already left the attendance chart's
+        // 0-100 rate axis inert.
+        if (valueDomain) {
+          return valueDomain;
+        }
         let max = 0;
         for (const d of data) {
           for (const key of dataKeys) {
@@ -324,7 +334,7 @@ const ChartCore = memo(function ChartCore({
         return [0, (max || 100) * 1.1];
       },
     });
-  }, [data, innerHeight, isHorizontal, lines, valueScale]);
+  }, [data, innerHeight, isHorizontal, lines, valueDomain, valueScale]);
 
   const primaryYScale = getPrimaryYScale(yScales, valueScale);
 

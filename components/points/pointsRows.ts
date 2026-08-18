@@ -1,4 +1,4 @@
-import type { SwimBar, Threshold } from "@/components/charts/swim";
+import type { SwimBar } from "@/components/charts/swim";
 import { STROKE_META } from "@/components/profile/strokeProfile";
 import { POINTS_SCALE_MAX, type MeetPoint, type ScoredEvent } from "@/lib/points";
 import { STROKE_ORDER, type Stroke } from "@/lib/swim";
@@ -9,19 +9,6 @@ import { STROKE_ORDER, type Stroke } from "@/lib/swim";
   how meets land on a date axis — are testable on node, and the components keep
   only scale lookups and rendering.
 */
-
-/**
- * Reference lines across the points axis.
- *
- * Points have no natural landmarks the way a qualifying cut does, and without
- * them a young swimmer's page is a row of short bars against an empty field
- * with nothing to read them against. These three give the eye a ruler: roughly
- * a solid age-group swim, a strong provincial one, and a national-level one.
- * Deliberately unlabelled beyond the number — they are not standards and must
- * not be mistaken for cuts, which is why they use the neutral grid ink rather
- * than any tier colour.
- */
-export const POINTS_REFERENCE_LINES: ReadonlyArray<number> = [400, 600, 800];
 
 /**
  * The value axis for the points charts: fixed 0–1000 so the axis means the same
@@ -37,23 +24,6 @@ export function pointsDomain(
   const max = values.reduce((m, v) => Math.max(m, v), 0);
   if (max <= POINTS_SCALE_MAX) return [0, POINTS_SCALE_MAX];
   return [0, Math.ceil(max / 100) * 100];
-}
-
-/** Reference lines that fall inside the drawn domain — the rest are dropped. */
-export function referenceThresholds(
-  domain: readonly [number, number],
-  ink: string,
-): Threshold[] {
-  return POINTS_REFERENCE_LINES.filter(
-    (value) => value > domain[0] && value < domain[1],
-  ).map((value) => ({
-    key: `ref-${value}`,
-    value,
-    color: ink,
-    ink,
-    dash: "3 3",
-    label: String(value),
-  }));
 }
 
 /**

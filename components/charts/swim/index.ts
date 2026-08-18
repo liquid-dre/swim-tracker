@@ -25,6 +25,9 @@
     valueDomain      bar-chart.tsx — the derived value domain scans <Bar>
                      dataKeys and falls back to [0, 110] when a chart draws its
                      own bars, and cannot reach past the slowest threshold.
+                     Applied in BOTH orientations: upstream honoured it only on
+                     the horizontal value scale, so a vertical chart rescaled to
+                     its own data and a fixed axis was impossible there.
     maxLabelWidth    bar-y-axis.tsx — the category label was capped at 70px
                      regardless of the gutter reserved for it.
     valueMax         radar-chart.tsx + radar-grid.tsx + radar-context.tsx — the

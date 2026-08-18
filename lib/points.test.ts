@@ -8,6 +8,7 @@ import {
   perMeetBest,
   POINTS_BASE_YEAR,
   POINTS_SCALE_MAX,
+  scoreableEvents,
   scoreEventPbs,
 } from "./points";
 import type { Course, EventPB, ResultForPB, Stroke } from "./swim";
@@ -138,6 +139,69 @@ describe("the 2025 long-course base times", () => {
     expect(aquaPoints(t, 100, "FREE", "LCM", "M")!).toBeLessThan(
       aquaPoints(t, 100, "FREE", "LCM", "F")!,
     );
+  });
+});
+
+describe("scoreableEvents", () => {
+  const lcm = scoreableEvents("LCM");
+
+  it("is exactly the 17 published long-course events", () => {
+    expect(lcm).toHaveLength(17);
+  });
+
+  it("excludes what World Aquatics publishes no table for", () => {
+    // No 25 m event is scored, and 100 IM is short-course only.
+    expect(lcm.some((e) => e.distance === 25)).toBe(false);
+    expect(lcm.some((e) => e.distance === 100 && e.stroke === "IM")).toBe(false);
+  });
+
+  it("gives the by-distance grid the compare chart draws", () => {
+    const strokesAt = (distance: number) =>
+      lcm.filter((e) => e.distance === distance).map((e) => e.stroke);
+    expect(strokesAt(50)).toEqual(["FREE", "BACK", "BREAST", "FLY"]);
+    expect(strokesAt(100)).toEqual(["FREE", "BACK", "BREAST", "FLY"]);
+    expect(strokesAt(200)).toEqual(["FREE", "BACK", "BREAST", "FLY", "IM"]);
+    expect(strokesAt(400)).toEqual(["FREE", "IM"]);
+    // Freestyle-only distances — a one-group comparison, drawn rather than hidden.
+    expect(strokesAt(800)).toEqual(["FREE"]);
+    expect(strokesAt(1500)).toEqual(["FREE"]);
+  });
+
+  it("gives the by-stroke grid the compare chart draws", () => {
+    const distancesOf = (stroke: string) =>
+      lcm.filter((e) => e.stroke === stroke).map((e) => e.distance);
+    expect(distancesOf("FREE")).toEqual([50, 100, 200, 400, 800, 1500]);
+    expect(distancesOf("BACK")).toEqual([50, 100, 200]);
+    expect(distancesOf("BREAST")).toEqual([50, 100, 200]);
+    expect(distancesOf("FLY")).toEqual([50, 100, 200]);
+    expect(distancesOf("IM")).toEqual([200, 400]);
+  });
+
+  it("orders by distance, then by the app's stroke order", () => {
+    const keys = lcm.map((e) => `${e.distance}:${e.stroke}`);
+    expect(keys.slice(0, 5)).toEqual([
+      "50:FREE",
+      "50:BACK",
+      "50:BREAST",
+      "50:FLY",
+      "100:FREE",
+    ]);
+    expect(keys.at(-1)).toBe("1500:FREE");
+  });
+
+  it("scores every event it lists, for both sexes", () => {
+    for (const gender of ["M", "F"] as const) {
+      for (const e of lcm) {
+        expect(
+          baseTimeMs(e.distance, e.stroke, "LCM", gender),
+          `${gender} ${e.distance} ${e.stroke}`,
+        ).not.toBeNull();
+      }
+    }
+  });
+
+  it("is empty for a course with no loaded base times", () => {
+    expect(scoreableEvents("SCM")).toEqual([]);
   });
 });
 

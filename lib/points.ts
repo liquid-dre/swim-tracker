@@ -1,5 +1,8 @@
 import {
+  DISTANCE_ORDER,
   eventLabel,
+  eventSortKey,
+  STROKE_ORDER,
   type Course,
   type Distance,
   type EventPB,
@@ -163,6 +166,45 @@ export function aquaPoints(
   const base = baseTimeMs(distance, stroke, course, gender);
   if (base === null || !(base > 0)) return null;
   return Math.floor(1000 * (base / timeMs) ** 3);
+}
+
+/**
+ * Every event this course can score, in canonical order (by distance, then by
+ * the app's stroke order).
+ *
+ * Read off the base-time table rather than the event whitelist, because those
+ * are different questions: the whitelist says what a swimmer may RACE, this says
+ * what World Aquatics publishes a standard for. They diverge — no 25 m event is
+ * scored at all, and 100 IM is short-course-only so it has no long-course base
+ * time — and a chart that offers a category with no possible bar is a chart that
+ * lies about its own axis.
+ *
+ * On long course this is 17 events, which gives:
+ *   by distance —   50 → 4 strokes, 100 → 4, 200 → 5, 400 → 2, 800 → 1, 1500 → 1
+ *   by stroke   —  Free → 6 distances, Back/Breast/Fly → 3 each, IM → 2
+ *
+ * Empty for a course whose base times are not loaded.
+ */
+export function scoreableEvents(
+  course: Course | string,
+): Array<{ distance: Distance; stroke: Stroke }> {
+  const byGender = BASE_TIMES_MS[course as Course];
+  if (byGender === undefined) return [];
+
+  const out: Array<{ distance: Distance; stroke: Stroke }> = [];
+  // Men's and women's tables cover the same events; either one is the grid.
+  for (const key of Object.keys(byGender.M)) {
+    const [d, stroke] = key.split(":");
+    const distance = Number(d) as Distance;
+    if (!DISTANCE_ORDER.includes(distance)) continue;
+    if (STROKE_ORDER.indexOf(stroke as Stroke) < 0) continue;
+    out.push({ distance, stroke: stroke as Stroke });
+  }
+
+  return out.sort(
+    (a, b) =>
+      eventSortKey(a.distance, a.stroke) - eventSortKey(b.distance, b.stroke),
+  );
 }
 
 /** One event's headline PB, scored. */
