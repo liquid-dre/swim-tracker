@@ -40,8 +40,15 @@ export interface RadarData {
   label: string;
   /** Color for this data series (defaults to chart-1 through chart-5) */
   color?: string;
-  /** Metric values (key -> value, normalized 0-100) */
-  values: Record<string, number>;
+  /**
+   * Metric values (key -> value, normalized 0-100).
+   *
+   * LOCAL EDIT: `null` (or an absent key) means NO DATA for that metric, and is
+   * rendered as a gap in the polygon rather than as a value. Upstream coerced a
+   * missing key to 0, which draws "never raced this stroke" identically to
+   * "slowest possible" — see components/charts/radar-area.tsx.
+   */
+  values: Record<string, number | null | undefined>;
 }
 
 export interface RadarHoverContextValue {

@@ -4,6 +4,13 @@ import type { MotionValue } from "motion/react";
 import { motion, useTransform } from "motion/react";
 import { memo, useMemo } from "react";
 import { radarCssVars, useRadarHover, useRadarStable } from "./radar-context";
+// LOCAL EDIT: null-aware path building lives in our own tree so it is linted
+// and tested; see components/charts/swim/radarPaths.ts for why it exists.
+import {
+  positionsToFillPath,
+  positionsToStrokePath,
+  type RadarPos as Pos,
+} from "./swim/radarPaths";
 import { useEnterComplete } from "./use-enter-complete";
 import { useMountProgress } from "./use-mount-progress";
 
@@ -22,15 +29,11 @@ export interface RadarAreaProps {
   className?: string;
 }
 
+/** How far out the no-data tick sits, on the same 0-100 scale as the values. */
+const NO_DATA_TICK_VALUE = 7;
+
 function getStrokeWidth(isHovered: boolean): number {
   return isHovered ? 3 : 2;
-}
-
-function positionsToPath(positions: { x: number; y: number }[]): string {
-  if (positions.length === 0) {
-    return "";
-  }
-  return `M ${positions.map((p) => `${p.x},${p.y}`).join(" L ")} Z`;
 }
 
 const RadarPoint = memo(function RadarPoint({
@@ -107,18 +110,27 @@ export const RadarArea = memo(function RadarArea({
   const durationFactor = enterDurationMs / 1100;
   const areaData = data[index];
 
-  const targetPositions = useMemo(() => {
+  const targetPositions = useMemo<Array<Pos | null>>(() => {
     if (!areaData) {
-      return metrics.map(() => ({ x: 0, y: 0 }));
+      return metrics.map(() => null);
     }
     return metrics.map((metric, i) => {
-      const value = areaData.values[metric.key] ?? 0;
+      const value = areaData.values[metric.key];
+      // LOCAL EDIT: null/undefined is NO DATA, not zero. Upstream's `?? 0` put
+      // the point on the axis, which reads as the worst possible score.
+      if (value === null || value === undefined) {
+        return null;
+      }
       return getPointPosition(i, value);
     });
   }, [metrics, areaData, getPointPosition]);
 
-  const staticPath = useMemo(
-    () => positionsToPath(targetPositions),
+  const staticFillPath = useMemo(
+    () => positionsToFillPath(targetPositions),
+    [targetPositions]
+  );
+  const staticStrokePath = useMemo(
+    () => positionsToStrokePath(targetPositions),
     [targetPositions]
   );
 
@@ -135,10 +147,11 @@ export const RadarArea = memo(function RadarArea({
   const enterComplete = useEnterComplete(mountProgress);
 
   const animatedPositions = useTransform(mountProgress, (t) =>
-    targetPositions.map((p) => ({ x: p.x * t, y: p.y * t }))
+    targetPositions.map((p) => (p === null ? null : { x: p.x * t, y: p.y * t }))
   );
 
-  const pathD = useTransform(animatedPositions, positionsToPath);
+  const fillPathD = useTransform(animatedPositions, positionsToFillPath);
+  const strokePathD = useTransform(animatedPositions, positionsToStrokePath);
 
   if (!areaData) {
     return null;
@@ -164,39 +177,75 @@ export const RadarArea = memo(function RadarArea({
         scale: { type: "spring", stiffness: 400, damping: 25 },
       }}
     >
+      {/* LOCAL EDIT: fill and stroke are two paths, not one. The fill closes
+          across a gap so the series still reads as an area; the stroke does
+          not, so the outline visibly stops at a metric with no data. */}
       {enterComplete ? (
-        <path
-          d={staticPath}
-          fill={color}
-          fillOpacity={isHovered ? 0.35 : 0.15}
-          stroke={showStroke ? color : "none"}
-          strokeLinejoin="round"
-          strokeWidth={showStroke ? getStrokeWidth(isHovered) : 0}
-          style={{
-            filter:
-              showGlow && isHovered ? `drop-shadow(0 0 12px ${color})` : "none",
-          }}
-        />
+        <>
+          <path
+            d={staticFillPath}
+            fill={color}
+            fillOpacity={isHovered ? 0.35 : 0.15}
+            stroke="none"
+          />
+          {showStroke && (
+            <path
+              d={staticStrokePath}
+              fill="none"
+              stroke={color}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={getStrokeWidth(isHovered)}
+              style={{
+                filter: showGlow && isHovered ? `drop-shadow(0 0 12px ${color})` : "none",
+              }}
+            />
+          )}
+        </>
       ) : (
-        <motion.path
-          animate={{
-            fillOpacity: isHovered ? 0.35 : 0.15,
-            strokeWidth: showStroke ? getStrokeWidth(isHovered) : 0,
-          }}
-          d={pathD}
-          fill={color}
-          stroke={showStroke ? color : "none"}
-          strokeLinejoin="round"
-          style={{
-            filter:
-              showGlow && isHovered ? `drop-shadow(0 0 12px ${color})` : "none",
-          }}
-          transition={{
-            fillOpacity: { duration: 0.2 },
-            strokeWidth: { duration: 0.2 },
-          }}
-        />
+        <>
+          <motion.path
+            animate={{ fillOpacity: isHovered ? 0.35 : 0.15 }}
+            d={fillPathD}
+            fill={color}
+            stroke="none"
+            transition={{ fillOpacity: { duration: 0.2 } }}
+          />
+          {showStroke && (
+            <motion.path
+              animate={{ strokeWidth: getStrokeWidth(isHovered) }}
+              d={strokePathD}
+              fill="none"
+              stroke={color}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                filter: showGlow && isHovered ? `drop-shadow(0 0 12px ${color})` : "none",
+              }}
+              transition={{ strokeWidth: { duration: 0.2 } }}
+            />
+          )}
+        </>
       )}
+
+      {/* LOCAL EDIT: a hollow tick just off the hub on every metric with NO
+          data, so a gap is something the reader can see and point at rather
+          than an absence they have to notice. */}
+      {enterComplete &&
+        metrics.map((metric, i) =>
+          targetPositions[i] === null ? (
+            <circle
+              cx={getPointPosition(i, NO_DATA_TICK_VALUE).x}
+              cy={getPointPosition(i, NO_DATA_TICK_VALUE).y}
+              fill="none"
+              key={`${metric.key}-nodata`}
+              r={3}
+              stroke={color}
+              strokeDasharray="2 2"
+              strokeWidth={1.5}
+            />
+          ) : null
+        )}
 
       {showPoints &&
         metrics.map((metric, i) => {

@@ -173,11 +173,16 @@ it, and it is excluded from eslint for that reason. Our own chart parts live in
 `components/charts/swim/`, which is linted and tested normally; its `index.ts` lists what each one
 exists for and why bklit has no equivalent.
 
-**Four deliberate edits do live in the vendored tree**, each marked `LOCAL EDIT` in a comment
+**Five deliberate edits do live in the vendored tree**, each marked `LOCAL EDIT` in a comment
 naming the upstream behaviour it overrides: `yDomain` and `xLabelFormat` on the time-series shell,
-`valueDomain` on the bar chart, `maxLabelWidth` on the bar category axis. Every one exists because
-the upstream default is right for counting web analytics and wrong for swim times — above all the
-zero baseline, which flattens a whole season's trajectory into the top of the plot.
+`valueDomain` on the bar chart, `maxLabelWidth` on the bar category axis, and **null metric values**
+on the radar (`radar-area.tsx`, `radar-context.tsx`). The first four exist because the upstream
+default is right for counting web analytics and wrong for swim times — above all the zero baseline,
+which flattens a whole season's trajectory into the top of the plot. The fifth is the same class of
+bug in a different shape: upstream coerces a missing metric to `0`, which draws "never raced this
+stroke" identically to "slowest possible at this stroke". A null now breaks the polygon instead. The
+path building for that lives in `components/charts/swim/radarPaths.ts` — ours, linted and tested —
+so the vendored diff is an import rather than an algorithm.
 
 **Theming:** bklit ships its own greyscale `--chart-*` palette; every value is repointed at the
 ramp in §2/§3 (`app/globals.css`), in both themes. A chart never introduces a colour the rest of
@@ -206,6 +211,15 @@ of the enter reveal via bklit's own `StaticChartPreviewProvider` when motion is 
 (every spoke has its own calibrated scale, which a shared radial scale would destroy — a test locks
 it) and the dashboard sparkline (×20 rows, no axes). Both follow the app-wide orientation: faster =
 lower / further out.
+
+**The stroke RADAR does not contradict that.** It is a companion to the wheel, not a replacement,
+because it answers a different question on a different scale. The wheel asks what a swimmer can
+ENTER and measures against the gala cuts they are eligible for — age-fair, but only comparable
+inside one entry window, since ring 2 means Level 3 at 14 and SANY at 18. The radar asks what a
+swimmer is GOOD at, on percent of world record, which is universal and so lets any swimmers overlay.
+That scale is age-blind, which is why the radar's read is the SHAPE of a polygon, never its size.
+One course per chart, always — an SCM and an LCM percentage are measured against different records
+and must never average onto one spoke (§4.2).
 
 ## 6. Spacing & motion
 - 8px spacing grid. Section gaps `gap-5`/`gap-6`. Page content max width ~`1440px`, generous gutters.
