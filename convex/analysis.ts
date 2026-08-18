@@ -50,6 +50,14 @@ import {
 /** The radar caps at four polygons — past that, overlaid shapes stop reading. */
 const STROKE_RADAR_MAX = 4;
 
+/**
+ * The points comparison caps at six swimmers. Bars are clustered inside one
+ * category band, so the count is a legibility ceiling rather than a read cost:
+ * six bars stay distinguishable across four groups (50m) and still across six
+ * (freestyle). The client enforces the same number in its picker.
+ */
+const POINTS_COMPARE_MAX = 6;
+
 // Tour dates by gala, as returned to screens that explain their resolution.
 const tourDatesValidator = v.object({
   SANS: v.optional(v.string()),
@@ -1840,6 +1848,76 @@ export const getSwimmerPoints = query({
       best: events[0] ?? null,
       events,
       meets: perMeetBest(results as ResultForPB[], args.course, swimmer.gender),
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// 9. World Aquatics points — several swimmers, one course
+// ---------------------------------------------------------------------------
+//
+// The cross-swimmer read behind the points comparison. Points are the only
+// scale on which "who is our strongest 50m swimmer" is even askable: seconds
+// cannot rank a 50 Free against a 50 Breast, and they cannot fairly rank a boy
+// against a girl. Base times are per sex, so points can do both.
+//
+// Each swimmer's FULL scored board comes back rather than a shape pivoted for
+// one chart. The client pins a distance or a stroke and pivots in a pure,
+// tested function, so switching between "all 50m races" and "all freestyle
+// distances" is instant and never refetches.
+
+export const getPointsComparison = query({
+  args: {
+    swimmerIds: v.array(v.id("swimmers")),
+    course,
+  },
+  returns: v.object({
+    course,
+    baseYear: v.number(),
+    hasBaseTimes: v.boolean(),
+    swimmers: v.array(
+      v.object({
+        swimmerId: v.id("swimmers"),
+        name: v.string(),
+        gender,
+        events: v.array(scoredEvent),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const ids = [...new Set(args.swimmerIds)].slice(0, POINTS_COMPARE_MAX);
+
+    // All-or-nothing, like every other multi-select chart: a viewer passing an
+    // extra id alongside a legitimate one must not smuggle that swimmer onto
+    // the chart, so one rejection fails the whole read.
+    await requireSwimmersAccess(ctx, ids);
+
+    const swimmers = [];
+    for (const swimmerId of ids) {
+      const swimmer = await ctx.db.get(swimmerId);
+      if (!swimmer) continue;
+
+      const results = await ctx.db
+        .query("results")
+        .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
+        .take(SWIMMER_RESULTS_LIMIT);
+
+      // Reuse the one PB derivation and the one scorer; "fastest meet time"
+      // and the truncation rule each live in exactly one place.
+      const pbs = computePersonalBests(results as ResultForPB[]);
+      swimmers.push({
+        swimmerId,
+        name: swimmer.name,
+        gender: swimmer.gender,
+        events: scoreEventPbs(pbs, args.course, swimmer.gender),
+      });
+    }
+
+    return {
+      course: args.course,
+      baseYear: POINTS_BASE_YEAR,
+      hasBaseTimes: courseHasBaseTimes(args.course),
+      swimmers,
     };
   },
 });

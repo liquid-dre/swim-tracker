@@ -6,8 +6,6 @@ import {
   eventsByKey,
   pointsBars,
   pointsDomain,
-  POINTS_REFERENCE_LINES,
-  referenceThresholds,
   strokesPresent,
   trendRows,
 } from "./pointsRows";
@@ -59,34 +57,6 @@ describe("pointsDomain", () => {
   it("grows rather than clipping a swim faster than the base time", () => {
     expect(pointsDomain([1004])).toEqual([0, 1100]);
     expect(pointsDomain([1200])).toEqual([0, 1200]);
-  });
-});
-
-describe("referenceThresholds", () => {
-  it("draws the three rulers inside a standard domain", () => {
-    const lines = referenceThresholds([0, 1000], "#888");
-    expect(lines.map((l) => l.value)).toEqual([...POINTS_REFERENCE_LINES]);
-  });
-
-  it("uses one neutral ink so they can't be mistaken for gala cuts", () => {
-    const lines = referenceThresholds([0, 1000], "#888");
-    for (const l of lines) {
-      expect(l.color).toBe("#888");
-      expect(l.ink).toBe("#888");
-    }
-  });
-
-  it("labels each line with its number and nothing else", () => {
-    expect(referenceThresholds([0, 1000], "#888").map((l) => l.label)).toEqual([
-      "400",
-      "600",
-      "800",
-    ]);
-  });
-
-  it("drops any line that would sit on or outside the drawn domain", () => {
-    expect(referenceThresholds([0, 400], "#888")).toEqual([]);
-    expect(referenceThresholds([0, 700], "#888").map((l) => l.value)).toEqual([400, 600]);
   });
 });
 

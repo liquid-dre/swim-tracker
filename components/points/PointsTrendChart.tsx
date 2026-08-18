@@ -15,7 +15,6 @@ import {
   TooltipTitle,
   TooltipValue,
   ValueAxis,
-  ValueThresholds,
 } from "@/components/charts/swim";
 
 import { CHART, CHART_ANIM_MS } from "@/components/analysis/chartTheme";
@@ -24,7 +23,7 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
 import { formatShortDate } from "@/lib/format";
 import { formatTime } from "@/lib/swim";
 import type { MeetPoint } from "@/lib/points";
-import { pointsDomain, referenceThresholds, trendRows, type TrendRow } from "./pointsRows";
+import { pointsDomain, trendRows, type TrendRow } from "./pointsRows";
 
 /*
   World Aquatics points over time — one dot per MEET, at that meet's
@@ -84,7 +83,6 @@ export function PointsTrendChart({ meets }: { meets: MeetPoint[] }) {
 
   const rows = trendRows(meets);
   const domain = pointsDomain(rows.map((r) => r.points));
-  const thresholds = referenceThresholds(domain, CHART.grid);
 
   const tMin = rows.length > 0 ? rows[0].t : 0;
   const tMax = rows.length > 0 ? rows[rows.length - 1].t : 0;
@@ -115,7 +113,7 @@ export function PointsTrendChart({ meets }: { meets: MeetPoint[] }) {
           // fills the fixed-height parent instead of setting its own.
           aspectRatio=""
           data={rows}
-          margin={{ top: thresholds.length > 0 ? 30 : 8, right: 20, bottom: 26, left: narrow ? 46 : 54 }}
+          margin={{ top: 8, right: 20, bottom: 26, left: narrow ? 46 : 54 }}
           style={{ height: "100%" }}
           xDataKey="date"
           xDomain={[new Date(tMin - pad), new Date(tMax + pad)]}
@@ -139,7 +137,6 @@ export function PointsTrendChart({ meets }: { meets: MeetPoint[] }) {
             label="Points"
             width={narrow ? 46 : 54}
           />
-          <ValueThresholds strokeOpacity={0.7} thresholds={thresholds} />
           <Line
             // curveLinear, not bklit's default curveNatural: a spline through
             // meet scores bulges between them and so draws form the swimmer

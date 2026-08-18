@@ -3,19 +3,22 @@
 import { useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
-import { Gauge } from "lucide-react";
+import { Gauge, X } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
-import { FilterBar } from "@/components/ui/FilterBar";
+import { Segmented } from "@/components/ui/Segmented";
+import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { trailForHref } from "@/lib/nav";
-import { usePickerSwimmers } from "@/lib/usePickerSwimmers";
+import { usePickerSwimmers, type PickerSwimmer } from "@/lib/usePickerSwimmers";
 import { formatShortDate } from "@/lib/format";
-import { formatTime } from "@/lib/swim";
+import { formatTime, type Distance, type Stroke } from "@/lib/swim";
 import type { ScoredEvent } from "@/lib/points";
 import { PointsBarChart } from "./PointsBarChart";
+import { PointsCompareChart } from "./PointsCompareChart";
+import { compareOptions, type CompareMode, type CompareSwimmer } from "./pointsCompare";
 import { PointsTrendChart, TREND_MIN_MEETS } from "./PointsTrendChart";
 
 /*
@@ -37,6 +40,16 @@ import { PointsTrendChart, TREND_MIN_MEETS } from "./PointsTrendChart";
 /** The only course with loaded base times. See `lib/points.ts`. */
 const COURSE = "LCM" as const;
 
+/**
+ * Six swimmers on one chart. Bars are clustered inside a category band, so
+ * this is a legibility ceiling: six stay distinguishable across four groups
+ * (50m) and still across six (freestyle). Mirrors POINTS_COMPARE_MAX in
+ * convex/analysis.ts, which enforces the same bound server-side.
+ */
+const MAX_COMPARE = 6;
+
+type ViewMode = "one" | "compare";
+
 export function PointsScreen() {
   const pathname = usePathname();
   // Role-scoped picker: a coach picks any swimmer, a viewer only their linked
@@ -55,23 +68,65 @@ export function PointsScreen() {
   */
   const router = useRouter();
   const params = useSearchParams();
-  const swimmerId = (params.get("swimmer") ?? "") as Id<"swimmers"> | "";
 
-  const selectSwimmer = useCallback(
-    (next: string) => {
-      const query = next === "" ? "" : `?swimmer=${encodeURIComponent(next)}`;
-      const navigate = swimmerId === "" ? router.replace : router.push;
-      navigate(`${pathname}${query}`, { scroll: false });
+  const mode: ViewMode = params.get("mode") === "compare" ? "compare" : "one";
+  const swimmerId = (params.get("swimmer") ?? "") as Id<"swimmers"> | "";
+  const compareMode: CompareMode =
+    params.get("by") === "stroke" ? "STROKE" : "DISTANCE";
+  const pinnedParam = params.get("event");
+
+  /*
+    Every control writes to the URL, so the whole view is linkable and the back
+    button steps through what the coach looked at. `replace` on the first
+    meaningful pick, `push` after that, so landing on a default never traps
+    them on the page.
+  */
+  const setParams = useCallback(
+    (patch: Record<string, string | null>, replace: boolean) => {
+      const next = new URLSearchParams(params.toString());
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null || v === "") next.delete(k);
+        else next.set(k, v);
+      }
+      const query = next.toString();
+      const navigate = replace ? router.replace : router.push;
+      navigate(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
     },
-    [pathname, router, swimmerId],
+    [params, pathname, router],
   );
 
-  const data = useQuery(
+  // Selection is DERIVED from the URL and filtered against the loaded roster,
+  // so a stale or hand-typed id self-heals instead of erroring.
+  const rosterIds = new Set((swimmers ?? []).map((s) => s._id as string));
+  const compareIds = (params.get("swimmers") ?? "")
+    .split(",")
+    .filter((id) => id !== "" && (swimmers === undefined || rosterIds.has(id)))
+    .slice(0, MAX_COMPARE) as Id<"swimmers">[];
+
+  const single = useQuery(
     api.analysis.getSwimmerPoints,
-    swimmerId === "" ? "skip" : { swimmerId, course: COURSE },
+    mode === "compare" || swimmerId === ""
+      ? "skip"
+      : { swimmerId, course: COURSE },
+  );
+  const compare = useQuery(
+    api.analysis.getPointsComparison,
+    mode === "one" || compareIds.length === 0
+      ? "skip"
+      : { swimmerIds: compareIds, course: COURSE },
   );
 
   const loadingSwimmers = swimmers === undefined;
+
+  const pinnedOptions = compareOptions(compareMode, COURSE);
+  // Fall back to the first valid option rather than rendering an empty chart
+  // when the URL carries a value this mode does not offer.
+  const pinned =
+    pinnedParam && pinnedOptions.some((o) => o.value === pinnedParam)
+      ? pinnedParam
+      : (pinnedOptions[0]?.value ?? "");
+  const pinnedValue: Distance | Stroke =
+    compareMode === "DISTANCE" ? (Number(pinned) as Distance) : (pinned as Stroke);
 
   return (
     <div className="flex flex-col gap-6">
@@ -83,48 +138,136 @@ export function PointsScreen() {
 
       <FilterBar
         primary={
-          <div className="w-full max-w-xs sm:w-56">
-            <Select
-              aria-label="Swimmer"
-              placeholder={loadingSwimmers ? "Loading swimmers…" : "Select a swimmer"}
-              value={swimmerId}
-              onValueChange={selectSwimmer}
-              disabled={loadingSwimmers}
-              options={(swimmers ?? []).map((s) => ({
-                value: s._id,
-                label: `${s.name} · ${s.age}`,
-              }))}
+          <>
+            <Segmented
+              ariaLabel="View"
+              value={mode}
+              onChange={(next) =>
+                setParams({ mode: next === "compare" ? "compare" : null }, true)
+              }
+              options={[
+                { value: "one", label: "One swimmer" },
+                { value: "compare", label: "Compare" },
+              ]}
             />
-          </div>
+
+            {mode === "one" ? (
+              <div className="w-full max-w-xs sm:w-56">
+                <Select
+                  aria-label="Swimmer"
+                  placeholder={
+                    loadingSwimmers ? "Loading swimmers…" : "Select a swimmer"
+                  }
+                  value={swimmerId}
+                  onValueChange={(next) =>
+                    setParams({ swimmer: next }, swimmerId === "")
+                  }
+                  disabled={loadingSwimmers}
+                  options={(swimmers ?? []).map((s) => ({
+                    value: s._id,
+                    label: `${s.name} · ${s.age}`,
+                  }))}
+                />
+              </div>
+            ) : (
+              <>
+                <ComparePicker
+                  swimmers={swimmers ?? []}
+                  selected={compareIds}
+                  loading={loadingSwimmers}
+                  onChange={(ids) =>
+                    setParams(
+                      { swimmers: ids.join(",") },
+                      compareIds.length === 0,
+                    )
+                  }
+                />
+                <FilterField label="Compare across">
+                  <Segmented
+                    ariaLabel="Compare across"
+                    value={compareMode === "DISTANCE" ? "distance" : "stroke"}
+                    onChange={(next) =>
+                      // The pinned event belongs to the old mode, so clear it
+                      // and let the new mode pick its own first option.
+                      setParams(
+                        { by: next === "stroke" ? "stroke" : null, event: null },
+                        false,
+                      )
+                    }
+                    options={[
+                      { value: "distance", label: "Strokes" },
+                      { value: "stroke", label: "Distances" },
+                    ]}
+                  />
+                </FilterField>
+                <FilterField
+                  label={compareMode === "DISTANCE" ? "At distance" : "In stroke"}
+                >
+                  <div className="w-32">
+                    <Select
+                      aria-label={
+                        compareMode === "DISTANCE"
+                          ? "Distance to compare at"
+                          : "Stroke to compare in"
+                      }
+                      value={pinned}
+                      onValueChange={(next) => setParams({ event: next }, false)}
+                      options={pinnedOptions}
+                    />
+                  </div>
+                </FilterField>
+              </>
+            )}
+          </>
         }
       />
 
-      {swimmerId === "" ? (
+      {mode === "compare" ? (
+        compareIds.length === 0 ? (
+          <EmptyState
+            title="Pick swimmers to compare"
+            body={`Add up to ${MAX_COMPARE} swimmers above. Points put every event on one scale, so you can weigh a 200 breaststroker against a 50 freestyler — and a boy against a girl, since base times are per sex.`}
+          />
+        ) : compare === undefined ? (
+          <PointsSkeleton />
+        ) : !compare.hasBaseTimes ? (
+          <NoBaseTimes />
+        ) : compare.swimmers.every((s) => s.events.length === 0) ? (
+          <EmptyState
+            title="No scoreable long-course meet times"
+            body="None of the selected swimmers has a long-course meet time in an event World Aquatics scores. Trials, practice and school galas never count."
+          />
+        ) : (
+          <CompareResults
+            baseYear={compare.baseYear}
+            compareMode={compareMode}
+            pinned={pinnedValue}
+            swimmers={compare.swimmers}
+          />
+        )
+      ) : swimmerId === "" ? (
         <EmptyState
           title="Pick a swimmer"
           body="Choose a swimmer above to see their World Aquatics points by event and by meet."
         />
-      ) : data === undefined ? (
+      ) : single === undefined ? (
         // Also the state when switching swimmers. The skeleton mirrors the real
         // block heights, so the page holds its shape instead of jumping.
         <PointsSkeleton />
-      ) : data === null ? (
+      ) : single === null ? (
         <EmptyState
           title="Swimmer not found"
           body="That swimmer may have been removed. Pick another from the list above."
         />
-      ) : !data.hasBaseTimes ? (
+      ) : !single.hasBaseTimes ? (
+        <NoBaseTimes />
+      ) : single.events.length === 0 ? (
         <EmptyState
-          title="No base times loaded for this course"
-          body="World Aquatics publishes a separate points table per course. Until this one is loaded, swims in it are not scored — a number borrowed from the other course would be wrong."
-        />
-      ) : data.events.length === 0 ? (
-        <EmptyState
-          title={`No scoreable long-course meet times for ${data.name}`}
+          title={`No scoreable long-course meet times for ${single.name}`}
           body="Points come from fastest meet times in long course. Time trials, practice and school galas never score, and World Aquatics publishes no table for 25 m events or the 100 IM."
         />
       ) : (
-        <PointsResults data={data} />
+        <PointsResults data={single} />
       )}
     </div>
   );
@@ -262,8 +405,135 @@ function EventTable({ events }: { events: ScoredEvent[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Compare
+// ---------------------------------------------------------------------------
+
+export function CompareResults({
+  baseYear,
+  compareMode,
+  pinned,
+  swimmers,
+}: {
+  baseYear: number;
+  compareMode: CompareMode;
+  pinned: Distance | Stroke;
+  swimmers: CompareSwimmer[];
+}) {
+  const across = compareMode === "DISTANCE" ? "stroke" : "distance";
+  const heading =
+    compareMode === "DISTANCE"
+      ? `${pinned}m across the strokes`
+      : `${STROKE_TITLE[pinned as Stroke]} across the distances`;
+
+  return (
+    <section className="flex flex-col gap-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h2 className="text-base font-semibold text-ink">
+          {heading} · long course
+        </h2>
+        <p className="text-sm text-ink-muted">
+          Taller is better. One bar per swimmer in each {across}, on the same
+          0&ndash;1000 scale, from the {baseYear} base times.
+        </p>
+      </div>
+      <PointsCompareChart
+        course={COURSE}
+        mode={compareMode}
+        pinned={pinned}
+        swimmers={swimmers}
+      />
+    </section>
+  );
+}
+
+/** Display names for the pinned stroke, in the heading's voice. */
+const STROKE_TITLE: Record<Stroke, string> = {
+  FREE: "Freestyle",
+  BACK: "Backstroke",
+  BREAST: "Breaststroke",
+  FLY: "Butterfly",
+  IM: "Individual medley",
+};
+
+/**
+ * Chips for who is on the chart, plus a dropdown to add the next.
+ *
+ * Chips rather than a popover because each name here IS a bar colour in every
+ * group — the selection has to be readable without opening anything. Mirrors
+ * the stroke profile's picker deliberately; extracting a shared component was
+ * explicitly left out of this change.
+ */
+function ComparePicker({
+  swimmers,
+  selected,
+  loading,
+  onChange,
+}: {
+  swimmers: PickerSwimmer[];
+  selected: Id<"swimmers">[];
+  loading: boolean;
+  onChange: (ids: Id<"swimmers">[]) => void;
+}) {
+  const nameById = new Map(swimmers.map((s) => [s._id as string, s.name]));
+  const available = swimmers.filter((s) => !selected.includes(s._id));
+  const atMax = selected.length >= MAX_COMPARE;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {selected.map((id) => (
+        <span
+          key={id}
+          className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-surface-2 py-1 pl-3 pr-1.5 text-sm text-ink"
+        >
+          {nameById.get(id) ?? "—"}
+          <button
+            type="button"
+            onClick={() => onChange(selected.filter((s) => s !== id))}
+            aria-label={`Remove ${nameById.get(id) ?? "swimmer"}`}
+            className="flex size-5 items-center justify-center rounded-full text-ink-faint transition-colors hover:bg-gray-200 hover:text-ink"
+          >
+            <X className="size-3.5" strokeWidth={2} />
+          </button>
+        </span>
+      ))}
+      <div className="w-52">
+        <Select
+          aria-label="Add a swimmer to compare"
+          placeholder={
+            loading
+              ? "Loading swimmers…"
+              : atMax
+                ? `Comparing ${MAX_COMPARE} (the maximum)`
+                : available.length === 0
+                  ? "All swimmers added"
+                  : "Add a swimmer…"
+          }
+          value=""
+          disabled={loading || atMax || available.length === 0}
+          onValueChange={(v) => onChange([...selected, v as Id<"swimmers">])}
+          options={available.map((s) => ({
+            value: s._id,
+            label: `${s.name} · ${s.age}`,
+          }))}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // States
 // ---------------------------------------------------------------------------
+
+/** Shared by both views: the course simply cannot be scored yet. */
+function NoBaseTimes() {
+  return (
+    <EmptyState
+      title="No base times loaded for this course"
+      body="World Aquatics publishes a separate points table per course. Until this one is loaded, swims in it are not scored — a number borrowed from the other course would be wrong."
+    />
+  );
+}
 
 function EmptyState({ title, body }: { title: string; body: string }) {
   return (

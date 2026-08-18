@@ -246,9 +246,16 @@ returns it with the data, and the ring labels, the caption above the chart, the 
 the accessible table all name the active metric and change together. One course per chart, always —
 the two courses are measured against different references and must never average onto one spoke (§4.2).
 
-**Reference lines on a points chart are not cuts.** Everywhere else a dashed line across a bar chart
-is a qualifying standard; on the points charts the 400 / 600 / 800 markers are scale rulers drawn in
-the neutral grid ink, and a caption says so in words. Never let the two read alike.
+**Points charts carry no reference lines.** An earlier revision drew dashed markers at 400 / 600 / 800
+as rulers for short bars, captioned to insist they were not qualifying cuts. Rendered, they reprinted
+numbers the value axis was already showing at gridlines of its own, and the caption existed only to
+defend a mark that reads as a cut everywhere else in the app. The fixed 0–1000 axis IS the ruler. A
+dashed line across a chart in this product means a qualifying standard and nothing else.
+
+**The points comparison is the app's only VERTICAL bar chart**, because its bars are a score and
+taller is better; every other bar chart plots a time, runs horizontally, and means shorter is faster.
+Grouped bars are positioned by series index, so a swimmer keeps the same slot and colour in every
+group and an unraced event leaves that slot empty rather than closing up.
 
 ## 6. Spacing & motion
 - 8px spacing grid. Section gaps `gap-5`/`gap-6`. Page content max width ~`1440px`, generous gutters.
