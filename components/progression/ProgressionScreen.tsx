@@ -22,6 +22,7 @@ import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { formatTime, type Course, type Stroke, type GalaCode } from "@/lib/swim";
 import { EventFilter } from "@/components/analysis/EventFilter";
 import { type EventValue } from "@/components/analysis/EventPicker";
+import { LineChartLoading } from "@/components/charts/line-chart-loading";
 import { ProgressionChart } from "./ProgressionChart";
 import { ProgressionScatter } from "./ProgressionScatter";
 
@@ -591,10 +592,23 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 }
 
 function ChartSkeleton() {
+  /*
+    bklit's own shimmering skeleton line rather than a plain pulsing block: the
+    card keeps the chart's height and margins, so nothing jumps when the query
+    resolves, and the placeholder already reads as "a time series is coming".
+    ProgressionChart itself cannot render this — its prep needs at least one
+    swim to derive a date range and a y-domain from.
+  */
   return (
     <div
-      className="h-[26rem] animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm"
       aria-busy
-    />
+      className="h-[26rem] rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6"
+    >
+      <LineChartLoading
+        aspectRatio=""
+        className="h-full"
+        margin={{ top: 8, right: 20, bottom: 26, left: 64 }}
+      />
+    </div>
   );
 }

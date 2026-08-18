@@ -14,6 +14,8 @@ import {
   TooltipRows,
   TooltipTitle,
   TooltipValue,
+  TierPatterns,
+  useTierPatternIds,
   ValueAxis,
   ValueThresholds,
   ValueZones,
@@ -347,6 +349,7 @@ export function AllTierProgress({
 function AllTierChart({ rows, scale }: { rows: AllRow[]; scale: RingScale }) {
   const reduced = usePrefersReducedMotion();
   const { narrow, height, yWidth } = useChartBox(rows.map((r) => r.label));
+  const idFor = useTierPatternIds();
 
   if (rows.length === 0 || scale.max <= 0) return null;
 
@@ -356,7 +359,9 @@ function AllTierChart({ rows, scale }: { rows: AllRow[]; scale: RingScale }) {
       key: r.key,
       category: r.label,
       value: r.calibratedRadius as number,
-      fill: r.gala ? TIER_FILL[r.gala] : NONE_FILL,
+      // Textured fill so the gala is not carried by hue alone (TierPatterns).
+      // "No gala met" stays flat grey — it is an absence, not a tier.
+      fill: r.gala ? `url(#${idFor(r.gala)})` : NONE_FILL,
       label: formatTime(r.pbMs as number),
     }));
 
@@ -370,6 +375,11 @@ function AllTierChart({ rows, scale }: { rows: AllRow[]; scale: RingScale }) {
       color: b.gala ? TIER_TINT[b.gala] : HEADROOM_FILL,
     })),
   }));
+
+  // Only define patterns for galas actually painted on a bar.
+  const patternTiers = Array.from(
+    new Set(rows.map((r) => r.gala).filter((g): g is GalaCode => g !== null)),
+  );
 
   // One set of markers for every bar — the ring positions are a property of the
   // shared scale, which is what makes the bars comparable across events.
@@ -402,6 +412,7 @@ function AllTierChart({ rows, scale }: { rows: AllRow[]; scale: RingScale }) {
           valueDomain={[0, scale.max]}
           xDataKey="label"
         >
+          <TierPatterns idFor={idFor} tiers={patternTiers} />
           <Grid horizontal={false} stroke={CHART.grid} strokeDasharray="3 3" vertical />
           <BarYAxis maxLabelWidth={yWidth - 8} />
           {/* No ValueAxis: ring units are positions, not quantities — printing

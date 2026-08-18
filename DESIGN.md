@@ -187,7 +187,13 @@ naming the upstream behaviour it overrides:
 | `xLabelFormat` | `scatter-chart.tsx`, `scatter-chart-shell.tsx` | The same year-dropping default, same shell. |
 
 Most of these are one shape of the same problem: the upstream default is right for counting web
-analytics and wrong for swim times. The radar edit's path building lives in
+analytics and wrong for swim times.
+
+**Gala fills are textured, not just coloured.** `TIER_STYLE` gives each gala a `glyph` and a `dash`
+so a LINE is never colour-only; a filled bar can carry neither, so each gala also owns a `pattern`
+(denser as the gala gets harder, matching the dash scale). `components/charts/swim/TierPatterns.tsx`
+paints the tile in the gala's `color` and the texture over it in its `ink`, so the bar keeps its hue
+and gains a shape channel. "No gala met" stays flat grey — an absence must not read as a tier. The radar edit's path building lives in
 `components/charts/swim/radarPaths.ts` — ours, linted and tested — so that vendored diff is an
 import rather than an algorithm; prefer that shape for any future edit big enough to need one.
 

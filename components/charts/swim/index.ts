@@ -35,6 +35,7 @@ export { GalaCutOverlay, type CutLine, type NoteLine } from "./GalaCutOverlay";
 export { SwimBars, type SwimBar } from "./SwimBars";
 export { SwimDots, type SwimMark } from "./SwimDots";
 export { ValueAxis } from "./ValueAxis";
+export { TierPatterns, useTierPatternIds } from "./TierPatterns";
 export { ValueThresholds, type Threshold } from "./ValueThresholds";
 export {
   ValueZones,
