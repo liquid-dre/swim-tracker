@@ -373,3 +373,173 @@ export const getSwimmerAttendanceFigure = query({
     return { ...computeRates(rows), from, to };
   },
 });
+
+// ---------------------------------------------------------------------------
+// getAttendanceHeatmap — the season strip above the calendar
+// ---------------------------------------------------------------------------
+
+/**
+ * The day a swimmer's mark stands for, when a day holds more than one session.
+ *
+ * A day shows its most NOTABLE mark, worst first, so an attended session can
+ * never hide a missed one: turning up to the morning swim and skipping the
+ * evening one reads as a miss, which is the thing a coach needs to see. Excused
+ * outranks present for the same reason — they still were not there — but sits
+ * below absent because it was notified.
+ */
+const DAY_STATUS_RANK = { ABSENT: 0, LATE: 1, EXCUSED: 2, PRESENT: 3 } as const;
+
+function worstStatus(
+  rows: ReadonlyArray<{ status: keyof typeof DAY_STATUS_RANK }>,
+): keyof typeof DAY_STATUS_RANK | null {
+  let worst: keyof typeof DAY_STATUS_RANK | null = null;
+  for (const r of rows) {
+    if (worst === null || DAY_STATUS_RANK[r.status] < DAY_STATUS_RANK[worst]) {
+      worst = r.status;
+    }
+  }
+  return worst;
+}
+
+/**
+ * One row per DAY that has at least one mark, across the season window — the
+ * data behind the heatmap strip above the calendar grid.
+ *
+ * Deliberately NOT built on listSessionsInRange: that resolves a roster union
+ * and a squad name per session, which is right for one month of chips and far
+ * too much for a year. Everything here comes off the attendance rows alone,
+ * because `computeRates` needs only their statuses and the rate's denominator
+ * excludes EXCUSED anyway.
+ *
+ * Two shapes, matching the calendar's own two variants:
+ *   • `swimmer` — a named swimmer (or a viewer's single linked swimmer): each
+ *     day carries that swimmer's status.
+ *   • `summary` — the club (coach) or a viewer's linked swimmers combined: each
+ *     day carries an attendance RATE, and `status` is null.
+ */
+export const getAttendanceHeatmap = query({
+  args: {
+    from: v.optional(v.string()),
+    to: v.optional(v.string()),
+    squadId: v.optional(v.id("squads")),
+    swimmerId: v.optional(v.id("swimmers")),
+  },
+  returns: v.object({
+    from: v.string(),
+    to: v.string(),
+    variant: v.union(v.literal("summary"), v.literal("swimmer")),
+    days: v.array(
+      v.object({
+        date: v.string(),
+        /** attended / eligible for the day, 0-dp. Null when nothing eligible. */
+        ratePct: v.union(v.number(), v.null()),
+        /** The day's status — `swimmer` variant only; null on `summary`. */
+        status: v.union(attendanceStatus, v.null()),
+        marked: v.number(),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const window = await seasonWindow(ctx);
+    const from = cleanIsoDate(args.from ?? "") ?? window.start;
+    const to = cleanIsoDate(args.to ?? "") ?? window.end;
+    if (from > to) return { from, to, variant: "summary" as const, days: [] };
+
+    const bySwimmer = async (swimmerId: Id<"swimmers">) =>
+      await ctx.db
+        .query("attendance")
+        .withIndex("by_swimmer_date", (q) =>
+          q.eq("swimmerId", swimmerId).gte("date", from).lte("date", to),
+        )
+        .take(4000);
+
+    // ---- one named swimmer -------------------------------------------------
+    if (args.swimmerId) {
+      // Coach → any swimmer in their club; viewer → only a linked one. Rejected
+      // server-side, so a direct call cannot read an unlinked swimmer.
+      await requireSwimmerAccess(ctx, args.swimmerId);
+      return {
+        from,
+        to,
+        variant: "swimmer" as const,
+        days: groupDays(await bySwimmer(args.swimmerId), true),
+      };
+    }
+
+    const { profile, swimmerIds } = await accessibleSwimmerIds(ctx);
+
+    // ---- a viewer's linked swimmers ---------------------------------------
+    if (swimmerIds !== "ALL") {
+      if (swimmerIds.length === 0) {
+        return { from, to, variant: "summary" as const, days: [] };
+      }
+      // One linked swimmer is really the swimmer view, so give it the richer
+      // per-day status rather than a rate that can only ever be 0 or 100.
+      if (swimmerIds.length === 1) {
+        return {
+          from,
+          to,
+          variant: "swimmer" as const,
+          days: groupDays(await bySwimmer(swimmerIds[0]), true),
+        };
+      }
+      const rows = [];
+      for (const id of swimmerIds) rows.push(...(await bySwimmer(id)));
+      return { from, to, variant: "summary" as const, days: groupDays(rows, false) };
+    }
+
+    // ---- the coach's club --------------------------------------------------
+    if (!profile.clubId) {
+      return { from, to, variant: "summary" as const, days: [] };
+    }
+    const rows = await ctx.db
+      .query("attendance")
+      .withIndex("by_club_date", (q) =>
+        q.eq("clubId", profile.clubId!).gte("date", from).lte("date", to),
+      )
+      .take(20000);
+
+    // A squad filter narrows to that squad's members, matching the calendar's
+    // own squad filter so the strip and the grid below never disagree.
+    let scoped = rows;
+    if (args.squadId) {
+      const memberships = await ctx.db
+        .query("squadMemberships")
+        .withIndex("by_squad", (q) => q.eq("squadId", args.squadId!))
+        .take(500);
+      const members = new Set(memberships.map((m) => String(m.swimmerId)));
+      scoped = rows.filter((r) => members.has(String(r.swimmerId)));
+    }
+
+    return { from, to, variant: "summary" as const, days: groupDays(scoped, false) };
+  },
+});
+
+/** Fold attendance rows into one entry per marked day, ascending by date. */
+function groupDays(
+  rows: ReadonlyArray<Doc<"attendance">>,
+  withStatus: boolean,
+): Array<{
+  date: string;
+  ratePct: number | null;
+  status: Doc<"attendance">["status"] | null;
+  marked: number;
+}> {
+  const byDate = new Map<string, Doc<"attendance">[]>();
+  for (const r of rows) {
+    const list = byDate.get(r.date) ?? [];
+    list.push(r);
+    byDate.set(r.date, list);
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([date, dayRows]) => {
+      const rates = computeRates(dayRows);
+      return {
+        date,
+        ratePct: rates.ratePct,
+        status: withStatus ? worstStatus(dayRows) : null,
+        marked: rates.marked,
+      };
+    });
+}
