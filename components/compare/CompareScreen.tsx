@@ -410,10 +410,21 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   );
 }
 
+/*
+  The chart holds its own shape while the query resolves, using bklit's shimmer
+  skeleton rather than a plain pulsing block. Two things come of that: the card
+  is the same height before and after, so nothing jumps when the data lands, and
+  the placeholder already reads as "a bar chart is coming" instead of "something
+  is coming". The table below is still a plain block — its height genuinely
+  depends on the result count, so pretending otherwise would just move the jump.
+*/
 function ResultsSkeleton() {
   return (
     <div className="flex flex-col gap-5" aria-busy>
-      <div className="h-64 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm" />
+      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
+        <div className="mb-4 h-4 w-40 animate-pulse rounded bg-surface-2" />
+        <ComparisonBarChart cuts={[]} overlay={false} rows={[]} status="loading" />
+      </section>
       <div className="h-48 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm" />
     </div>
   );

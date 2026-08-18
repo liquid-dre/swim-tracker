@@ -20,6 +20,7 @@ const eslintConfig = defineConfig([
     "components/charts/*.ts",
     "components/charts/*.tsx",
     "components/charts/tooltip/**",
+    "components/charts/heatmap/**",
   ]),
 ]);
 

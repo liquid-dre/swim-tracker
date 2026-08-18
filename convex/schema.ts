@@ -418,7 +418,11 @@ export default defineSchema({
   })
     .index("by_session", ["sessionId"])
     .index("by_swimmer", ["swimmerId"])
-    .index("by_swimmer_date", ["swimmerId", "date"]),
+    .index("by_swimmer_date", ["swimmerId", "date"])
+    // Club-scoped range reads (the attendance heatmap's squad-wide rate per day)
+    // stay index-only, the same reason by_swimmer_date exists for the
+    // swimmer-scoped ones.
+    .index("by_club_date", ["clubId", "date"]),
 
   // Coach app settings — a single, club-wide singleton row (BRD §5.12, Step 13).
   // `key` is always "app" so the row is found/upserted by a stable lookup. Season

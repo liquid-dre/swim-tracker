@@ -324,3 +324,64 @@ describe("galas (reference data is super-user; qualification is role-scoped)", (
   // convex/qualificationAge.test.ts, which reproduces the exact age math with
   // a run-date-independent DOB.
 });
+
+describe("stroke radar (percent-of-world-record comparison)", () => {
+  test("a viewer can read their own linked swimmer", async () => {
+    const { asViewer, ids } = await setup();
+    const res = await asViewer.query(api.analysis.getStrokeRadar, {
+      swimmerIds: [ids.swimmerA],
+      course: "LCM",
+    });
+    expect(res.swimmers.map((s) => s.swimmerId)).toEqual([ids.swimmerA]);
+  });
+
+  test("a viewer cannot overlay a swimmer they are not linked to", async () => {
+    const { asViewer, ids } = await setup();
+    // The whole point of scoping this per id: passing an extra swimmer alongside
+    // a legitimate one must not smuggle that swimmer's profile onto the chart.
+    await expect(
+      asViewer.query(api.analysis.getStrokeRadar, {
+        swimmerIds: [ids.swimmerA, ids.swimmerB],
+        course: "LCM",
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("returns one entry per swimmer, each with all five stroke spokes", async () => {
+    const { asCoach, ids } = await setup();
+    const res = await asCoach.query(api.analysis.getStrokeRadar, {
+      swimmerIds: [ids.swimmerA],
+      course: "LCM",
+    });
+    expect(res.course).toBe("LCM");
+    expect(res.swimmers).toHaveLength(1);
+    expect(res.swimmers[0].strokes.map((s) => s.stroke)).toEqual([
+      "FREE",
+      "BACK",
+      "BREAST",
+      "FLY",
+      "IM",
+    ]);
+  });
+
+  test("a swimmer with no times scores null on every spoke, never zero", async () => {
+    const { asCoach, ids } = await setup();
+    const res = await asCoach.query(api.analysis.getStrokeRadar, {
+      swimmerIds: [ids.swimmerA],
+      course: "LCM",
+    });
+    // Zero would draw the polygon collapsed at the hub, which reads as "slowest
+    // possible" rather than "has not raced".
+    expect(res.swimmers[0].strokes.every((s) => s.pct === null)).toBe(true);
+    expect(res.swimmers[0].strokes.every((s) => s.events === 0)).toBe(true);
+  });
+
+  test("an empty selection returns no swimmers rather than erroring", async () => {
+    const { asCoach } = await setup();
+    const res = await asCoach.query(api.analysis.getStrokeRadar, {
+      swimmerIds: [],
+      course: "LCM",
+    });
+    expect(res.swimmers).toEqual([]);
+  });
+});

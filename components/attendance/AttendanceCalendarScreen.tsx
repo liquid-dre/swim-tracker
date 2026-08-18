@@ -15,6 +15,7 @@ import { Select } from "@/components/ui/Select";
 import { trailForHref } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { AttendanceMonthGrid } from "./AttendanceMonthGrid";
+import { AttendanceHeatmap } from "./AttendanceHeatmap";
 import { AttendanceAgenda } from "./AttendanceAgenda";
 import { SessionForm } from "./SessionForm";
 import type { CalendarDay, CalendarSession } from "./types";
@@ -106,6 +107,13 @@ export function AttendanceCalendarScreen({
     api.attendance.getViewerCalendar,
     isCoach ? "skip" : { from, to },
   );
+
+  // The season strip reads its OWN window — the whole season, not the month in
+  // view — from a query built for range reads rather than session chips.
+  const heatmap = useQuery(api.attendance.getAttendanceHeatmap, {
+    squadId: squadId ? (squadId as Id<"squads">) : undefined,
+    swimmerId: swimmerId ? (swimmerId as Id<"swimmers">) : undefined,
+  });
 
   const swimmerName = useMemo(() => {
     if (!swimmerId || !pickerSwimmers) return "";
@@ -277,6 +285,17 @@ export function AttendanceCalendarScreen({
           Showing {viewerSwimmers.map((s) => s.name).join(", ")}. Each dot is one
           swimmer.
         </p>
+      )}
+
+      {heatmap && (
+        <AttendanceHeatmap
+          days={heatmap.days}
+          from={heatmap.from}
+          to={heatmap.to}
+          variant={heatmap.variant}
+          swimmerName={swimmerName || undefined}
+          onSelectMonth={(year, month) => setView({ year, month })}
+        />
       )}
 
       {loading ? (

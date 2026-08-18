@@ -13,6 +13,8 @@ import {
   TooltipTitle,
   TooltipValue,
   ValueAxis,
+  TierPatterns,
+  useTierPatternIds,
   ValueThresholds,
   type SwimBar,
   type Threshold,
@@ -42,6 +44,9 @@ import {
   colouring applies on SCM too (an event with no cut leaves bars on-accent).
 */
 
+/** Rows to reserve height for while loading, so the box does not resize. */
+const SKELETON_ROWS = 6;
+
 export type CompareBar = {
   swimmerId: string;
   name: string;
@@ -58,9 +63,16 @@ export type ComparisonCut = { tier: GalaCode; timeMs: number };
 // --tier-none the system reserves for it, never the brand accent (which would
 // read as an action, not a standard). SCM has no standards at all, so its bars
 // keep the plain brand accent.
-function barColor(tier: GalaCode | null, overlay: boolean): string {
+function barColor(
+  tier: GalaCode | null,
+  overlay: boolean,
+  idFor: (gala: GalaCode) => string,
+): string {
   if (!overlay) return CHART.accent;
-  return tier ? TIER_STYLE[tier].color : "var(--color-tier-none)";
+  // A gala bar takes its TEXTURED fill (see TierPatterns): hue plus a pattern,
+  // so the gala is not carried by colour alone. "No tier" stays flat grey —
+  // it is the absence of a gala, so giving it a texture would imply one.
+  return tier ? `url(#${idFor(tier)})` : "var(--color-tier-none)";
 }
 
 /** Renders children at rest (no enter animation) when motion is reduced. */
@@ -82,21 +94,30 @@ export function ComparisonBarChart({
   rows,
   cuts,
   overlay,
+  status = "ready",
 }: {
   rows: CompareBar[];
   cuts: ComparisonCut[];
   overlay: boolean;
+  /** "loading" hands bklit its own shimmering skeleton bars instead of a
+      plain pulsing block, so the chart holds its shape while data resolves
+      and nothing jumps when it arrives. */
+  status?: "loading" | "ready";
 }) {
   const reduced = usePrefersReducedMotion();
   // Phone-width: shrink the label gutters so the bars keep most of the plot.
   // Decorative-only trade-off — the leaderboard table carries the full names.
   const narrow = useMediaQuery("(max-width: 639px)");
+  const idFor = useTierPatternIds();
 
   // Fastest first in the leaderboard = top of the chart. Recharts plots the
   // first category at the bottom by default, so reverse the axis to match.
   const data = rows;
   const rowHeight = 44;
-  const height = Math.max(160, data.length * rowHeight + 48);
+  const height = Math.max(
+    160,
+    (data.length || SKELETON_ROWS) * rowHeight + 48,
+  );
 
   // Longest name drives the label gutter so names never clip or over-reserve.
   const longestName = data.reduce((m, r) => Math.max(m, r.name.length), 0);
@@ -112,11 +133,22 @@ export function ComparisonBarChart({
     key: r.swimmerId,
     category: r.name,
     value: r.timeMs,
-    fill: barColor(r.highestGala, overlay),
+    fill: barColor(r.highestGala, overlay, idFor),
     // The exact time at the end of every bar, so the chart never asks the eye to
     // estimate a swim time off a bar length.
     label: formatTime(r.timeMs),
   }));
+
+  // Only define patterns for galas actually painted, so the defs stay minimal.
+  const patternTiers = overlay
+    ? Array.from(
+        new Set(
+          data
+            .map((r) => r.highestGala)
+            .filter((t): t is GalaCode => t !== null),
+        ),
+      )
+    : [];
 
   const thresholds: Threshold[] = cuts.map((c) => {
     const st = TIER_STYLE[c.tier];
@@ -151,13 +183,18 @@ export function ComparisonBarChart({
           }}
           className="h-full"
           orientation="horizontal"
+          status={status}
           // Bars are drawn by SwimBars, not <Bar>, so bklit finds no dataKey to
           // scan and would fall back to [0, 110]. The domain also has to reach
           // past the SLOWEST cut, or a swimmer short of it has nothing to be
           // short of. Zero-based is right here: a bar length IS the time.
-          valueDomain={[0, Math.max(maxTime, maxCut) * 1.08]}
+          // The `|| 1` matters only while loading, where there are no rows and
+          // no cuts: a [0, 0] domain is degenerate and the skeleton bars would
+          // have nothing to scale against.
+          valueDomain={[0, (Math.max(maxTime, maxCut) || 1) * 1.08]}
           xDataKey="name"
         >
+          <TierPatterns idFor={idFor} tiers={patternTiers} />
           <Grid
             horizontal={false}
             stroke={CHART.grid}

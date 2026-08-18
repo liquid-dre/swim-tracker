@@ -2,115 +2,110 @@
 
 import { Check } from "lucide-react";
 
+import { BarChart } from "@/components/charts/bar-chart";
+import { BarYAxis } from "@/components/charts/bar-y-axis";
+import { Grid } from "@/components/charts/grid";
+import { StaticChartPreviewProvider } from "@/components/charts/static-chart-preview-context";
+import { ChartTooltip } from "@/components/charts/tooltip";
+import {
+  SWIM_TOOLTIP_PANEL,
+  SwimBars,
+  TooltipMeta,
+  TooltipRows,
+  TooltipTitle,
+  TooltipValue,
+  TierPatterns,
+  useTierPatternIds,
+  ValueAxis,
+  ValueThresholds,
+  ValueZones,
+  type CategoryZones,
+  type SwimBar,
+  type Threshold,
+} from "@/components/charts/swim";
+
 import {
   computeMatrixCell,
   formatTime,
   type GalaCode,
   type RingScale,
 } from "@/lib/swim";
-import { GALA_MEDIUM, GALA_ORDER, GALA_SHORT, GALA_TOKEN } from "@/lib/galas";
+import { GALA_MEDIUM, GALA_SHORT } from "@/lib/galas";
 import { formatSeconds } from "@/lib/format";
 import { TierBadge } from "@/components/ui/TierBadge";
+import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
+import { useMediaQuery } from "@/lib/useMediaQuery";
+import { CHART, CHART_ANIM_MS, TIER_STYLE } from "@/components/analysis/chartTheme";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useContainerWidth } from "@/hooks/use-container-width";
-import { useGrowIn } from "@/hooks/use-grow-in";
-import { cn } from "@/lib/utils";
+  byEventOrder,
+  fillFraction,
+  ringZoneBands,
+  HEADROOM_FILL,
+  NONE_FILL,
+  TIER_FILL,
+  TIER_TINT,
+} from "./roadBars";
 
 /*
-  Qualifying progress (Step R3, BRD §5.11) — the per-event readiness view that
-  replaces the old "% of cut" chart. Two shapes driven by the target toggle:
+  Qualifying progress (Step R3, BRD §5.11) — the per-event readiness view. Two
+  shapes driven by the target toggle, both now bklit bar charts over the same
+  stack /compare uses, each with the figures listed beneath it:
 
-    • SINGLE GALA — one horizontal bar per event filling toward that gala's cut,
-      in the course the swimmer is nearest in. Qualified events read as a full
-      green bar + a check; the
-      rest fill part-way in the brand accent with the exact gap ("2.1s to go").
-      Ordered 50→ by distance, then IM, Free, Back, Breast, Fly.
+    • SINGLE GALA — one bar per event filling toward that gala's cut, in the
+      course the swimmer is nearest in. The cut is a threshold line at 100%, so
+      a bar reaching it has qualified; those bars turn green and carry a check
+      in the list. Ordered 50→ by distance, then IM, Free, Back, Breast, Fly.
 
-    • ALL — one bar per event with the L2/L3/SANJ cuts as fixed calibrated zones
-      (easiest → hardest, headroom beyond SANJ). The fill runs to the swimmer's
-      calibrated PB position and is coloured by the HIGHEST tier met (base grey
-      if none). Only the markers an event actually has are drawn (§4.9 coverage).
-      Positions are shared across events, so bars are comparable at a glance.
+    • ALL — one bar per event on the shared calibrated ring scale, with each
+      gala's cut as a threshold line. Because `computeCalibratedRadius` puts
+      every event on ONE scale in ring units, a single set of lines labels every
+      bar — which is exactly what ValueThresholds is for. The fill runs to the
+      swimmer's calibrated PB and is coloured by the HIGHEST gala met.
 
-  Both: LCM only, headline MEET PBs, tabular figures. The bar tracks are decorative
-  (aria-hidden) — every number is carried in the row's text for assistive tech.
+      The tinted ZONES are per event, not chart-wide (ValueZones): coverage is
+      per event (§4.9), so an event with no L3 cut gets neutral track over that
+      range rather than a borrowed tint. Drawing the band anyway would invent a
+      standard the event does not have.
+
+  Both: headline MEET PBs, tabular figures. The charts are decorative and hidden
+  from assistive tech — every number in them is carried in the list below, which
+  is also where the tier badges and the gap-to-next-gala text live.
 */
 
-// Short target label matching the TierBadge vocabulary — one copy, from lib/galas.
 const NEXT_LABEL = GALA_SHORT;
 
-// Fixed reading order for the qualifying-progress lists: by distance ascending
-// (50, 100, 200, …), then stroke IM → Free → Back → Breast → Fly. Every bar's
-// `key` is `${distance}|${stroke}`, so both sort fields come straight off it.
-const STROKE_RANK: Record<string, number> = {
-  IM: 0,
-  FREE: 1,
-  BACK: 2,
-  BREAST: 3,
-  FLY: 4,
-};
-
-function byEventOrder(a: { key: string }, b: { key: string }): number {
-  const [da, sa] = a.key.split("|");
-  const [db, sb] = b.key.split("|");
-  return (
-    Number(da) - Number(db) ||
-    (STROKE_RANK[sa] ?? 99) - (STROKE_RANK[sb] ?? 99)
+/** Renders children at rest (no enter animation) when motion is reduced. */
+function MaybeStatic({
+  reduced,
+  children,
+}: {
+  reduced: boolean;
+  children: React.ReactNode;
+}) {
+  return reduced ? (
+    <StaticChartPreviewProvider>{children}</StaticChartPreviewProvider>
+  ) : (
+    <>{children}</>
   );
 }
 
-// The swimmer's PB, drawn ONTO the coloured fill. The inside/outside choice is
-// made in PIXELS, not a percentage guess: if the fill is physically wide enough
-// to hold the time it rides inside, left-aligned, in a high-contrast on-fill
-// colour; otherwise it sits just past the fill's end in ink. Measuring the real
-// fill width is what keeps the time legible on a narrow phone bar (where a 30%
-// fill can be only ~35px) as well as on a wide desktop one. Tabular throughout;
-// decorative (aria-hidden) — the number is always carried in accessible row text.
-const TIME_MIN_PX = 58; // ~7 tabular chars ("m:ss:hh") + padding
-
-function BarTime({
-  ms,
-  fillPct,
-  trackWidth,
-  insideClass,
-}: {
-  ms: number;
-  fillPct: number;
-  trackWidth: number; // measured px width of the bar track
-  insideClass: string; // on-fill text colour when the label rides inside
-}) {
-  const label = formatTime(ms);
-  const fillPx = (trackWidth * fillPct) / 100;
-
-  if (fillPx >= TIME_MIN_PX) {
-    // Clip the label to the fill's width so it never bleeds onto the empty track.
-    return (
-      <span
-        aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-0 flex items-center overflow-hidden"
-        style={{ maxWidth: `${fillPct}%` }}
-      >
-        <span className={cn("time truncate pl-2.5 pr-1.5 text-2xs", insideClass)}>
-          {label}
-        </span>
-      </span>
-    );
-  }
-
-  return (
-    <span
-      aria-hidden
-      className="time pointer-events-none absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-1.5 text-2xs text-ink"
-      style={{ left: `${fillPct}%` }}
-    >
-      {label}
-    </span>
-  );
+/**
+ * Plot box for a road chart: tall enough for one row per event, with a category
+ * gutter sized to the longest event label. Event labels are short and bounded
+ * ("1500 Free"), so unlike the swimmer-name charts this never needs to clamp
+ * hard on a phone.
+ */
+function useChartBox(labels: ReadonlyArray<string>) {
+  const narrow = useMediaQuery("(max-width: 639px)");
+  const rowHeight = 40;
+  const longest = labels.reduce((m, l) => Math.max(m, l.length), 0);
+  return {
+    narrow,
+    height: Math.max(160, labels.length * rowHeight + 52),
+    yWidth: narrow
+      ? Math.min(96, Math.max(64, longest * 7.5))
+      : Math.min(140, Math.max(72, longest * 7.5)),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -126,63 +121,143 @@ export type SingleBar = {
   qualified: boolean;
 };
 
-/** Progress toward the cut: 1 at or past the cut, else how near the PB is. */
-function fillFraction(bar: SingleBar): number {
-  if (bar.qualified) return 1;
-  return Math.max(0, Math.min(1, bar.cutMs / bar.pbMs));
-}
+/**
+ * The value scale runs a little past the cut so the threshold line sits inside
+ * the plot rather than on the right-hand edge, where it would read as the axis
+ * instead of as the standard a bar has to reach.
+ */
+const SINGLE_DOMAIN_MAX = 112;
 
-export function SingleTierProgress({ bars }: { bars: SingleBar[] }) {
+type SingleDatum = SingleBar & { pct: number };
+
+export function SingleTierProgress({
+  bars,
+  gala,
+}: {
+  bars: SingleBar[];
+  /** The target gala, so the threshold line can name the cut it marks. */
+  gala: GalaCode;
+}) {
   // Fixed event order: 50→ by distance, then IM, Free, Back, Breast, Fly. (Every
   // bar here has a time; no-time events are listed separately by the screen.)
   const ordered = [...bars].sort(byEventOrder);
+  const data: SingleDatum[] = ordered.map((b) => ({
+    ...b,
+    pct: fillFraction(b) * 100,
+  }));
 
   return (
-    <ul className="flex flex-col divide-y divide-gray-100">
-      {ordered.map((b) => (
-        <SingleBarRow key={b.key} bar={b} />
-      ))}
-    </ul>
+    <div className="flex flex-col gap-4">
+      <SingleTierChart data={data} gala={gala} />
+      <ul className="flex flex-col divide-y divide-gray-100">
+        {ordered.map((b) => (
+          <SingleBarRow key={b.key} bar={b} gala={gala} />
+        ))}
+      </ul>
+    </div>
   );
 }
 
-function SingleBarRow({ bar: b }: { bar: SingleBar }) {
-  const pct = Math.round(fillFraction(b) * 100);
-  const [trackRef, trackWidth] = useContainerWidth(320);
-  const grown = useGrowIn();
+function SingleTierChart({
+  data,
+  gala,
+}: {
+  data: SingleDatum[];
+  gala: GalaCode;
+}) {
+  const reduced = usePrefersReducedMotion();
+  const { narrow, height, yWidth } = useChartBox(data.map((d) => d.label));
+
+  if (data.length === 0) return null;
+
+  const st = TIER_STYLE[gala];
+  const swimBars: SwimBar[] = data.map((d) => ({
+    key: d.key,
+    category: d.label,
+    value: d.pct,
+    // Green once the cut is met, brand accent while still chasing — the same
+    // two-state colouring the list's check mark carries in words.
+    fill: d.qualified ? "var(--color-qualified)" : CHART.accent,
+    label: formatTime(d.pbMs),
+  }));
+
+  const thresholds: Threshold[] = [
+    {
+      key: gala,
+      value: 100,
+      color: st.color,
+      ink: st.ink,
+      dash: st.dash,
+      // Glyph + label: a gala is never colour-only (DESIGN.md §3).
+      label: `${st.glyph} ${st.label} cut`,
+    },
+  ];
 
   return (
-    <li className="flex items-center gap-3 py-3 sm:gap-4">
-      <div className="w-20 shrink-0 sm:w-28">
+    // Decorative: the list beneath carries every time, gap and qualified state.
+    <div style={{ width: "100%", height }} aria-hidden="true">
+      <MaybeStatic reduced={reduced}>
+        <BarChart
+          animationDuration={CHART_ANIM_MS}
+          aspectRatio=""
+          barGap={0.28}
+          data={data}
+          margin={{ top: 22, right: narrow ? 56 : 76, bottom: 24, left: yWidth }}
+          className="h-full"
+          orientation="horizontal"
+          // Bars come from SwimBars, not <Bar>, so bklit finds no dataKey to
+          // scan and would fall back to [0, 110].
+          valueDomain={[0, SINGLE_DOMAIN_MAX]}
+          xDataKey="label"
+        >
+          <Grid horizontal={false} stroke={CHART.grid} strokeDasharray="3 3" vertical />
+          <BarYAxis maxLabelWidth={yWidth - 8} />
+          <ValueAxis format={(v) => `${Math.round(v)}%`} label="Of the cut" />
+          <ValueThresholds thresholds={thresholds} />
+          <SwimBars bars={swimBars} labelColor={CHART.ink} maxBarSize={22} />
+          <ChartTooltip
+            panelStyle={SWIM_TOOLTIP_PANEL}
+            showDots={false}
+            content={({ point }) => (
+              <SingleTooltip row={point as unknown as SingleDatum} gala={gala} />
+            )}
+          />
+        </BarChart>
+      </MaybeStatic>
+    </div>
+  );
+}
+
+function SingleTooltip({ row, gala }: { row: SingleDatum; gala: GalaCode }) {
+  if (!row?.label) return null;
+  return (
+    <TooltipRows>
+      <TooltipTitle>{row.label}</TooltipTitle>
+      <TooltipValue>{formatTime(row.pbMs)}</TooltipValue>
+      <TooltipMeta>
+        <span>
+          {GALA_MEDIUM[gala]} cut {formatTime(row.cutMs)}
+          {row.qualified
+            ? " · qualified"
+            : ` · ${formatSeconds(row.gapMs)}s to go`}
+        </span>
+      </TooltipMeta>
+    </TooltipRows>
+  );
+}
+
+function SingleBarRow({ bar: b, gala }: { bar: SingleBar; gala: GalaCode }) {
+  return (
+    <li className="flex items-center gap-3 py-2.5 sm:gap-4">
+      <div className="min-w-0 flex-1">
         <div className="font-medium text-ink">{b.label}</div>
         <div className="time tnum mt-0.5 text-xs text-ink-faint">
           {formatTime(b.pbMs)} → {formatTime(b.cutMs)}
+          <span className="sr-only"> ({GALA_MEDIUM[gala]} cut)</span>
         </div>
       </div>
 
-      <div
-        ref={trackRef}
-        className="relative h-7 min-w-16 flex-1 overflow-hidden rounded-md bg-gray-100"
-        aria-hidden
-      >
-        <div
-          className="h-full rounded-md transition-[width] [transition-duration:var(--dur-3)] [transition-timing-function:var(--ease-out)]"
-          style={{
-            width: `${grown ? Math.max(2, pct) : 0}%`,
-            background: b.qualified
-              ? "var(--color-qualified)"
-              : "var(--color-brand-500)",
-          }}
-        />
-        <BarTime
-          ms={b.pbMs}
-          fillPct={pct}
-          trackWidth={trackWidth}
-          insideClass="text-white"
-        />
-      </div>
-
-      <div className="w-20 shrink-0 text-right sm:w-28">
+      <div className="w-24 shrink-0 text-right sm:w-28">
         {b.qualified ? (
           <span className="inline-flex items-center justify-end gap-1 font-medium text-success-ink">
             <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
@@ -211,32 +286,6 @@ export type AllBar = {
   calibratedRadius: number | null; // PB on the shared ring scale
 };
 
-// Positions on the shared scale (ring units → % of track). The ring count comes
-// from the galas the swimmer can ENTER, so it is 2-4: a 13-year-old gets
-// L2/L3/SANJ, a 15-16-year-old adds SANS, a 17+ swimmer gets SANS/SANY only.
-// Within one swimmer's view the positions are FIXED, which is what makes every
-// event's bar directly comparable to the others on the same track.
-const posPct = (ringUnits: number, scale: RingScale) =>
-  scale.max <= 0
-    ? 0
-    : (Math.max(0, Math.min(scale.max, ringUnits)) / scale.max) * 100;
-
-const TIER_FILL: Record<GalaCode, string> = GALA_ORDER.reduce(
-  (acc, gala) => {
-    acc[gala] = `var(--color-tier-${GALA_TOKEN[gala]})`;
-    return acc;
-  },
-  {} as Record<GalaCode, string>,
-);
-const TIER_TINT: Record<GalaCode, string> = GALA_ORDER.reduce(
-  (acc, gala) => {
-    acc[gala] = `var(--color-tier-${GALA_TOKEN[gala]}-bg)`;
-    return acc;
-  },
-  {} as Record<GalaCode, string>,
-);
-const NONE_FILL = "var(--color-tier-none)";
-
 type AllRow = AllBar & {
   cutsByTier: Partial<Record<GalaCode, number>>;
   present: GalaCode[]; // galas this event actually has a cut for (§4.9 coverage)
@@ -244,6 +293,36 @@ type AllRow = AllBar & {
   nextGala: GalaCode | null;
   gapMs: number | null;
 };
+
+/**
+ * Resolve each event's coverage and its highest gala met, then order events
+ * with a time above those without, each group in the fixed event order.
+ */
+function deriveAllRows(bars: AllBar[], scale: RingScale): AllRow[] {
+  const rows: AllRow[] = bars.map((b) => {
+    const cutsByTier: Partial<Record<GalaCode, number>> = {};
+    for (const c of b.cuts) cutsByTier[c.gala] = c.timeMs;
+    // The stroke-profile data is long course, so judge it as long course — a
+    // borrowed cut would be exactly the bug this view exists to avoid.
+    const cell = computeMatrixCell({ LCM: b.pbMs }, { LCM: cutsByTier, SCM: {} }, "LCM");
+    return {
+      ...b,
+      cutsByTier,
+      present: scale.order.filter((t) => cutsByTier[t] !== undefined),
+      gala: cell.gala,
+      nextGala: cell.nextGala,
+      gapMs: cell.gapMs,
+    };
+  });
+
+  rows.sort((a, b) => {
+    const pa = a.pbMs !== null ? 0 : 1;
+    const pb = b.pbMs !== null ? 0 : 1;
+    if (pa !== pb) return pa - pb;
+    return byEventOrder(a, b);
+  });
+  return rows;
+}
 
 export function AllTierProgress({
   bars,
@@ -253,197 +332,155 @@ export function AllTierProgress({
   /** The ring layout from `getStrokeProfile` — how many zones this track has. */
   scale: RingScale;
 }) {
-  const rows: AllRow[] = bars.map((b) => {
-    const cutsByTier: Partial<Record<GalaCode, number>> = {};
-    for (const c of b.cuts) cutsByTier[c.gala] = c.timeMs;
-    // The stroke-profile data is long course, so judge it as long course — a
-    // borrowed cut would be exactly the bug this change removes.
-    const cell = computeMatrixCell(
-      { LCM: b.pbMs },
-      { LCM: cutsByTier, SCM: {} },
-      "LCM",
-    );
-    const present = scale.order.filter((t) => cutsByTier[t] !== undefined);
-    return {
-      ...b,
-      cutsByTier,
-      present,
-      gala: cell.gala,
-      nextGala: cell.nextGala,
-      gapMs: cell.gapMs,
-    };
-  });
-
-  // Events WITH a time on top, no-time events below — each group in the fixed
-  // event order (50→ by distance, then IM, Free, Back, Breast, Fly).
-  rows.sort((a, b) => {
-    const pa = a.pbMs !== null ? 0 : 1;
-    const pb = b.pbMs !== null ? 0 : 1;
-    if (pa !== pb) return pa - pb;
-    return byEventOrder(a, b);
-  });
+  const rows = deriveAllRows(bars, scale);
 
   return (
-    <div className="flex flex-col gap-3">
-      {/* Shared scale header — the ring positions are fixed for this swimmer, so
-          one axis labels them for every bar below. */}
-      <div className="flex items-center gap-3 sm:gap-4">
-        <div className="w-20 shrink-0 sm:w-28" />
-        <div className="relative h-4 min-w-16 flex-1" aria-hidden>
-          {scale.order.map((t) => (
-            <span
-              key={t}
-              className="absolute -translate-x-1/2 text-2xs font-medium text-ink-faint"
-              style={{ left: `${posPct(scale.pos[t] ?? 0, scale)}%` }}
-            >
-              {GALA_SHORT[t]}
-            </span>
-          ))}
-        </div>
-        <div className="w-20 shrink-0 sm:w-28" />
-      </div>
-
-      <TooltipProvider delayDuration={150}>
-        <ul className="flex flex-col divide-y divide-gray-100">
-          {rows.map((r) => (
-            <AllRowView key={r.key} row={r} scale={scale} />
-          ))}
-        </ul>
-      </TooltipProvider>
+    <div className="flex flex-col gap-4">
+      <AllTierChart rows={rows} scale={scale} />
+      <ul className="flex flex-col divide-y divide-gray-100">
+        {rows.map((r) => (
+          <AllRowView key={r.key} row={r} />
+        ))}
+      </ul>
     </div>
   );
 }
 
-// The hover/focus tooltip for a bar: the qualifying time for the NEXT gala the
-// swimmer is chasing (or the first target when they have no time yet), or —
-// once the hardest available gala is met — that they've topped out. Returns the
-// rendered node plus a matching aria-label so keyboard and screen-reader users
-// get the same information the pointer tooltip carries.
-function barHint(row: AllRow): { node: React.ReactNode; label: string } {
+function AllTierChart({ rows, scale }: { rows: AllRow[]; scale: RingScale }) {
+  const reduced = usePrefersReducedMotion();
+  const { narrow, height, yWidth } = useChartBox(rows.map((r) => r.label));
+  const idFor = useTierPatternIds();
+
+  if (rows.length === 0 || scale.max <= 0) return null;
+
+  const swimBars: SwimBar[] = rows
+    .filter((r) => r.pbMs !== null && r.calibratedRadius !== null)
+    .map((r) => ({
+      key: r.key,
+      category: r.label,
+      value: r.calibratedRadius as number,
+      // Textured fill so the gala is not carried by hue alone (TierPatterns).
+      // "No gala met" stays flat grey — it is an absence, not a tier.
+      fill: r.gala ? `url(#${idFor(r.gala)})` : NONE_FILL,
+      label: formatTime(r.pbMs as number),
+    }));
+
+  // Per-event zones: only the galas THIS event has a cut for tint their range.
+  const zones: CategoryZones[] = rows.map((r) => ({
+    key: r.key,
+    category: r.label,
+    bands: ringZoneBands(r.present, scale).map((b) => ({
+      from: b.from,
+      to: b.to,
+      color: b.gala ? TIER_TINT[b.gala] : HEADROOM_FILL,
+    })),
+  }));
+
+  // Only define patterns for galas actually painted on a bar.
+  const patternTiers = Array.from(
+    new Set(rows.map((r) => r.gala).filter((g): g is GalaCode => g !== null)),
+  );
+
+  // One set of markers for every bar — the ring positions are a property of the
+  // shared scale, which is what makes the bars comparable across events.
+  const thresholds: Threshold[] = scale.order.map((t) => {
+    const st = TIER_STYLE[t];
+    return {
+      key: t,
+      value: scale.pos[t] ?? 0,
+      color: st.color,
+      ink: st.ink,
+      dash: st.dash,
+      label: `${st.glyph} ${st.label}`,
+    };
+  });
+
+  return (
+    // Decorative: the list beneath carries the PB, the tier badge and the gap.
+    <div style={{ width: "100%", height }} aria-hidden="true">
+      <MaybeStatic reduced={reduced}>
+        <BarChart
+          animationDuration={CHART_ANIM_MS}
+          aspectRatio=""
+          barGap={0.28}
+          data={rows}
+          margin={{ top: 22, right: narrow ? 56 : 76, bottom: 12, left: yWidth }}
+          className="h-full"
+          orientation="horizontal"
+          // Ring units on the shared calibrated scale, not milliseconds — raw
+          // times across different events would not share an axis (§4.9).
+          valueDomain={[0, scale.max]}
+          xDataKey="label"
+        >
+          <TierPatterns idFor={idFor} tiers={patternTiers} />
+          <Grid horizontal={false} stroke={CHART.grid} strokeDasharray="3 3" vertical />
+          <BarYAxis maxLabelWidth={yWidth - 8} />
+          {/* No ValueAxis: ring units are positions, not quantities — printing
+              "2.5" under a bar would invite reading it as a time or a score. */}
+          <ValueZones zones={zones} maxBarSize={22} />
+          <ValueThresholds thresholds={thresholds} />
+          <SwimBars bars={swimBars} labelColor={CHART.ink} maxBarSize={22} />
+          <ChartTooltip
+            panelStyle={SWIM_TOOLTIP_PANEL}
+            showDots={false}
+            content={({ point }) => <AllTooltip row={point as unknown as AllRow} />}
+          />
+        </BarChart>
+      </MaybeStatic>
+    </div>
+  );
+}
+
+function AllTooltip({ row }: { row: AllRow }) {
+  if (!row?.label) return null;
   const nextCut =
     row.nextGala !== null ? (row.cutsByTier[row.nextGala] ?? null) : null;
 
-  if (row.nextGala !== null && nextCut !== null) {
-    const tierName = GALA_MEDIUM[row.nextGala];
-    const cutText = formatTime(nextCut);
-    const gapText =
-      row.gapMs !== null ? `${formatSeconds(row.gapMs)}s to go` : null;
-    return {
-      node: (
-        <div className="text-center leading-tight">
-          <div className="opacity-80">{tierName} qualifying time</div>
-          <div className="time tnum font-semibold">{cutText}</div>
-          {gapText ? (
-            <div className="tnum opacity-80">{gapText}</div>
-          ) : (
-            <div className="opacity-80">No time logged yet</div>
-          )}
-        </div>
-      ),
-      label:
-        `${row.label}: ${tierName} qualifying time ${cutText}` +
-        (row.gapMs !== null
-          ? `, ${formatSeconds(row.gapMs)} seconds to go`
-          : ", no time logged yet"),
-    };
-  }
-
-  return {
-    node: <span>Fastest time achieved</span>,
-    label: `${row.label}: fastest time achieved`,
-  };
+  return (
+    <TooltipRows>
+      <TooltipTitle>{row.label}</TooltipTitle>
+      <TooltipValue>
+        {row.pbMs !== null ? formatTime(row.pbMs) : "No time yet"}
+      </TooltipValue>
+      <TooltipMeta>
+        {row.nextGala !== null && nextCut !== null ? (
+          <span>
+            {GALA_MEDIUM[row.nextGala]} cut {formatTime(nextCut)}
+            {row.gapMs !== null ? ` · ${formatSeconds(row.gapMs)}s to go` : ""}
+          </span>
+        ) : (
+          <span>Fastest gala achieved</span>
+        )}
+      </TooltipMeta>
+    </TooltipRows>
+  );
 }
 
-function AllRowView({ row, scale }: { row: AllRow; scale: RingScale }) {
+function AllRowView({ row }: { row: AllRow }) {
   const hasPb = row.pbMs !== null;
-  const fillPct = hasPb ? posPct(row.calibratedRadius ?? 0, scale) : 0;
-  const fillColor = row.gala ? TIER_FILL[row.gala] : NONE_FILL;
-  const [trackRef, trackWidth] = useContainerWidth(320);
-  const grown = useGrowIn();
-  // On-fill text colour tuned per fill for contrast: white on the deep L3/L2
-  // fills, near-black on the light gold (SANJ) and grey (no-gala) fills.
-  const insideClass =
-    row.gala === "LEVEL_3" || row.gala === "LEVEL_2"
-      ? "text-white"
-      : "text-gray-900";
-
-  // Faint zone tints: each present gala tints the band leading up to its marker;
-  // the region past the hardest present tier is neutral headroom.
-  const bands: { from: number; to: number; color: string }[] = [];
-  let prev = 0;
-  for (const t of row.present) {
-    const p = posPct(scale.pos[t] ?? 0, scale);
-    bands.push({ from: prev, to: p, color: TIER_TINT[t] });
-    prev = p;
-  }
-  bands.push({ from: prev, to: 100, color: "var(--color-gray-50)" });
-
-  const hint = barHint(row);
+  const nextCut =
+    row.nextGala !== null ? (row.cutsByTier[row.nextGala] ?? null) : null;
 
   return (
-    <li className="flex items-center gap-3 py-3 sm:gap-4">
-      <div className="flex w-20 shrink-0 flex-col gap-1 sm:w-28">
+    <li className="flex items-center gap-3 py-2.5 sm:gap-4">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
         <span className="font-medium text-ink">{row.label}</span>
         <TierBadge gala={row.gala ?? "NONE"} />
         {hasPb && (
-          <span className="sr-only">PB {formatTime(row.pbMs as number)}</span>
+          <span className="time tnum text-xs text-ink-faint">
+            {formatTime(row.pbMs as number)}
+          </span>
+        )}
+        {/* The target cut in words, so the figure the chart's tooltip shows on
+            hover is also readable without a pointer. */}
+        {row.nextGala !== null && nextCut !== null && (
+          <span className="time tnum text-xs text-ink-faint">
+            · {NEXT_LABEL[row.nextGala]} {formatTime(nextCut)}
+          </span>
         )}
       </div>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div
-            ref={trackRef}
-            role="img"
-            tabIndex={0}
-            aria-label={hint.label}
-            className="relative h-7 min-w-16 flex-1 cursor-default overflow-hidden rounded-md bg-gray-100 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {/* zone tints */}
-            {bands.map((band, i) => (
-              <div
-                key={i}
-                aria-hidden
-                className="absolute inset-y-0"
-                style={{
-                  left: `${band.from}%`,
-                  width: `${band.to - band.from}%`,
-                  background: band.color,
-                }}
-              />
-            ))}
-            {/* PB fill */}
-            {hasPb && (
-              <div
-                aria-hidden
-                className="absolute inset-y-0 left-0 rounded-r-md transition-[width] [transition-duration:var(--dur-3)] [transition-timing-function:var(--ease-out)]"
-                style={{ width: `${grown ? Math.max(2, fillPct) : 0}%`, background: fillColor }}
-              />
-            )}
-            {/* PB time, drawn on (or just past) the fill */}
-            {hasPb && (
-              <BarTime
-                ms={row.pbMs as number}
-                fillPct={fillPct}
-                trackWidth={trackWidth}
-                insideClass={insideClass}
-              />
-            )}
-            {/* gala markers (only where a cut exists) */}
-            {row.present.map((t) => (
-              <div
-                key={t}
-                aria-hidden
-                className="absolute inset-y-0 w-px bg-ink/25"
-                style={{ left: `${posPct(scale.pos[t] ?? 0, scale)}%` }}
-              />
-            ))}
-          </div>
-        </TooltipTrigger>
-        <TooltipContent>{hint.node}</TooltipContent>
-      </Tooltip>
-
-      <div className="w-20 shrink-0 text-right text-xs sm:w-28">
+      <div className="w-24 shrink-0 text-right text-xs sm:w-28">
         {!hasPb ? (
           <span className="text-ink-faint">No time</span>
         ) : row.nextGala && row.gapMs !== null ? (
@@ -496,18 +533,16 @@ export function AllTierLegend({ scale }: { scale: RingScale }) {
     <div className="flex flex-col gap-2 border-t border-border pt-3 text-xs text-ink-muted">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <span className="font-medium text-ink-muted">Highest gala met</span>
-        {[...scale.order]
-          .reverse()
-          .map((t) => (
-            <span key={t} className="inline-flex items-center gap-1.5">
-              <span
-                aria-hidden
-                className="size-2.5 rounded-sm"
-                style={{ background: TIER_FILL[t] }}
-              />
-              {NEXT_LABEL[t]}
-            </span>
-          ))}
+        {[...scale.order].reverse().map((t) => (
+          <span key={t} className="inline-flex items-center gap-1.5">
+            <span
+              aria-hidden
+              className="size-2.5 rounded-sm"
+              style={{ background: TIER_FILL[t] }}
+            />
+            {NEXT_LABEL[t]}
+          </span>
+        ))}
         <span className="inline-flex items-center gap-1.5">
           <span
             aria-hidden
@@ -518,9 +553,8 @@ export function AllTierLegend({ scale }: { scale: RingScale }) {
         </span>
       </div>
       <p className="text-ink-faint">
-        Faint bands are the L2 / L3 / SANJ zones (only those an event has); the
-        fill runs to the swimmer’s PB on one shared scale, so bars compare
-        directly.
+        Faint bands are the zones an event actually has a cut for; the fill runs
+        to the swimmer’s PB on one shared scale, so bars compare directly.
       </p>
     </div>
   );

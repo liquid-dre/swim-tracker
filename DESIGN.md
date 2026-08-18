@@ -173,15 +173,48 @@ it, and it is excluded from eslint for that reason. Our own chart parts live in
 `components/charts/swim/`, which is linted and tested normally; its `index.ts` lists what each one
 exists for and why bklit has no equivalent.
 
-**Four deliberate edits do live in the vendored tree**, each marked `LOCAL EDIT` in a comment
-naming the upstream behaviour it overrides: `yDomain` and `xLabelFormat` on the time-series shell,
-`valueDomain` on the bar chart, `maxLabelWidth` on the bar category axis. Every one exists because
-the upstream default is right for counting web analytics and wrong for swim times — above all the
-zero baseline, which flattens a whole season's trajectory into the top of the plot.
+**Seven deliberate edits do live in the vendored tree**, each marked `LOCAL EDIT` in a comment
+naming the upstream behaviour it overrides:
+
+| Edit | Where | Why |
+|---|---|---|
+| `yDomain` | time-series shell, `line-chart.tsx` | Upstream pins all-positive data to a **zero baseline**, which flattens a whole season's trajectory into the top of the plot. |
+| `xLabelFormat` | time-series shell, `line-chart.tsx` | Upstream hard-codes a month/day format that drops the year — unreadable across seasons. |
+| `valueDomain` | `bar-chart.tsx` | Our bars come from `SwimBars`, so bklit finds no `dataKey` to scan and falls back to `[0, 110]`. |
+| `maxLabelWidth` | `bar-y-axis.tsx` | The category gutter has to size to the longest swimmer name without clipping or over-reserving. |
+| **null metric values** | `radar-area.tsx`, `radar-context.tsx` | Upstream coerces a missing metric to `0`, drawing "never raced this stroke" identically to "slowest possible at it". A null now breaks the polygon. |
+| `yDomain` | `scatter-chart.tsx`, `scatter-chart-shell.tsx` | The same zero-baseline bug as the line shell, in the shell the group progression scatter uses. |
+| `xLabelFormat` | `scatter-chart.tsx`, `scatter-chart-shell.tsx` | The same year-dropping default, same shell. |
+
+Most of these are one shape of the same problem: the upstream default is right for counting web
+analytics and wrong for swim times.
+
+**Gala fills are textured, not just coloured.** `TIER_STYLE` gives each gala a `glyph` and a `dash`
+so a LINE is never colour-only; a filled bar can carry neither, so each gala also owns a `pattern`
+(denser as the gala gets harder, matching the dash scale). `components/charts/swim/TierPatterns.tsx`
+paints the tile in the gala's `color` and the texture over it in its `ink`, so the bar keeps its hue
+and gains a shape channel. "No gala met" stays flat grey — an absence must not read as a tier. The radar edit's path building lives in
+`components/charts/swim/radarPaths.ts` — ours, linted and tested — so that vendored diff is an
+import rather than an algorithm; prefer that shape for any future edit big enough to need one.
 
 **Theming:** bklit ships its own greyscale `--chart-*` palette; every value is repointed at the
 ramp in §2/§3 (`app/globals.css`), in both themes. A chart never introduces a colour the rest of
 the app does not have. `--chart-1..5` are bklit's default series palette and mirror `SERIES_COLORS`.
+
+**Re-pulling from the registry — three things it does every time, all of which must be undone:**
+1. **Never pass `--overwrite`.** It silently reverts the `LOCAL EDIT`s above *and* the two of our
+   own component names registered in `chart-child-passthrough.ts`'s underlay set (`GalaCutOverlay`,
+   `ValueThresholds`) — which, unfixed, draws qualifying-cut lines on top of the data instead of
+   under it. `shadcn add` prompts per existing file; answer **no** to all of them
+   (`yes N | npx shadcn@latest add @bklit/...`).
+2. It re-appends its greyscale `--chart-1..5` into the **dark** block of `app/globals.css`,
+   overriding the series hues that block deliberately does not flip. Delete those five lines.
+3. It emits three malformed self-referential lines — `--chart-line-primary: var(----chart-line-primary)`
+   and friends, with four hyphens. They duplicate tokens already defined above. Delete them.
+
+Vendored **subdirectories** need their own eslint ignore entry (`components/charts/tooltip/**`,
+`components/charts/heatmap/**`); the top-level ignore is one level deep only. `components/charts/swim/**`
+stays linted.
 
 **`motion` and `@number-flow/react` arrive as bklit dependencies. They are NOT licence for
 decorative animation** — §6 and the `prefers-reduced-motion` rule still hold in full. Charts opt out
@@ -191,6 +224,15 @@ of the enter reveal via bklit's own `StaticChartPreviewProvider` when motion is 
 (every spoke has its own calibrated scale, which a shared radial scale would destroy — a test locks
 it) and the dashboard sparkline (×20 rows, no axes). Both follow the app-wide orientation: faster =
 lower / further out.
+
+**The stroke RADAR does not contradict that.** It is a companion to the wheel, not a replacement,
+because it answers a different question on a different scale. The wheel asks what a swimmer can
+ENTER and measures against the gala cuts they are eligible for — age-fair, but only comparable
+inside one entry window, since ring 2 means Level 3 at 14 and SANY at 18. The radar asks what a
+swimmer is GOOD at, on percent of world record, which is universal and so lets any swimmers overlay.
+That scale is age-blind, which is why the radar's read is the SHAPE of a polygon, never its size.
+One course per chart, always — an SCM and an LCM percentage are measured against different records
+and must never average onto one spoke (§4.2).
 
 ## 6. Spacing & motion
 - 8px spacing grid. Section gaps `gap-5`/`gap-6`. Page content max width ~`1440px`, generous gutters.

@@ -17,6 +17,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { DateField } from "@/components/ui/DateField";
 import { FilterBar } from "@/components/ui/FilterBar";
 import { EventFilter } from "@/components/analysis/EventFilter";
+import { SeasonBarChart, type SeasonBar } from "./SeasonBarChart";
 import { type EventValue } from "@/components/analysis/EventPicker";
 import { trailForHref } from "@/lib/nav";
 
@@ -327,11 +328,22 @@ export function SeasonResults({ data }: { data: SeasonData }) {
     [data.rows],
   );
 
-  // Bars normalise against the biggest drop, so the top improver fills the track
-  // and everyone reads relative to them. A floor keeps a real (tiny) drop visible.
-  const maxPct = useMemo(
-    () => ranked.reduce((m, r) => Math.max(m, pctOf(r) ?? 0), 0),
-    [ranked], // eslint-disable-line react-hooks/exhaustive-deps
+  // The chart's bars are leader-normalised, so they rank rather than measure —
+  // the exact figures live in the list below, one row per swimmer.
+  const bars: SeasonBar[] = useMemo(
+    () =>
+      ranked.map((r) => ({
+        swimmerId: r.swimmerId,
+        name: r.name,
+        pct: pctOf(r) ?? 0,
+        sub:
+          data.mode === "event"
+            ? `${formatTime(r.event!.firstMs)} \u2192 ${formatTime(r.event!.currentMs)}`
+            : `${r.overall!.eventsMeasured} of ${r.overall!.eventsInSeason} event${
+                r.overall!.eventsInSeason === 1 ? "" : "s"
+              }`,
+      })),
+    [ranked, data.mode], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   return (
@@ -357,6 +369,8 @@ export function SeasonResults({ data }: { data: SeasonData }) {
           </p>
         </div>
 
+        <SeasonBarChart bars={bars} />
+
         {ranked.length > 0 ? (
           <ol className="flex flex-col divide-y divide-gray-100">
             {ranked.map((r, i) => (
@@ -366,7 +380,6 @@ export function SeasonResults({ data }: { data: SeasonData }) {
                 row={r}
                 mode={data.mode}
                 pct={pctOf(r) ?? 0}
-                maxPct={maxPct}
               />
             ))}
           </ol>
@@ -457,15 +470,12 @@ function RankRow({
   row,
   mode,
   pct,
-  maxPct,
 }: {
   rank: number;
   row: SeasonRow;
   mode: Mode;
   pct: number;
-  maxPct: number;
 }) {
-  const width = maxPct > 0 ? Math.max(3, (pct / maxPct) * 100) : 3;
   const droppedMs =
     mode === "event"
       ? (row.event?.improvedMs ?? 0)
@@ -477,7 +487,7 @@ function RankRow({
         {rank}
       </span>
 
-      <div className="w-28 shrink-0 sm:w-40">
+      <div className="min-w-0 flex-1">
         <div className="truncate font-medium text-ink">
           {row.name}
           <span className="ml-1 text-xs font-normal tabular-nums text-ink-faint">
@@ -501,16 +511,6 @@ function RankRow({
             </span>
           )}
         </div>
-      </div>
-
-      <div
-        className="h-2 min-w-16 flex-1 overflow-hidden rounded-full bg-gray-100"
-        aria-hidden
-      >
-        <div
-          className="h-full rounded-full bg-brand-500 transition-[width] [transition-duration:var(--dur-2)]"
-          style={{ width: `${width}%` }}
-        />
       </div>
 
       <div className="w-24 shrink-0 text-right sm:w-28">

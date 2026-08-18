@@ -39,6 +39,10 @@ import {
   type StandardCut,
 } from "../lib/swim";
 import { galaCodeValidator, loadGalas, toGalaRefs, tourDatesByGala } from "./galas";
+import { strokeRadarScores } from "../lib/strokeRadar";
+
+/** The radar caps at four polygons — past that, overlaid shapes stop reading. */
+const STROKE_RADAR_MAX = 4;
 
 // Tour dates by gala, as returned to screens that explain their resolution.
 const tourDatesValidator = v.object({
@@ -1660,3 +1664,79 @@ function sortSeasonRows<T extends { name: string; insufficient: boolean }>(
     return a.name.localeCompare(b.name);
   });
 }
+
+// ---------------------------------------------------------------------------
+// getStrokeRadar — the stroke-profile comparison radar (percent of world record)
+// ---------------------------------------------------------------------------
+//
+// A DIFFERENT question from getStrokeProfile, on a deliberately different scale.
+// The wheel asks "what can this swimmer ENTER" and measures every event against
+// the gala cuts they are eligible for; that is age-fair, but it only compares
+// between swimmers who share an entry window, because ring 2 means Level 3 for a
+// 14-year-old and SANY for an 18-year-old. Laying those two on one radar would
+// compare two different scales while looking like one.
+//
+// So the radar uses percent of WORLD RECORD instead — universal, so any set of
+// swimmers can overlay. It is age-blind, which is the honest trade: a younger
+// swimmer's polygon is smaller everywhere, so the read is its SHAPE (where it
+// bulges, where it dents), not its size. Own gender's record throughout, or
+// every female polygon would be systematically smaller than every male one.
+//
+// One COURSE for the whole chart. An SCM percentage and an LCM percentage are
+// measured against different records, so averaging them onto one spoke would be
+// the cross-course merge the domain forbids (§4.2).
+
+export const getStrokeRadar = query({
+  args: {
+    swimmerIds: v.array(v.id("swimmers")),
+    course,
+  },
+  returns: v.object({
+    course,
+    swimmers: v.array(
+      v.object({
+        swimmerId: v.id("swimmers"),
+        name: v.string(),
+        gender,
+        strokes: v.array(
+          v.object({
+            stroke,
+            // Null = never raced this stroke in this course. NOT zero — the
+            // client draws a gap, because "not raced" and "very slow" are
+            // different facts and a spoke at the hub says the wrong one.
+            pct: v.union(v.number(), v.null()),
+            events: v.number(),
+            bestEvent: v.union(v.string(), v.null()),
+          }),
+        ),
+      }),
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const swimmers = [];
+
+    for (const swimmerId of args.swimmerIds.slice(0, STROKE_RADAR_MAX)) {
+      // Coach → any swimmer; viewer → only their linked swimmer(s). Rejected
+      // server-side per swimmer, so a viewer cannot overlay someone else's
+      // profile onto their own by passing an extra id.
+      await requireSwimmerAccess(ctx, swimmerId);
+      const swimmer = await ctx.db.get(swimmerId);
+      if (!swimmer) continue;
+
+      const results = await ctx.db
+        .query("results")
+        .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
+        .take(2000);
+      const pbs = computePersonalBests(results as ResultForPB[]);
+
+      swimmers.push({
+        swimmerId,
+        name: swimmer.name,
+        gender: swimmer.gender,
+        strokes: strokeRadarScores(pbs, args.course, swimmer.gender),
+      });
+    }
+
+    return { course: args.course, swimmers };
+  },
+});

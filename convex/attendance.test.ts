@@ -443,3 +443,123 @@ describe("viewer note-stripping", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("attendance heatmap", () => {
+  // PAST_DATE is a Monday in 2020, safely markable; the season window in the
+  // fixture is far-future, so these pass an explicit range instead.
+  const RANGE = { from: "2020-01-01", to: "2020-01-31" };
+  const OTHER_DATE = "2020-01-13"; // the following Monday
+
+  async function markedClub() {
+    const s = await setup();
+    const one = await oneOff(s.asCoachA, PAST_DATE, [s.ids.squadX]);
+    const two = await oneOff(s.asCoachA, OTHER_DATE, [s.ids.squadX]);
+    // Day one: A present, C absent → 1 of 2 eligible → 50%.
+    await s.asCoachA.mutation(api.attendance.markAttendance, {
+      sessionId: one,
+      swimmerId: s.ids.swimmerA,
+      status: "PRESENT",
+    });
+    await s.asCoachA.mutation(api.attendance.markAttendance, {
+      sessionId: one,
+      swimmerId: s.ids.swimmerC,
+      status: "ABSENT",
+    });
+    // Day two: both present → 100%.
+    await s.asCoachA.mutation(api.attendance.markAttendance, {
+      sessionId: two,
+      swimmerId: s.ids.swimmerA,
+      status: "PRESENT",
+    });
+    await s.asCoachA.mutation(api.attendance.markAttendance, {
+      sessionId: two,
+      swimmerId: s.ids.swimmerC,
+      status: "PRESENT",
+    });
+    return s;
+  }
+
+  test("a coach gets a club-wide rate per marked day", async () => {
+    const { asCoachA } = await markedClub();
+    const res = await asCoachA.query(api.attendance.getAttendanceHeatmap, RANGE);
+
+    expect(res.variant).toBe("summary");
+    expect(res.days).toHaveLength(2);
+    expect(res.days.map((d) => d.date)).toEqual([PAST_DATE, OTHER_DATE]);
+    expect(res.days[0].ratePct).toBe(50);
+    expect(res.days[1].ratePct).toBe(100);
+    // The summary variant carries no per-swimmer status — there isn't one.
+    expect(res.days.every((d) => d.status === null)).toBe(true);
+  });
+
+  test("only days with marks appear, so the strip's gaps are real", async () => {
+    const { asCoachA } = await markedClub();
+    const res = await asCoachA.query(api.attendance.getAttendanceHeatmap, RANGE);
+    expect(res.days.every((d) => d.marked > 0)).toBe(true);
+  });
+
+  test("a coach in another club sees none of it", async () => {
+    const { asCoachB } = await markedClub();
+    const res = await asCoachB.query(api.attendance.getAttendanceHeatmap, RANGE);
+    expect(res.days).toEqual([]);
+  });
+
+  test("a squad filter narrows to that squad's members", async () => {
+    const { asCoachA, ids } = await markedClub();
+    // squadY holds swimmerA only, so day one drops to A's lone PRESENT = 100%.
+    const res = await asCoachA.query(api.attendance.getAttendanceHeatmap, {
+      ...RANGE,
+      squadId: ids.squadY,
+    });
+    expect(res.days[0].ratePct).toBe(100);
+  });
+
+  test("a viewer gets their own swimmer's status, not a club rate", async () => {
+    const { asViewer } = await markedClub();
+    const res = await asViewer.query(api.attendance.getAttendanceHeatmap, RANGE);
+
+    // One linked swimmer → the richer per-day status view.
+    expect(res.variant).toBe("swimmer");
+    expect(res.days.map((d) => d.status)).toEqual(["PRESENT", "PRESENT"]);
+  });
+
+  test("a viewer cannot read a swimmer they are not linked to", async () => {
+    const { asViewer, ids } = await markedClub();
+    await expect(
+      asViewer.query(api.attendance.getAttendanceHeatmap, {
+        ...RANGE,
+        swimmerId: ids.swimmerC,
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("a day shows its worst mark, so an attended session cannot hide a missed one", async () => {
+    const s = await setup();
+    // Two sessions on the SAME day: present at one, absent from the other.
+    const morning = await oneOff(s.asCoachA, PAST_DATE, [s.ids.squadX]);
+    const evening = await oneOff(s.asCoachA, PAST_DATE, [s.ids.squadY]);
+    await s.asCoachA.mutation(api.attendance.markAttendance, {
+      sessionId: morning,
+      swimmerId: s.ids.swimmerA,
+      status: "PRESENT",
+    });
+    await s.asCoachA.mutation(api.attendance.markAttendance, {
+      sessionId: evening,
+      swimmerId: s.ids.swimmerA,
+      status: "ABSENT",
+    });
+
+    const res = await s.asViewer.query(api.attendance.getAttendanceHeatmap, RANGE);
+    expect(res.days).toHaveLength(1);
+    expect(res.days[0].status).toBe("ABSENT");
+  });
+
+  test("an inverted range returns nothing rather than scanning", async () => {
+    const { asCoachA } = await markedClub();
+    const res = await asCoachA.query(api.attendance.getAttendanceHeatmap, {
+      from: "2020-01-31",
+      to: "2020-01-01",
+    });
+    expect(res.days).toEqual([]);
+  });
+});

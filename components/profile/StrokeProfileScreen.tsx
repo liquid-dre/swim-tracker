@@ -35,6 +35,7 @@ function ringSummary(scale: RingScale): string {
   return scale.order.map((g) => GALA_SHORT[g]).join(" · ");
 }
 import { StrokeWheel } from "./StrokeWheel";
+import { StrokeRadar } from "./StrokeRadar";
 import { STROKE_META, WHEEL_STROKE_ORDER, type ProfileEvent } from "./strokeProfile";
 
 /*
@@ -55,12 +56,19 @@ import { STROKE_META, WHEEL_STROKE_ORDER, type ProfileEvent } from "./strokeProf
 
 const MAX_COMPARE = 4;
 type Coverage = "full" | "all";
+type View = "wheel" | "radar";
+type RadarCourse = "LCM" | "SCM";
 
 export function StrokeProfileScreen() {
   const pathname = usePathname();
   const data = useQuery(api.swimmers.listForProfile, {});
   const [picked, setPicked] = useState<Id<"swimmers">[]>([]);
   const [coverage, setCoverage] = useState<Coverage>("full");
+  const [view, setView] = useState<View>("wheel");
+  // Per page, never persisted — and never a "best of both", because an SCM
+  // percentage and an LCM percentage are measured against different world
+  // records and must not average onto one spoke (§4.2).
+  const [radarCourse, setRadarCourse] = useState<RadarCourse>("LCM");
 
   const swimmers = useMemo(() => data?.swimmers ?? [], [data]);
   // Offer multi-select whenever there's more than one swimmer to place on the
@@ -96,6 +104,13 @@ export function StrokeProfileScreen() {
   function pickSingle(id: Id<"swimmers">) {
     setPicked([id]);
   }
+
+  const radar = useQuery(
+    api.analysis.getStrokeRadar,
+    view === "radar" && selected.length > 0
+      ? { swimmerIds: selected, course: radarCourse }
+      : "skip",
+  );
 
   const loading = data === undefined;
 
@@ -143,15 +158,38 @@ export function StrokeProfileScreen() {
           )
         }
         trailing={
-          <Segmented
-            ariaLabel="Event coverage"
-            value={coverage}
-            onChange={setCoverage}
-            options={[
-              { value: "full", label: "Full coverage" },
-              { value: "all", label: "Include partial" },
-            ]}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented
+              ariaLabel="Chart"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "wheel", label: "Wheel" },
+                { value: "radar", label: "Radar" },
+              ]}
+            />
+            {view === "wheel" ? (
+              <Segmented
+                ariaLabel="Event coverage"
+                value={coverage}
+                onChange={setCoverage}
+                options={[
+                  { value: "full", label: "Full coverage" },
+                  { value: "all", label: "Include partial" },
+                ]}
+              />
+            ) : (
+              <Segmented
+                ariaLabel="Course"
+                value={radarCourse}
+                onChange={setRadarCourse}
+                options={[
+                  { value: "LCM", label: "Long" },
+                  { value: "SCM", label: "Short" },
+                ]}
+              />
+            )}
+          </div>
         }
       />
 
@@ -164,27 +202,42 @@ export function StrokeProfileScreen() {
         />
       ) : (
         <>
-          <div
-            ref={panelsRef}
-            className={
-              isCompare
-                ? "grid grid-cols-1 gap-5 sm:grid-cols-2"
-                : "flex justify-center"
-            }
-          >
-            {selected.map((id) => (
-              <WheelPanel
-                key={id}
-                swimmerId={id}
-                coverage={coverage}
-                size={singleSize}
-                autoSize={isCompare}
-                compact={isCompare}
-              />
-            ))}
+          <div ref={panelsRef}>
+            {view === "radar" ? (
+              radar === undefined ? (
+                <WheelSkeleton />
+              ) : (
+                <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
+                  <StrokeRadar
+                    course={radarCourse}
+                    size={singleSize}
+                    swimmers={radar.swimmers}
+                  />
+                </div>
+              )
+            ) : (
+              <div
+                className={
+                  isCompare
+                    ? "grid grid-cols-1 gap-5 sm:grid-cols-2"
+                    : "flex justify-center"
+                }
+              >
+                {selected.map((id) => (
+                  <WheelPanel
+                    key={id}
+                    swimmerId={id}
+                    coverage={coverage}
+                    size={singleSize}
+                    autoSize={isCompare}
+                    compact={isCompare}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
-          <Legend />
+          {view === "wheel" && <Legend />}
         </>
       )}
     </div>
