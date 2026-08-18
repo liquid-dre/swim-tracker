@@ -40,7 +40,7 @@ Access control is enforced **server-side in every Convex query/mutation** via th
 - Cross-swimmer comparison leaderboard + chart, filtered by age group, gender, and event.
 - Progression view (line chart + history table) for one swimmer or a selected group.
 - "Improvement since added" metric per event.
-- **Qualifying standards** (LCM only): reference lines on progression + comparison charts, and a qualification-status matrix, against three tiers (Level 2, Level 3, SANJ) using single-year age cuts (§4.9).
+- **Qualifying standards** (both courses, each against its own cut): reference lines on progression + comparison charts, and a qualification-status matrix, against five galas (Level 2, Level 3, SANJ, SANY, SANS) using single-year age cuts for the age-graded galas and one open cut for SANS/SANY (§4.9).
 - Mobile-first responsive UI (poolside entry on a phone is a first-class use case).
 
 **Out of scope (v1) — deferred, see §10**
@@ -107,19 +107,52 @@ Every result is tagged `MEET`, `TIME_TRIAL`, or `PRACTICE`.
 A comparison is only valid within a single (distance, stroke, **course**). The comparison UI must require a course selection — you cannot rank SCM and LCM times together.
 
 ### 4.9 Qualifying standards
-Three qualifying tiers are loaded from the SSA tables: `LEVEL_2`, `LEVEL_3`, `SANJ`.
+*(Revised for the 2027 SSA tables: five galas, both courses. The pre-2027 text described three
+long-course-only tiers; the changes are called out inline.)*
 
-- **Hierarchy (confirmed — inverted from the names):** `SANJ` is hardest (fastest cut), then `LEVEL_3`, then `LEVEL_2` (easiest / entry). All "highest standard met" logic and colour ranking must order tiers `SANJ > LEVEL_3 > LEVEL_2`.
-- **Course:** every standard is **long course (LCM) only**. Qualifying reference lines and status are shown **only on LCM charts/PBs**; hidden entirely for SCM (§4.2).
-- **Age matching = exact single-year age.** Cuts are per exact age, with youngest as `10&U` / `11&U` / `12&U` catch-alls (varies by tier) and `17-19` as the top band. Match a swimmer to the cut for their **exact age**, not the two-year display band (§4.7).
-- **"Age as of when" — resolved (corrected 2026-07):** qualification is judged at the age the swimmer is **for the competition**, i.e. the age they will be **on the tour date** when one is set (§5.10a), else their **current age (today)**. It is **NOT** judged at the age the PB was swum. Rationale: a swimmer who beat the easier 15-year-old cut must not still read as "qualified" once they are 16 and would swim the tour in the 16 age group needing the harder 16 cut — the qualifying screens answer "can this swimmer go to the upcoming tour?", not "what did this time achieve historically?". `results.ageAtSwim` is still stored (it is factually the age on the swim date) and still used for the **progression chart's historical cut overlay** (which shows the cut that applied at each past date), but never for the qualified/tier judgement. This corrects the earlier "age as of the result's swim date" assumption, which produced swimmers reading as qualified on times slower than their current-age cut.
-- **Coverage is a hard rule, not just missing data — enforce it:**
-  - **50 m: Level 2 only.** You **cannot** qualify for Level 3 or SANJ on a 50 m time. No 50 m L3/SANJ line ever renders.
-  - **Level 2: maximum event is 200 m (+ 200 IM).** You **cannot** qualify for Level 2 on any event longer than 200 m. No L2 line renders for 400/800/1500 or 400 IM.
+**Five galas** are loaded from the SSA tables, in two shapes:
+
+| Code | Gala | Shape | Entry ages |
+|---|---|---|---|
+| `SANS` | SA Senior National Aquatic Championships | open | 15+ |
+| `SANY` | SA National Youth Championships | open | 17–25 |
+| `SANJ` | SA National Junior Championships | age-graded | up to 16 |
+| `LEVEL_3` | Level 3 | age-graded | up to 16 |
+| `LEVEL_2` | Level 2 | age-graded | up to 16 |
+
+- **Hierarchy:** hardest → easiest is `SANS > SANY > SANJ > LEVEL_3 > LEVEL_2`. All "highest standard
+  met", "next gala up" and colour-ranking logic walks this one order (`GALA_ORDER`, `lib/galas.ts`). On
+  the 2027 tables this prestige order is also the exact cut order at every age where two or more galas
+  are simultaneously eligible; a CI test recomputes that from the CSV and fails if it ever stops holding.
+  *(Was: three tiers, `SANJ > LEVEL_3 > LEVEL_2`.)*
+- **Course: cuts exist SEPARATELY in each course, and both are valid for entry.** Every gala publishes a
+  long-course and a short-course standard. A PB is only ever compared against a cut of the **same
+  course** — never borrowed, never interpolated. *(Was: standards were long-course only and hidden
+  entirely on SCM. That was true of the data then available; the 2027 Age Group document publishes both.)*
+- **Two gala shapes.** `AGE_GRADED` galas have a cut per exact single-year age, youngest as a `10&U` /
+  `11&U` / `12&U` catch-all (varies by gala), topping out at an exact 16 — there is no oldest catch-all
+  in the real data. `OPEN` galas (SANS/SANY) have **one cut for every age** and no age columns at all.
+- **Entry age window** is a gate SEPARATE from the cuts, stored per gala and editable by the super-user.
+  Outside the window a swimmer has no cut to chase even though rows exist, and must never be listed as
+  qualified. This is what gives 17+ swimmers a target at all — the age-graded tables stop at 16, so
+  before SANS/SANY existed a 17-year-old resolved to no cut anywhere.
+- **Age matching = exact single-year age**, not the two-year display band (§4.7).
+- **"Age as of when" — resolved (corrected 2026-07):** qualification is judged at the age the swimmer is **for the competition**, i.e. the age they will be **on the tour date** when one is set (§5.10a), else their **current age (today)**. It is **NOT** judged at the age the PB was swum. Rationale: a swimmer who beat the easier 15-year-old cut must not still read as "qualified" once they are 16 and would swim the tour in the 16 age group needing the harder 16 cut — the qualifying screens answer "can this swimmer go to the upcoming tour?", not "what did this time achieve historically?". `results.ageAtSwim` is still stored (it is factually the age on the swim date) and still used for the **progression chart's historical cut overlay** (which shows the cut that applied at each past date), but never for the qualified/gala judgement.
+- **Coverage is a hard rule, not just missing data — and it is DATA, on `galas.coveredEvents`:**
+  - **50 m: `LEVEL_2` only among the age-graded galas.** You **cannot** qualify for Level 3 or SANJ on a
+    50 m time. The two OPEN galas *do* cover 50 m.
+  - **Level 2: maximum event is 200 m (+ 200 IM), and no 200 Fly.** No L2 line renders for 400/800/1500.
   - **Level 3:** 100/200/400 + 200 IM only (no 50s, no 800/1500, no 200 Fly, no 400 IM). Intentional.
-  - **SANJ:** 100 up to **1500** Free, all strokes' 100/200, 400 Free/IM, 200 IM (no 50s). 800/1500 are now first-class app events (§4.3).
-  - Where a tier has no cut for an event/age, render **no line** for that tier — never interpolate or borrow another tier's value.
-- **"Qualified" = swimmer's headline LCM MEET PB (§4.6) ≤ the cut.** Time trials/practice never qualify.
+  - **SANJ:** 100 up to **1500** Free, all strokes' 100/200, 400 Free/IM, 200 IM (no 50s).
+  - **SANS / SANY:** every whitelisted event except 25 m and 100 IM — 50→1500 Free, 50/100/200 of each
+    stroke, 200 + 400 IM, for both genders.
+  - **25 m and 100 IM have no cut at any gala**, in either course.
+  - Where a gala has no cut for an event/age/course, render **no line** — never interpolate or borrow
+    another gala's or another course's value.
+- **One known source inversion, honoured verbatim:** SANJ women 100 Back lists 12&U 1:12.98 then 13
+  1:14.83 (slower for the older age), in both courses. The editor warns; it never blocks (§5.8).
+- **"Qualified" = a headline MEET PB (§4.6) in EITHER course ≤ that course's own cut.** Time
+  trials/practice never qualify. *(Was: the headline LCM MEET PB only.)*
 - **Standards are coach-managed (§5.9).** Initial load is a bulk import from the coach's cleaned CSV; thereafter coaches view and edit cuts in-app, and those edited values are what every chart and status computation uses. The importer rejects any row it cannot parse (§4.4) rather than guessing.
 
 ---
@@ -153,13 +186,13 @@ Three qualifying tiers are loaded from the SSA tables: `LEVEL_2`, `LEVEL_3`, `SA
 - Select event = distance + stroke + course (required).
 - Filters: age group, gender.
 - Output: sortable leaderboard (fastest first) + **horizontal bar chart** of each qualifying swimmer's headline PB.
-- **Qualifying overlay (LCM only):** draw each applicable tier's cut as a **vertical threshold line** (`SANJ`, `LEVEL_3`, `LEVEL_2`), colour-coded and labelled. Colour each swimmer's bar by the **highest tier they've met** (see §4.9 order). Because the filter can span mixed ages while cuts are per exact age, the tier line shown is for the **selected age filter**; if "all ages" is selected, suppress the lines (a single line can't be correct for mixed ages) and rely on per-bar colour instead. Hidden entirely for SCM.
+- **Qualifying overlay:** draw each applicable gala's cut **for the course being compared** as a **vertical threshold line**, colour-coded and labelled. Colour each swimmer's bar by the **highest gala they've met** in that course (see §4.9 order). Because the filter can span mixed ages while cuts are per exact age, the gala line shown is for the **selected age filter**; if "all ages" is selected, suppress the lines (a single line can't be correct for mixed ages) and rely on per-bar colour instead.
 - Respects role scope (a viewer does not get a cross-roster comparison of named swimmers).
 
 ### 5.6 Progression view
 - Select one swimmer **or** a group (squad or ad-hoc multi-select) + an event (distance + stroke + course).
 - Line chart: x = date, y = time. **Lower time is better** — invert the y-axis (or clearly label) so improvement reads as "up/down" consistently; mark `MEET` points and the current PB.
-- **Qualifying overlay (LCM only):** draw the applicable `LEVEL_2` / `LEVEL_3` / `SANJ` cuts as **horizontal reference lines** (Recharts `ReferenceLine`), colour-coded and labelled. A dot dropping **below** a line = qualified for that tier. For a single swimmer the lines use their exact age (recompute if the range crosses a birthday — note the cut can step); for a group, lines are suppressed unless all selected swimmers share the same exact age. Hidden for SCM.
+- **Qualifying overlay:** draw the applicable galas' cuts **for the charted course** as **horizontal reference lines** (Recharts `ReferenceLine`), colour-coded and labelled. A dot dropping **below** a line = qualified for that gala. For a single swimmer the lines use their exact age (recompute if the range crosses a birthday — note the cut can step); for a group, lines are suppressed unless all selected swimmers share the same exact age.
 - **Projection overlay (optional; single swimmer, LCM, one tier selected):** fit a linear trend to the swimmer's recent `MEET` results and extend it (dashed) to where it meets the selected tier's cut, labelled with an estimated date. **Estimate only** — requires ≥ 4 meet times and a genuine downward trend; otherwise show "not enough data / no clear trend". Cap the horizon at ~12 months (beyond that, report "beyond 12 months at current rate"). Never rendered as a commitment or a promise; the caveat label is mandatory. See §5.12.
 - For a group, one line per swimmer.
 
@@ -167,7 +200,7 @@ Three qualifying tiers are loaded from the SSA tables: `LEVEL_2`, `LEVEL_3`, `SA
 - Grid: **rows = swimmers** (respecting age/gender/squad filters), **columns = events** (LCM).
 - Each cell shows the **highest tier met** (colour-coded: e.g. SANJ / L3 / L2 / none) plus the **gap to the next tier up** (their PB minus the next cut, formatted).
 - This is the "who's ready for what" dashboard; it is the coach's primary planning surface.
-- LCM only. Cells for events with no cut at any tier are blank/neutral.
+- Rows carry a **Long / Short / Best-of-both** course mode; Best-of-both is the default, and a cell counts a gala as met when EITHER course beats that course's own cut, marking which one did. Cells for events with no cut at any gala — or where the swimmer is outside every gala's entry window — are blank/neutral.
 
 ### 5.8 Coach standards management
 - A coach-only screen to **view and edit** the qualifying cuts that drive every chart and the status matrix.
@@ -184,7 +217,7 @@ Three qualifying tiers are loaded from the SSA tables: `LEVEL_2`, `LEVEL_3`, `SA
 - The toggle only affects LCM analysis; it is inert/hidden on SCM.
 
 ### 5.11 Road to qualify (per swimmer)
-Two linked visuals for a selected swimmer at the selected target tier (§5.10), **LCM only**:
+Two linked visuals for a selected swimmer at the selected target gala (§5.10). Each row is measured in whichever course the swimmer is CLOSEST in (both qualify, §4.2), and a course selector can pin it to one:
 - **Gap-to-cut:** one horizontal bar per applicable event = the swimmer's headline `MEET` PB minus the tier's cut for their **exact age** (§4.9). Show the gap in both seconds and %. Events where PB ≤ cut are flagged **qualified** and grouped; events with no logged time are listed separately as "no time yet" (not drawn as a huge gap). Sorted **closest-first** so the coach sees the low-hanging events immediately.
 - **%-of-cut profile:** each event's PB as a percentage of its cut (100% = on the line, < 100% = qualified), as sorted horizontal bars with a reference line at 100% (a radar view is an optional alternative). Reveals the swimmer's strongest and weakest events relative to the standard.
 - Only events where the selected tier has a cut for the swimmer's exact age render (respect coverage: SANJ has no 50s, L2 nothing above 200 m, etc.).
@@ -283,7 +316,8 @@ export default defineSchema({
     stroke,
     // Exact age the cut applies to. Catch-alls use a bound + isCatchAll:
     // e.g. "10&U" => age 10, isCatchAllYoung true (applies to <=10).
-    // "17-19" => age 17, isCatchAllOld true (applies to >=17).
+    // "17-19" => age 17, isCatchAllOld true (applies to >=17) — supported,
+    //   but the real 2027 data never uses it: 16 is the exact oldest age.
     age: v.number(),
     isCatchAllYoung: v.boolean(),
     isCatchAllOld: v.boolean(),
@@ -334,7 +368,7 @@ PBs are **derived** (not stored) in v1: `min(timeMs)` over the relevant index. R
 - `getEventComparison({ distance, stroke, course, gender?, ageGroup? })` — leaderboard of MEET PBs, sorted ascending by time
 - `getProgression({ swimmerId | swimmerIds, distance, stroke, course })` — time series (all swim types, MEET flagged); when `course === "LCM"`, also returns the applicable standard lines
 - `getSquadProgression(squadId, { distance, stroke, course })`
-- `getApplicableStandards({ gender, distance, stroke, age })` — returns the L2/L3/SANJ cuts for that exact age (resolving catch-alls), omitting tiers with no cut. **LCM only.**
+- `getApplicableStandards({ gender, distance, stroke, course, age })` — returns every gala's cut for that exact age and course (resolving catch-alls and open standards), omitting galas with no cut or an age outside their entry window.
 - `getQualificationMatrix({ gender?, ageBand?, squadId? })` — per swimmer × event, highest tier met + gap to next tier (powers §5.7)
 - `getRoadToQualify({ swimmerId, tier })` — per applicable LCM event: `{ cutMs, pbMs|null, gapMs, gapPct, pctOfCut, qualified }`, sorted closest-first (powers §5.11 gap + %-of-cut)
 - `getSeasonImprovement({ mode: "event" | "overall", distance?, stroke?, seasonStart })` — ranked per-swimmer improvement over the season using MEET times (powers §5.12)

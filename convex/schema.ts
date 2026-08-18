@@ -85,11 +85,44 @@ export default defineSchema({
     // Email is normalised (trimmed, lowercased) at write time; lookups rely on that.
     .index("by_email", ["email"]),
 
-  // Tour dates (docs/access-control.md: super-user writes, every role reads).
-  // One row per tier: the date of that tier's tour/meet. When set, every
-  // qualifying surface judges swimmers against the cut for the age they will
-  // be ON TOUR DAY (the birthday rule); with no row, resolution falls back to
-  // the swimmer's CURRENT age (§4.9). `name` is display-only ("SANJ Nationals").
+  // The five galas a swimmer can qualify for (§4.9, 2027 SSA standards).
+  // Global reference data: super-user writes, every role reads.
+  //
+  // Two shapes live in one table, distinguished by `ageScope`:
+  //   AGE_GRADED — LEVEL_2 / LEVEL_3 / SANJ: a cut per exact single-year age.
+  //   OPEN       — SANS / SANY: one cut per (gender, event, course), no ages.
+  //
+  // `minAge`/`maxAge` are the ENTRY WINDOW (inclusive; absent = unbounded) and
+  // are deliberately editable — SSA publishes these outside the cut tables.
+  // `coveredEvents` makes coverage DATA rather than a hardcoded switch, so a
+  // future meet is an import instead of a deploy. `tourDate` carries the
+  // birthday rule: when set, every qualifying surface judges swimmers against
+  // the cut for the age they will be ON TOUR DAY; with no date, resolution
+  // falls back to the swimmer's CURRENT age (§4.9).
+  galas: defineTable({
+    code: v.union(
+      v.literal("SANS"),
+      v.literal("SANY"),
+      v.literal("SANJ"),
+      v.literal("LEVEL_3"),
+      v.literal("LEVEL_2"),
+    ),
+    displayName: v.string(),
+    shortLabel: v.string(),
+    ageScope: v.union(v.literal("AGE_GRADED"), v.literal("OPEN")),
+    minAge: v.optional(v.number()),
+    maxAge: v.optional(v.number()),
+    coveredEvents: v.array(v.object({ distance, stroke })),
+    sortHint: v.number(), // display order; mirrors GALA_ORDER in lib/galas.ts
+    season: v.string(), // provenance label, e.g. "2027" — not a version key
+    tourDate: v.optional(v.string()), // ISO YYYY-MM-DD
+    tourName: v.optional(v.string()), // display-only ("SANJ Nationals")
+  }).index("by_code", ["code"]),
+
+  // DEPRECATED — superseded by galas.tourDate / galas.tourName.
+  // Retained ONLY so `migrations.migrateToGalas` can copy the super-user-entered
+  // dates across; dropped in the narrowing deploy once that has run. Nothing
+  // reads this table any more. See convex/migrations/galaStandards.ts.
   tours: defineTable({
     tier: v.union(
       v.literal("LEVEL_2"),
@@ -235,28 +268,41 @@ export default defineSchema({
     active: v.boolean(),
   }).index("by_distance_stroke", ["distance", "stroke"]),
 
-  // Qualifying cuts, seeded from the coach's cleaned CSV (§4.9).
-  // One row per (tier, gender, distance, stroke, exact age). LCM implied.
-  // Sparse: only rows that actually have a cut exist. No row => no line.
+  // Qualifying cuts, seeded from data/qualifying-times.csv (§4.9).
+  // One row per (galaId, course, gender, distance, stroke, age).
+  //
+  // COURSE IS PART OF THE IDENTITY: every gala publishes separate long-course
+  // and short-course standards and both are valid for entry, so a cut is only
+  // ever compared against a PB of the SAME course — never borrowed across
+  // courses (§4.2).
+  //
+  // Sparse: only rows that actually have a cut exist. No row => no line, ever.
   standards: defineTable({
-    tier: v.union(
-      v.literal("LEVEL_2"),
-      v.literal("LEVEL_3"),
-      v.literal("SANJ"),
+    // WIDENING DEPLOY: galaId and course are optional here purely so the
+    // pre-galas rows validate while `migrations.migrateToGalas` runs. The
+    // narrowing deploy makes both required and drops `tier`.
+    galaId: v.optional(v.id("galas")),
+    course: v.optional(course),
+    /** DEPRECATED — replaced by galaId. Removed in the narrowing deploy. */
+    tier: v.optional(
+      v.union(v.literal("LEVEL_2"), v.literal("LEVEL_3"), v.literal("SANJ")),
     ),
     gender: v.union(v.literal("M"), v.literal("F")),
     distance,
     stroke,
-    // Exact age the cut applies to. Catch-alls use a bound + isCatchAll:
-    // e.g. "10&U" => age 10, isCatchAllYoung true (applies to <=10).
-    // "17-19" => age 17, isCatchAllOld true (applies to >=17).
-    age: v.number(),
+    // Exact age the cut applies to, for an AGE_GRADED gala. Catch-alls use a
+    // bound + isCatchAll: "10&U" => age 10, isCatchAllYoung true (applies to
+    // <=10); "17-19" => age 17, isCatchAllOld true (applies to >=17).
+    // ABSENT on an OPEN gala (SANS/SANY), whose single cut applies at every age
+    // inside the gala's entry window.
+    age: v.optional(v.number()),
     isCatchAllYoung: v.boolean(),
     isCatchAllOld: v.boolean(),
     timeMs: v.number(), // the cut, in integer ms
   })
-    .index("by_lookup", ["gender", "distance", "stroke", "tier"])
-    .index("by_event", ["gender", "distance", "stroke"]),
+    .index("by_lookup", ["gender", "distance", "stroke", "course", "galaId"])
+    .index("by_event", ["gender", "distance", "stroke"])
+    .index("by_gala", ["galaId"]),
 
   results: defineTable({
     swimmerId: v.id("swimmers"),

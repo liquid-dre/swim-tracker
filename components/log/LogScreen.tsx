@@ -16,7 +16,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { errorMessage, notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
-import { computeAge, STROKE_LABEL, TIER_FULL, type Course, type Stroke } from "@/lib/swim";
+import { computeAge, STROKE_LABEL, GALA_FULL, type Course, type Stroke } from "@/lib/swim";
 import { galaForDate } from "@/lib/galaCalendar";
 import { parseDigits, TimeField } from "./TimeField";
 import { EventSelectors, isValidEventTriple } from "./EventSelectors";
@@ -171,8 +171,8 @@ export function LogScreen({
       const firstName = (selectedSwimmer?.name ?? "Swimmer").split(" ")[0];
       const eventName = `${distance} ${STROKE_LABEL[stroke]}`;
       notify.success(
-        saved.newlyMetTier
-          ? `Meets the ${TIER_FULL[saved.newlyMetTier]} cut — ${firstName}'s new ${eventName} PB`
+        saved.newlyMetGala
+          ? `Meets the ${GALA_FULL[saved.newlyMetGala]} cut — ${firstName}'s new ${eventName} PB`
           : saved.newPb
             ? `New ${eventName} PB for ${firstName}`
             : "Time saved",

@@ -1,16 +1,34 @@
 "use client";
 
+import { curveLinear } from "@visx/curve";
+
+import { Grid } from "@/components/charts/grid";
+import { Line } from "@/components/charts/line";
+import { LineChart } from "@/components/charts/line-chart";
+import { ProjectionLine } from "@/components/charts/projection-line";
+import { StaticChartPreviewProvider } from "@/components/charts/static-chart-preview-context";
+import { ChartTooltip } from "@/components/charts/tooltip";
+import { XAxis } from "@/components/charts/x-axis";
 import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceDot,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+  GalaCutOverlay,
+  SWIM_TOOLTIP_PANEL,
+  SwimDots,
+  TooltipMeta,
+  TooltipMetaDivider,
+  TooltipRows,
+  TooltipTitle,
+  TooltipValue,
+  ValueAxis,
+  type CutLine,
+  type NoteLine,
+} from "@/components/charts/swim";
+import {
+  markFor,
+  pivotSeries,
+  progressionYDomain,
+  type ChartRow,
+  type RowSeries,
+} from "./progressionRows";
 
 import {
   computeAge,
@@ -22,9 +40,12 @@ import {
   type QualifyProjection,
   type StandardCut,
   type Stroke,
-  type Tier,
-  type TourDateByTier,
+  type Course,
+  type GalaCode,
+  type GalaRef,
+  type TourDateByGala,
 } from "@/lib/swim";
+import { GALA_MEDIUM } from "@/lib/galas";
 import { formatMonthYear, formatSeconds, formatShortDate } from "@/lib/format";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -77,7 +98,27 @@ export type ProgressionPoint = {
   isPB: boolean;
 };
 
-export type StandardRow = StandardCut & { gender: "M" | "F"; tier: Tier };
+export type StandardRow = StandardCut & {
+  gender: "M" | "F";
+  gala: GalaCode;
+  /** Cuts are course-specific — the chart only draws its OWN course (§4.2). */
+  course: Course;
+};
+
+/**
+ * The gala refs the pure resolvers need, built from what the chart is given.
+ * Tour dates come through; entry AGE WINDOWS do not — the chart is a historical
+ * time series, and its overlay is deliberately "what the cut was at that age",
+ * not "could this swimmer have entered". Eligibility is enforced on the
+ * qualifying surfaces (matrix, road, tour qualification), which is where the
+ * "is my swimmer in?" question is actually answered.
+ */
+function galaRefsFor(tourDates: TourDateByGala): GalaRef[] {
+  return OVERLAY_TIER_ORDER.map((code) => ({
+    code,
+    tourDate: tourDates[code] ?? null,
+  }));
+}
 
 export type ProgressionSeries = {
   swimmerId: string;
@@ -104,6 +145,21 @@ function msToShort(ms: number): string {
   return formatShortDate(iso);
 }
 
+/** Renders children at rest (no enter animation) when motion is reduced. */
+function MaybeStatic({
+  reduced,
+  children,
+}: {
+  reduced: boolean;
+  children: React.ReactNode;
+}) {
+  return reduced ? (
+    <StaticChartPreviewProvider>{children}</StaticChartPreviewProvider>
+  ) : (
+    <>{children}</>
+  );
+}
+
 export function ProgressionChart({
   series,
   single,
@@ -125,24 +181,40 @@ export function ProgressionChart({
   standards: StandardRow[];
   // The target tier for the time-to-qualify projection (§5.6). Non-null only for
   // a single swimmer on LCM; the projection draws toward this tier's cut.
-  projectionTier?: Tier | null;
+  projectionTier?: GalaCode | null;
   // Training-note markers (§R16) — single-swimmer only; undefined/empty hides them.
   noteMarkers?: NoteMarker[];
   // Tour dates by tier — the projection targets the age-on-tour-day cut.
-  tourDates?: TourDateByTier;
+  tourDates?: TourDateByGala;
 }) {
   const reduced = usePrefersReducedMotion();
   // Phone-width: a slightly shorter plot and slimmer time gutter keep the
   // chart plus its summary strip inside one viewport without squeezing the data.
   const narrow = useMediaQuery("(max-width: 639px)");
 
-  const data: Array<{ color: string; name: string; points: ChartPoint[] }> = series.map(
-    (s, i) => ({
+  const data: Array<{ color: string; name: string; points: ChartPoint[] }> =
+    series.map((s, i) => ({
       color: single ? CHART.accent : seriesColor(i),
       name: s.name,
       points: s.points.map((p) => ({ ...p, t: isoToMs(p.swimDate) })),
-    }),
-  );
+    }));
+
+  // bklit's LineChart takes ONE data array with a key per series, where Recharts
+  // let each <Line> carry its own — so the series merge onto a shared date axis.
+  // A swimmer with no swim on another swimmer's date gets no key for that row,
+  // which is what makes the line bridge the gap instead of diving to the axis.
+  const rowSeries: RowSeries[] = data.map((s) => ({
+    name: s.name,
+    color: s.color,
+    points: s.points.map((p) => ({
+      t: p.t,
+      timeMs: p.timeMs,
+      mark: markFor(p),
+      swimType: p.swimType,
+      isPB: p.isPB,
+    })),
+  }));
+  const { rows, keys } = pivotSeries(rowSeries);
 
   // Shared numeric domains across every series (dates differ per swimmer, so a
   // numeric time axis is the honest way to place them on one timeline).
@@ -174,7 +246,15 @@ export function ProgressionChart({
   // with no cut, so nothing is faked). Drawn across the real swim range (not the
   // padding), so birthday steps line up with the plotted swims and the padding
   // stays clean breathing room at the edges.
-  const overlay = buildTierOverlay(series, standards, single, tMin, tMax);
+  const overlay = buildTierOverlay(
+    series,
+    standards,
+    single,
+    tMin,
+    tMax,
+    course,
+    tourDates,
+  );
 
   // Training-note markers (§R16) — single swimmer only. Group notes that share a
   // date into one flag (its title lists them) so a busy phase doesn't stack flags,
@@ -192,26 +272,54 @@ export function ProgressionChart({
     ? overlay.lines.flatMap((l) => (l.y2 === undefined ? [l.y] : [l.y, l.y2]))
     : [];
   const projYs = projected ? [projected.fromMs, projected.toMs] : [];
-  const yLo = Math.min(...allTimes, ...cutYs, ...projYs);
-  const yHi = Math.max(...allTimes, ...cutYs, ...projYs);
-
-  // Y-axis floor: one second faster than the world record, so the line fills the
-  // grid rather than sinking toward zero. Use the fastest record among the
-  // genders actually plotted (mixed groups → the outright record) so no line can
-  // ever dip below the floor. Clamp below the fastest plotted value as a belt-
-  // and-braces guard against a stale record, and fall back to a zero-anchored
-  // axis when the event has no listed record.
+  // The world record for the plotted gender(s) — mixed groups take the outright
+  // record, so no line can ever dip below the floor it sets.
   const genders = Array.from(new Set(series.map((s) => s.gender)));
   const wr =
     genders.length === 1
       ? worldRecordMs(distance, stroke, course, genders[0])
       : worldRecordMs(distance, stroke, course);
-  const yFloor = wr === null ? 0 : Math.min(wr - 1_000, yLo);
 
-  // Breathing room above the top value; the floor sits at yFloor, not zero.
-  const yPad = Math.max(500, Math.round((yHi - yFloor) * 0.08));
+  // Floored just under the record rather than at zero — see progressionYDomain,
+  // which is where the reasoning and the regression test live.
+  const [yFloor, yTop] = progressionYDomain(
+    [...allTimes, ...cutYs, ...projYs],
+    wr,
+  );
 
-  const projColor = projectionTier ? TIER_STYLE[projectionTier].color : CHART.accent;
+  const projColor = projectionTier
+    ? TIER_STYLE[projectionTier].color
+    : CHART.accent;
+
+  // buildTierOverlay already emits exactly the geometry GalaCutOverlay draws —
+  // full-width rules for open galas, dated segments plus birthday risers for
+  // age-graded ones. The only addition is a faint level guide extending the
+  // target cut out to the projected crossing, so the eye sees the dashed trend
+  // "arrive" at the line rather than stopping in mid-air.
+  const cutLines: CutLine[] = [
+    ...(overlay?.lines ?? []),
+    ...(projected
+      ? [
+          {
+            key: "projection-guide",
+            color: projColor,
+            dash: "1 5",
+            y: projected.toMs,
+            full: false,
+            x1: tMax,
+            x2: projected.toT,
+          },
+        ]
+      : []),
+  ];
+
+  const noteLines: NoteLine[] = markers.map((m) => ({
+    key: `note-${m.t}`,
+    x: m.t,
+    color: "var(--color-gray-400)",
+    dash: "2 4",
+    title: m.title,
+  }));
 
   // The chart is SVG; give assistive tech a plain-language read of each line.
   const summary = series
@@ -220,7 +328,9 @@ export function ProgressionChart({
       const meets = s.points.filter((p) => p.isMeet).length;
       const galas = s.points.filter((p) => p.swimType === "SCHOOL_GALA").length;
       return `${s.name}: ${s.points.length} swims, ${meets} meets${
-        galas ? `, ${galas} unofficial school gala${galas === 1 ? "" : "s"}` : ""
+        galas
+          ? `, ${galas} unofficial school gala${galas === 1 ? "" : "s"}`
+          : ""
       }${pb ? `, personal best ${formatTime(pb.timeMs)}` : ""}.`;
     })
     .join(" ");
@@ -232,131 +342,107 @@ export function ProgressionChart({
         role="img"
         aria-label={`Progression chart, time over date with a faster time plotted lower; the axis floor sits just under the world record. ${summary}`}
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart margin={{ top: 8, right: 20, bottom: 4, left: 8 }}>
-            <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-            <XAxis
-              type="number"
-              dataKey="t"
-              domain={[tMin - tPad, domainTMax + tPad]}
-              tickFormatter={msToShort}
-              tick={{ fill: CHART.tick, fontSize: 11 }}
-              tickLine={false}
-              axisLine={{ stroke: CHART.axis }}
-              minTickGap={40}
-              height={22}
+        {/* Reduced motion uses bklit's own skip-reveal context rather than a
+            zero duration — the chart renders at rest, no draw-on, no clip. */}
+        <MaybeStatic reduced={reduced}>
+          <LineChart
+            animationDuration={CHART_ANIM_MS}
+            // Empty string opts out of bklit's default "2 / 1" box so the chart
+            // fills the fixed-height parent above instead of setting its own.
+            aspectRatio=""
+            data={rows}
+            margin={{
+              top: 8,
+              right: 20,
+              bottom: 26,
+              left: narrow ? 54 : 64,
+            }}
+            style={{ height: "100%" }}
+            // The one prop bklit does not ship: without it the shell pins the
+            // domain to [0, max*1.1] and the whole trajectory collapses into the
+            // top of the plot. yFloor sits just under the world record.
+            yDomain={[yFloor, yTop]}
+            // ...and without this, x labels lose the year, which a chart spanning
+            // seasons cannot afford.
+            xDataKey="date"
+            xDomain={[new Date(tMin - tPad), new Date(domainTMax + tPad)]}
+            xLabelFormat={(d) => msToShort(d.getTime())}
+          >
+            <Grid
+              horizontal
+              stroke={CHART.grid}
+              strokeDasharray="3 3"
+              vertical={false}
             />
-            <YAxis
-              type="number"
-              domain={[yFloor, yHi + yPad]}
-              tickFormatter={(v: number) => formatTime(v)}
-              tick={{ fill: CHART.tick, fontSize: 11 }}
-              tickLine={false}
-              axisLine={{ stroke: CHART.axis }}
+            <XAxis numTicks={narrow ? 3 : 5} tickMode="domain" />
+            <ValueAxis
+              format={formatTime}
+              label="Time"
               width={narrow ? 54 : 64}
             />
-            <Tooltip
-              cursor={{ stroke: CHART.axis, strokeDasharray: "3 3" }}
-              content={<ProgressionTooltip single={single} />}
+            {/* Training-note flags (§R16) and the qualifying cuts share one
+              overlay: both are dated annotations under the swim series. */}
+            <GalaCutOverlay
+              cuts={cutLines}
+              notes={noteLines}
+              strokeOpacity={0.9}
             />
-            {/* Training-note markers (§R16): a quiet dashed vertical at each phase
-                date topped with a small flag; the focus shows on hover/tap via the
-                SVG title. Rendered first so cut lines and swims sit on top. */}
-            {markers.map((m) => (
-              <ReferenceLine
-                key={`note-${m.t}`}
-                x={m.t}
-                stroke="var(--color-gray-400)"
-                strokeWidth={1}
-                strokeDasharray="2 4"
-                strokeOpacity={0.5}
-                ifOverflow="hidden"
-                label={<NoteFlagLabel title={m.title} />}
-              />
-            ))}
-            {overlay?.lines.map((l) => (
-              <ReferenceLine
-                key={l.key}
-                {...(l.full
-                  ? { y: l.y }
-                  : l.y2 !== undefined
-                    ? {
-                        segment: [
-                          { x: l.x1, y: l.y },
-                          { x: l.x1, y: l.y2 },
-                        ],
-                      }
-                    : {
-                        segment: [
-                          { x: l.x1, y: l.y },
-                          { x: l.x2, y: l.y },
-                        ],
-                      })}
-                stroke={l.color}
-                strokeWidth={1.5}
-                strokeDasharray={l.dash}
-                strokeOpacity={0.9}
-                ifOverflow="extendDomain"
-              />
-            ))}
-            {/* Projection (§5.6): a muted, dashed continuation of the recent
-                trend to where it meets the cut. Rendered under the real series so
-                logged swims always sit on top and read as the primary data. */}
+            {/* Projection (§5.6): a muted dashed continuation of the recent trend
+              to where it meets the cut, with the crossing marked. Drawn before
+              the real series so logged swims always sit on top. */}
             {projected && (
-              <>
-                {/* A faint level guide extends the target cut out to the crossing
-                    so the eye sees the dashed trend "arrive" at the line. */}
-                <ReferenceLine
-                  segment={[
-                    { x: tMax, y: projected.toMs },
-                    { x: projected.toT, y: projected.toMs },
-                  ]}
-                  stroke={projColor}
-                  strokeWidth={1}
-                  strokeDasharray="1 5"
-                  strokeOpacity={0.3}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceLine
-                  segment={[
-                    { x: projected.fromT, y: projected.fromMs },
-                    { x: projected.toT, y: projected.toMs },
-                  ]}
-                  stroke={projColor}
-                  strokeWidth={1.75}
-                  strokeDasharray="2 4"
-                  strokeOpacity={0.55}
-                  ifOverflow="extendDomain"
-                />
-                <ReferenceDot
-                  x={projected.toT}
-                  y={projected.toMs}
-                  r={3.5}
-                  fill="var(--color-gray-25)"
-                  stroke={projColor}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.9}
-                  ifOverflow="extendDomain"
-                />
-              </>
+              <ProjectionLine
+                data={[
+                  { date: new Date(projected.fromT), value: projected.fromMs },
+                  { date: new Date(projected.toT), value: projected.toMs },
+                ]}
+                endpointRadius={3.5}
+                showEndMarker
+                stroke={projColor}
+                strokeDasharray="2 4"
+                strokeOpacity={0.55}
+                strokeWidth={1.75}
+              />
             )}
-            {data.map((s) => (
+            {keys.map((k) => (
               <Line
-                key={s.name}
-                data={s.points}
-                type="linear"
-                dataKey="timeMs"
-                name={s.name}
-                stroke={s.color}
+                // curveLinear, not bklit's default curveNatural: a spline through
+                // swim times bulges between points and so draws times the swimmer
+                // never swam. Straight segments are the only honest join.
+                curve={curveLinear}
+                dataKey={k.value}
+                // fadeEdges defaults ON, which washes out the first and last
+                // swims — and the latest swim is usually the PB, the single most
+                // important point on the chart.
+                fadeEdges={false}
+                key={k.value}
+                stroke={k.color}
                 strokeWidth={2}
-                isAnimationActive={!reduced}
-                animationDuration={CHART_ANIM_MS}
-                dot={(props: DotProps) => <ProgressionDot {...props} color={s.color} />}
-                activeDot={{ r: 5, strokeWidth: 2, stroke: "var(--color-gray-25)" }}
               />
             ))}
+            {keys.map((k) => (
+              <SwimDots
+                color={k.color}
+                dataKey={k.value}
+                key={`${k.value}-dots`}
+                markKey={k.mark}
+              />
+            ))}
+            <ChartTooltip
+              indicatorColor={CHART.axis}
+              indicatorDasharray="3 3"
+              panelStyle={SWIM_TOOLTIP_PANEL}
+              showDots={false}
+              content={({ point }) => (
+                <ProgressionTooltip
+                  keys={keys}
+                  row={point as ChartRow}
+                  single={single}
+                />
+              )}
+            />
           </LineChart>
-        </ResponsiveContainer>
+        </MaybeStatic>
       </div>
 
       {overlay && overlay.legend.length > 0 && (
@@ -445,26 +531,6 @@ function buildNoteMarkers(
     .sort((a, b) => a.t - b.t);
 }
 
-// The flag drawn at the top of a note-marker line. Recharts hands the label a
-// viewBox in plot pixels; we anchor a small flag at its top-left and expose the
-// focus as an SVG <title> (native hover/tap tooltip, no extra chart chrome).
-function NoteFlagLabel(props: {
-  title: string;
-  viewBox?: { x?: number; y?: number };
-}) {
-  const { title, viewBox } = props;
-  const x = viewBox?.x ?? 0;
-  const y = viewBox?.y ?? 0;
-  return (
-    <g transform={`translate(${x}, ${y})`} style={{ cursor: "default" }}>
-      <title>{title}</title>
-      {/* A generous transparent hit area so the flag is easy to hover/tap. */}
-      <rect x={-4} y={-2} width={16} height={14} fill="transparent" />
-      <path d="M0 1 L8 3.5 L0 6 Z" fill="var(--color-gray-400)" />
-    </g>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Time-to-qualify projection (Step 14, §5.6)
 // ---------------------------------------------------------------------------
@@ -479,8 +545,8 @@ function buildProjection(
   standards: StandardRow[],
   single: boolean,
   course: "SCM" | "LCM",
-  tier: Tier | null,
-  tourDates: TourDateByTier,
+  tier: GalaCode | null,
+  tourDates: TourDateByGala,
 ): QualifyProjection | null {
   if (!single || course !== "LCM" || tier === null || series.length === 0) {
     return null;
@@ -490,12 +556,16 @@ function buildProjection(
   if (s.dob === null) return null;
   const dob = s.dob;
   const today = todayIso();
-  const rows = standards.filter((r) => r.gender === s.gender);
+  // This course's cuts only — a long-course projection never aims at a
+  // short-course standard (§4.2).
+  const rows = standards.filter(
+    (r) => r.gender === s.gender && r.course === course,
+  );
   // The projection aims at a FUTURE swim, so with a tour date it targets the
   // cut for the age the swimmer will be on tour day; else today's exact age.
   const tourDate = tourDates[tier];
   const cutAge = computeAge(dob, tourDate ?? today);
-  const cuts = pickApplicableStandards(rows, cutAge);
+  const cuts = pickApplicableStandards(rows, galaRefsFor(tourDates), cutAge);
   const cutMs = cuts[tier] ?? null;
   const meets = s.points
     .filter((p) => p.isMeet)
@@ -503,11 +573,8 @@ function buildProjection(
   return computeQualifyProjection(meets, cutMs, today);
 }
 
-const TIER_LABEL: Record<Tier, string> = {
-  LEVEL_2: "Level 2",
-  LEVEL_3: "Level 3",
-  SANJ: "SANJ",
-};
+// One label map, shared with every other gala surface (lib/galas.ts).
+const TIER_LABEL = GALA_MEDIUM;
 
 // A monthly drop reads more naturally to a coach than ms-per-day; slope is
 // negative (improving), so negate to state it as time gained.
@@ -522,7 +589,7 @@ function ProjectionNote({
   tourTarget,
 }: {
   projection: QualifyProjection;
-  tier: Tier;
+  tier: GalaCode;
   color: string;
   // Set when this tier has a tour date: the cut being targeted is the one for
   // the swimmer's age ON TOUR DAY, which can differ from today's — the chart's
@@ -554,7 +621,9 @@ function ProjectionNote({
           </span>
           <span className="text-ink-muted">
             on track for{" "}
-            <span className="time tnum text-ink">{formatTime(projection.cutMs)}</span>{" "}
+            <span className="time tnum text-ink">
+              {formatTime(projection.cutMs)}
+            </span>{" "}
             around{" "}
             <span className="font-medium text-ink">
               {formatMonthYear(projection.etaIso)}
@@ -566,7 +635,8 @@ function ProjectionNote({
           </span>
         </div>
         <p className="text-xs italic text-ink-muted">
-          Estimate only: assumes the recent rate continues. Not a guaranteed date.
+          Estimate only: assumes the recent rate continues. Not a guaranteed
+          date.
           {tourTarget &&
             ` Targets the ${label} cut at age ${tourTarget.age} — their age on tour day (${formatShortDate(tourTarget.date)}).`}
         </p>
@@ -648,11 +718,16 @@ function buildTierOverlay(
   single: boolean,
   x0: number,
   x1: number,
+  course: Course,
+  tourDates: TourDateByGala,
 ): TierOverlay | null {
   if (series.length === 0 || standards.length === 0) return null;
 
-  const cutsFor = (gender: "M" | "F"): Array<StandardCut & { tier: Tier }> =>
-    standards.filter((r) => r.gender === gender);
+  // Only the course being charted — every gala publishes its own short- and
+  // long-course cuts, so borrowing one across courses would draw a false line.
+  const cutsFor = (gender: "M" | "F"): Array<StandardRow> =>
+    standards.filter((r) => r.gender === gender && r.course === course);
+  const galaRefs = galaRefsFor(tourDates);
 
   if (single) {
     const s = series[0];
@@ -682,7 +757,7 @@ function buildTierOverlay(
       const segStart = breaks[i];
       const segEnd = breaks[i + 1];
       const age = computeAge(dob, new Date(segStart));
-      const cuts = pickApplicableStandards(rows, age);
+      const cuts = pickApplicableStandards(rows, galaRefs, age);
       for (const tier of OVERLAY_TIER_ORDER) {
         const y = cuts[tier];
         if (y === undefined) continue;
@@ -731,7 +806,7 @@ function buildTierOverlay(
     }
 
     // Legend anchors to the cut at the swimmer's age TODAY — "how close now".
-    const legend = legendFor(rows, computeAge(dob, todayIso()));
+    const legend = legendFor(rows, galaRefs, computeAge(dob, todayIso()));
     return lines.length > 0 ? { lines, legend } : null;
   }
 
@@ -744,12 +819,13 @@ function buildTierOverlay(
   const gender = first.gender;
   const age = computeAge(first.dob, today);
   const uniform = series.every(
-    (s) => s.dob !== null && s.gender === gender && computeAge(s.dob, today) === age,
+    (s) =>
+      s.dob !== null && s.gender === gender && computeAge(s.dob, today) === age,
   );
   if (!uniform) return null;
 
   const rows = cutsFor(gender);
-  const cuts = pickApplicableStandards(rows, age);
+  const cuts = pickApplicableStandards(rows, galaRefs, age);
   const lines: OverlayLine[] = [];
   for (const tier of OVERLAY_TIER_ORDER) {
     const y = cuts[tier];
@@ -765,20 +841,29 @@ function buildTierOverlay(
       x2: x1,
     });
   }
-  return lines.length > 0 ? { lines, legend: legendFor(rows, age) } : null;
+  return lines.length > 0
+    ? { lines, legend: legendFor(rows, galaRefs, age) }
+    : null;
 }
 
 function legendFor(
-  rows: Array<StandardCut & { tier: Tier }>,
+  rows: Array<StandardRow>,
+  galaRefs: GalaRef[],
   age: number,
 ): OverlayLegendEntry[] {
-  const cuts = pickApplicableStandards(rows, age);
+  const cuts = pickApplicableStandards(rows, galaRefs, age);
   const entries: OverlayLegendEntry[] = [];
   for (const tier of OVERLAY_TIER_ORDER) {
     const cutMs = cuts[tier];
     if (cutMs === undefined) continue;
     const st = TIER_STYLE[tier];
-    entries.push({ tier, color: st.color, glyph: st.glyph, label: st.label, cutMs });
+    entries.push({
+      tier,
+      color: st.color,
+      glyph: st.glyph,
+      label: st.label,
+      cutMs,
+    });
   }
   return entries;
 }
@@ -808,66 +893,23 @@ function TierOverlayLegend({
               strokeDasharray={TIER_STYLE[e.tier].dash}
             />
           </svg>
-          <span aria-hidden style={{ color: e.color }} className="text-2xs leading-none">
+          {/* `ink`, not the line colour: at 11px the stroke hues are too light
+              to read, and the glyph is this gala's shape channel. */}
+          <span
+            aria-hidden
+            style={{ color: TIER_STYLE[e.tier].ink }}
+            className="text-2xs leading-none"
+          >
             {e.glyph}
           </span>
           <span className="font-medium text-ink">{e.label}</span>
-          <span className="time tnum text-ink-muted">{formatTime(e.cutMs)}</span>
+          <span className="time tnum text-ink-muted">
+            {formatTime(e.cutMs)}
+          </span>
         </span>
       ))}
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Custom dot — meet vs trial/practice vs PB
-// ---------------------------------------------------------------------------
-
-type DotProps = {
-  cx?: number;
-  cy?: number;
-  payload?: ChartPoint;
-};
-
-function ProgressionDot({
-  cx,
-  cy,
-  payload,
-  color,
-}: DotProps & { color: string }) {
-  if (cx === undefined || cy === undefined || !payload) return <g />;
-  const { isMeet, isPB } = payload;
-
-  // School gala (unofficial, §R15): a distinct hollow DIAMOND in the warning tone
-  // — never a filled/PB dot, never the same hollow circle as a trial/practice —
-  // so it reads at a glance as "on the trajectory, but not an official time".
-  if (payload.swimType === "SCHOOL_GALA") {
-    const r = 4.5;
-    return (
-      <path
-        d={`M ${cx} ${cy - r} L ${cx + r} ${cy} L ${cx} ${cy + r} L ${cx - r} ${cy} Z`}
-        fill="var(--color-gray-25)"
-        stroke="var(--color-warning-500)"
-        strokeWidth={1.75}
-      />
-    );
-  }
-
-  if (isPB) {
-    // PB: filled core with an outer ring so it reads as the anchor point.
-    return (
-      <g>
-        <circle cx={cx} cy={cy} r={7} fill="none" stroke={color} strokeWidth={1.5} opacity={0.35} />
-        <circle cx={cx} cy={cy} r={4} fill={color} stroke="var(--color-gray-25)" strokeWidth={1.5} />
-      </g>
-    );
-  }
-  if (isMeet) {
-    // Meet: filled dot.
-    return <circle cx={cx} cy={cy} r={3.5} fill={color} stroke="var(--color-gray-25)" strokeWidth={1} />;
-  }
-  // Trial / practice: hollow dot.
-  return <circle cx={cx} cy={cy} r={3} fill="var(--color-gray-25)" stroke={color} strokeWidth={1.5} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -882,39 +924,50 @@ const TYPE_LABEL: Record<ProgressionPoint["swimType"], string> = {
 };
 
 type TooltipProps = {
-  active?: boolean;
-  payload?: Array<{ payload: ChartPoint; name?: string; color?: string }>;
+  row: ChartRow;
+  keys: ReadonlyArray<{ value: string; name: string; color: string }>;
   single: boolean;
 };
 
-function ProgressionTooltip({ active, payload, single }: TooltipProps) {
-  if (!active || !payload || payload.length === 0) return null;
-  const entry = payload[0];
-  const p = entry.payload;
+/*
+  bklit hands `content` the hovered ROW, not Recharts' payload array. That is an
+  improvement for a group chart: where Recharts showed only payload[0] — one
+  arbitrary swimmer — every swimmer who actually swam on that date can be listed.
+  The card itself is bklit's TooltipBox; only the stack inside it is ours.
+*/
+function ProgressionTooltip({ row, keys, single }: TooltipProps) {
+  const present = keys.filter((k) => typeof row[k.value] === "number");
+  if (present.length === 0) return null;
+
   return (
-    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-theme-md">
-      {!single && entry.name && (
-        <p className="flex items-center gap-1.5 font-medium text-ink">
-          <span
-            aria-hidden
-            className="size-2 rounded-full"
-            style={{ background: entry.color }}
-          />
-          {entry.name}
-        </p>
-      )}
-      <p className="time tnum mt-0.5 text-ink">{formatTime(p.timeMs)}</p>
-      <p className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
-        <span>{msToShort(p.t)}</span>
-        <span aria-hidden className="h-3 w-px bg-border" />
-        {p.swimType === "SCHOOL_GALA" ? (
-          <span className="font-medium text-warning-ink">School gala · unofficial</span>
-        ) : (
-          <span>{TYPE_LABEL[p.swimType]}</span>
-        )}
-        {p.isPB && <span className="font-medium text-brand-500">PB</span>}
-      </p>
-    </div>
+    <TooltipRows>
+      {present.map((k, i) => {
+        const timeMs = row[k.value] as number;
+        const swimType = row[`${k.value}type`] as ProgressionPoint["swimType"];
+        const isPB = row[`${k.value}pb`] === true;
+        return (
+          <div
+            className={i > 0 ? "mt-2 border-t border-gray-100 pt-2" : ""}
+            key={k.value}
+          >
+            {!single && <TooltipTitle color={k.color}>{k.name}</TooltipTitle>}
+            <TooltipValue>{formatTime(timeMs)}</TooltipValue>
+            <TooltipMeta>
+              <span>{msToShort(row.t)}</span>
+              <TooltipMetaDivider />
+              {swimType === "SCHOOL_GALA" ? (
+                <span className="font-medium text-warning-ink">
+                  School gala · unofficial
+                </span>
+              ) : (
+                <span>{TYPE_LABEL[swimType]}</span>
+              )}
+              {isPB && <span className="font-medium text-brand-500">PB</span>}
+            </TooltipMeta>
+          </div>
+        );
+      })}
+    </TooltipRows>
   );
 }
 
@@ -936,8 +989,8 @@ function Legend({
           <span className="size-2.5 rounded-full bg-brand-500" /> Meet
         </LegendMark>
         <LegendMark>
-          <span className="size-2.5 rounded-full border-[1.5px] border-brand-500 bg-gray-25" /> Trial /
-          practice
+          <span className="size-2.5 rounded-full border-[1.5px] border-brand-500 bg-gray-25" />{" "}
+          Trial / practice
         </LegendMark>
         <LegendMark>
           <span className="relative flex size-3.5 items-center justify-center">
@@ -958,7 +1011,10 @@ function Legend({
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-1 text-xs text-ink-muted">
       {series.map((s) => (
         <LegendMark key={s.name}>
-          <span className="size-2.5 rounded-full" style={{ background: s.color }} />
+          <span
+            className="size-2.5 rounded-full"
+            style={{ background: s.color }}
+          />
           <span className="text-ink">{s.name}</span>
         </LegendMark>
       ))}
@@ -966,7 +1022,9 @@ function Legend({
         <GalaDiamond />
         <span className="text-warning-ink">school gala · unofficial</span>
       </LegendMark>
-      <span className="text-ink-faint">Filled = meet · hollow = trial/practice · ring = PB</span>
+      <span className="text-ink-faint">
+        Filled = meet · hollow = trial/practice · ring = PB
+      </span>
     </div>
   );
 }

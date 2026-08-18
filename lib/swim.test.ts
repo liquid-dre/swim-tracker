@@ -11,21 +11,20 @@ import {
   eventLabel,
   eventSortKey,
   DEFAULT_AGE_BANDS,
-  TIER_ORDER,
-  tierCoversEvent,
+  GALA_ORDER,
+  galaCoversEvent,
   resolveStandardTime,
   pickApplicableStandards,
-  pickApplicableStandardsPerTier,
-  tierResolutionAges,
-  highestTierMet,
+  pickApplicableStandardsPerGala,
+  galaResolutionAges,
+  highestGalaMet,
   computeMatrixCell,
   prepareStandardImport,
   parseStandardsCsv,
   findAgeInversions,
   cutAgeOrder,
+  buildRingScale,
   computeCalibratedRadius,
-  STROKE_RING_POS,
-  STROKE_RADIUS_MAX,
   rollingSeasonStart,
   isInSeason,
   computeSeasonImprovements,
@@ -38,12 +37,14 @@ import {
   type EventDef,
   type ResultForPB,
   type StandardCut,
-  type Tier,
+  type GalaCode,
+  type GalaRef,
   type RawStandardRow,
   type AgeCut,
   type SeasonSwim,
 } from "./swim";
-import { SAMPLE_STANDARDS } from "../convex/standardsSampleData";
+import { GALA_SEED, GALA_SEED_BY_CODE } from "./galas";
+import { isGalaAgeEligible, resolveGalaCut } from "./swim";
 
 // ---------------------------------------------------------------------------
 // parseTime (BRD §4.4) — the bulletproof parser
@@ -511,52 +512,80 @@ describe("computePersonalBests", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Qualifying standards (BRD §4.9, Step 8) — LCM only, SANJ > LEVEL_3 > LEVEL_2
+// Qualifying standards (BRD §4.9, Step 8) — five galas, both courses
 // ---------------------------------------------------------------------------
 
-describe("TIER_ORDER", () => {
+describe("GALA_ORDER", () => {
   it("is hardest → easiest (§4.9)", () => {
-    expect(TIER_ORDER).toEqual(["SANJ", "LEVEL_3", "LEVEL_2"]);
+    expect(GALA_ORDER).toEqual(["SANS", "SANY", "SANJ", "LEVEL_3", "LEVEL_2"]);
   });
 });
 
-describe("tierCoversEvent (§4.9 coverage is a hard rule)", () => {
-  it("50 m is LEVEL_2 only — no 50 m L3/SANJ ever", () => {
-    expect(tierCoversEvent("LEVEL_2", 50, "FREE")).toBe(true);
-    expect(tierCoversEvent("LEVEL_3", 50, "FREE")).toBe(false);
-    expect(tierCoversEvent("SANJ", 50, "FREE")).toBe(false);
+describe("galaCoversEvent (§4.9 coverage is a hard rule, and it is DATA)", () => {
+  // Coverage now lives on the gala row, so these read from the seeded
+  // definitions rather than a hardcoded switch — a new meet needs no code change.
+  const g = (code: GalaCode) => GALA_SEED_BY_CODE[code];
+
+  it("50 m is LEVEL_2 only among the age-graded galas — never L3/SANJ", () => {
+    expect(galaCoversEvent(g("LEVEL_2"), 50, "FREE")).toBe(true);
+    expect(galaCoversEvent(g("LEVEL_3"), 50, "FREE")).toBe(false);
+    expect(galaCoversEvent(g("SANJ"), 50, "FREE")).toBe(false);
   });
 
-  it("25 m sprints have no qualifying cut at any tier", () => {
-    expect(tierCoversEvent("LEVEL_2", 25, "FREE")).toBe(false);
-    expect(tierCoversEvent("LEVEL_3", 25, "FREE")).toBe(false);
-    expect(tierCoversEvent("SANJ", 25, "FREE")).toBe(false);
+  it("the OPEN galas do cover 50 m (unlike the age-graded ladder)", () => {
+    expect(galaCoversEvent(g("SANS"), 50, "FREE")).toBe(true);
+    expect(galaCoversEvent(g("SANY"), 50, "FREE")).toBe(true);
   });
 
-  it("LEVEL_2 tops out at 200 m (+ 200 IM); nothing longer", () => {
-    expect(tierCoversEvent("LEVEL_2", 200, "FREE")).toBe(true);
-    expect(tierCoversEvent("LEVEL_2", 200, "IM")).toBe(true);
-    expect(tierCoversEvent("LEVEL_2", 400, "FREE")).toBe(false);
-    expect(tierCoversEvent("LEVEL_2", 800, "FREE")).toBe(false);
-    expect(tierCoversEvent("LEVEL_2", 1500, "FREE")).toBe(false);
+  it("25 m sprints have no qualifying cut at any gala", () => {
+    for (const code of GALA_ORDER) {
+      expect(galaCoversEvent(g(code), 25, "FREE"), code).toBe(false);
+    }
+  });
+
+  it("100 IM has no cut at any gala (it is a real SCM event, but uncut)", () => {
+    for (const code of GALA_ORDER) {
+      expect(galaCoversEvent(g(code), 100, "IM"), code).toBe(false);
+    }
+  });
+
+  it("LEVEL_2 tops out at 200 m (+ 200 IM); nothing longer, and no 200 Fly", () => {
+    expect(galaCoversEvent(g("LEVEL_2"), 200, "FREE")).toBe(true);
+    expect(galaCoversEvent(g("LEVEL_2"), 200, "IM")).toBe(true);
+    expect(galaCoversEvent(g("LEVEL_2"), 200, "FLY")).toBe(false);
+    expect(galaCoversEvent(g("LEVEL_2"), 400, "FREE")).toBe(false);
+    expect(galaCoversEvent(g("LEVEL_2"), 800, "FREE")).toBe(false);
+    expect(galaCoversEvent(g("LEVEL_2"), 1500, "FREE")).toBe(false);
   });
 
   it("LEVEL_3 is 100/200/400 + 200 IM; no 800/1500, no 200 Fly, no 400 IM", () => {
-    expect(tierCoversEvent("LEVEL_3", 100, "FREE")).toBe(true);
-    expect(tierCoversEvent("LEVEL_3", 400, "FREE")).toBe(true);
-    expect(tierCoversEvent("LEVEL_3", 200, "IM")).toBe(true);
-    expect(tierCoversEvent("LEVEL_3", 200, "FLY")).toBe(false); // no 200 Fly
-    expect(tierCoversEvent("LEVEL_3", 400, "IM")).toBe(false); // no 400 IM
-    expect(tierCoversEvent("LEVEL_3", 800, "FREE")).toBe(false);
+    expect(galaCoversEvent(g("LEVEL_3"), 100, "FREE")).toBe(true);
+    expect(galaCoversEvent(g("LEVEL_3"), 400, "FREE")).toBe(true);
+    expect(galaCoversEvent(g("LEVEL_3"), 200, "IM")).toBe(true);
+    expect(galaCoversEvent(g("LEVEL_3"), 200, "FLY")).toBe(false); // no 200 Fly
+    expect(galaCoversEvent(g("LEVEL_3"), 400, "IM")).toBe(false); // no 400 IM
+    expect(galaCoversEvent(g("LEVEL_3"), 800, "FREE")).toBe(false);
   });
 
   it("SANJ covers 100→1500 Free, all strokes' 100/200, 400 Free/IM, 200 IM; no 50s", () => {
-    expect(tierCoversEvent("SANJ", 800, "FREE")).toBe(true);
-    expect(tierCoversEvent("SANJ", 1500, "FREE")).toBe(true);
-    expect(tierCoversEvent("SANJ", 200, "FLY")).toBe(true);
-    expect(tierCoversEvent("SANJ", 400, "IM")).toBe(true);
-    expect(tierCoversEvent("SANJ", 400, "BACK")).toBe(false);
-    expect(tierCoversEvent("SANJ", 50, "FREE")).toBe(false);
+    expect(galaCoversEvent(g("SANJ"), 800, "FREE")).toBe(true);
+    expect(galaCoversEvent(g("SANJ"), 1500, "FREE")).toBe(true);
+    expect(galaCoversEvent(g("SANJ"), 200, "FLY")).toBe(true);
+    expect(galaCoversEvent(g("SANJ"), 400, "IM")).toBe(true);
+    expect(galaCoversEvent(g("SANJ"), 400, "BACK")).toBe(false);
+    expect(galaCoversEvent(g("SANJ"), 50, "FREE")).toBe(false);
+  });
+});
+
+describe("isGalaAgeEligible — the entry window is a separate gate", () => {
+  it("treats both bounds as inclusive, and an absent bound as unbounded", () => {
+    expect(isGalaAgeEligible({ minAge: 15, maxAge: null }, 14)).toBe(false);
+    expect(isGalaAgeEligible({ minAge: 15, maxAge: null }, 15)).toBe(true);
+    expect(isGalaAgeEligible({ minAge: 15, maxAge: null }, 99)).toBe(true);
+    expect(isGalaAgeEligible({ minAge: 17, maxAge: 25 }, 16)).toBe(false);
+    expect(isGalaAgeEligible({ minAge: 17, maxAge: 25 }, 25)).toBe(true);
+    expect(isGalaAgeEligible({ minAge: 17, maxAge: 25 }, 26)).toBe(false);
+    expect(isGalaAgeEligible({}, 8)).toBe(true);
   });
 });
 
@@ -589,214 +618,354 @@ describe("resolveStandardTime — catch-all resolution (§4.9)", () => {
     // 11 falls in a gap here (no exact 11, outside both catch-alls) → null.
     expect(resolveStandardTime(cuts, 11)).toBeNull();
   });
+
+  it("resolves an OPEN row (no age) at any age", () => {
+    // SANS/SANY publish a single cut with no age column at all.
+    const open: StandardCut[] = [
+      { isCatchAllYoung: false, isCatchAllOld: false, timeMs: 57000 },
+    ];
+    for (const age of [8, 15, 17, 25, 60]) {
+      expect(resolveStandardTime(open, age)).toBe(57000);
+    }
+  });
+
+  it("prefers an exact age, then a catch-all, then an open row", () => {
+    // A contrived mix — real data never blends the two shapes on one gala, but
+    // the precedence must be unambiguous if it ever did.
+    const mixed: StandardCut[] = [
+      { isCatchAllYoung: false, isCatchAllOld: false, timeMs: 70000 }, // open
+      { age: 10, isCatchAllYoung: true, isCatchAllOld: false, timeMs: 66000 },
+      { age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
+    ];
+    expect(resolveStandardTime(mixed, 14)).toBe(60000); // exact wins
+    expect(resolveStandardTime(mixed, 9)).toBe(66000); // catch-all beats open
+    expect(resolveStandardTime(mixed, 12)).toBe(70000); // nothing else → open
+  });
+});
+
+describe("resolveGalaCut — eligibility gates resolution", () => {
+  const cuts: StandardCut[] = [
+    { isCatchAllYoung: false, isCatchAllOld: false, timeMs: 57000 },
+  ];
+
+  it("returns null outside the entry window even when a row exists", () => {
+    const sany: GalaRef = { code: "SANY", minAge: 17, maxAge: 25 };
+    expect(resolveGalaCut(sany, cuts, 16)).toBeNull();
+    expect(resolveGalaCut(sany, cuts, 17)).toBe(57000);
+    expect(resolveGalaCut(sany, cuts, 26)).toBeNull();
+  });
 });
 
 describe("sparse coverage → null (§4.9)", () => {
   it("50 Free SANJ and 400 Free LEVEL_2 have no coverage", () => {
-    expect(tierCoversEvent("SANJ", 50, "FREE")).toBe(false);
-    expect(tierCoversEvent("LEVEL_2", 400, "FREE")).toBe(false);
-    // With no rows for an uncovered tier, resolution is null (never interpolated).
+    expect(galaCoversEvent(GALA_SEED_BY_CODE.SANJ, 50, "FREE")).toBe(false);
+    expect(galaCoversEvent(GALA_SEED_BY_CODE.LEVEL_2, 400, "FREE")).toBe(false);
+    // With no rows for an uncovered gala, resolution is null (never interpolated).
     expect(resolveStandardTime([], 14)).toBeNull();
   });
 });
 
-describe("pickApplicableStandards (§4.9) — omits tiers with no cut", () => {
-  it("returns only the tiers that resolve at the exact age", () => {
-    const rows: Array<StandardCut & { tier: Tier }> = [
-      { tier: "LEVEL_2", age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 66000 },
-      { tier: "SANJ", age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
+// Galas with no age window, for the pure-resolution tests below.
+const OPEN_REFS: GalaRef[] = GALA_ORDER.map((code) => ({ code }));
+
+describe("pickApplicableStandards (§4.9) — omits galas with no cut", () => {
+  it("returns only the galas that resolve at the exact age", () => {
+    const rows: Array<StandardCut & { gala: GalaCode }> = [
+      { gala: "LEVEL_2", age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 66000 },
+      { gala: "SANJ", age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
       // No LEVEL_3 row → LEVEL_3 must be absent from the result.
     ];
-    expect(pickApplicableStandards(rows, 14)).toEqual({ SANJ: 60000, LEVEL_2: 66000 });
-  });
-
-  it("is empty when nothing resolves at the age", () => {
-    const rows: Array<StandardCut & { tier: Tier }> = [
-      { tier: "SANJ", age: 12, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
-    ];
-    expect(pickApplicableStandards(rows, 15)).toEqual({});
-  });
-});
-
-describe("tierResolutionAges (the birthday rule, per tour)", () => {
-  // Born 15 June 2012: 13 today (1 May 2026), turns 14 on 15 June 2026.
-  const dob = "2012-06-15";
-
-  it("uses the fallback age everywhere when no tour dates exist", () => {
-    expect(tierResolutionAges(dob, 13, {})).toEqual({
-      SANJ: 13,
-      LEVEL_3: 13,
-      LEVEL_2: 13,
+    expect(pickApplicableStandards(rows, OPEN_REFS, 14)).toEqual({
+      SANJ: 60000,
+      LEVEL_2: 66000,
     });
   });
 
-  it("judges a tier with a tour date at the age ON TOUR DAY", () => {
+  it("is empty when nothing resolves at the age", () => {
+    const rows: Array<StandardCut & { gala: GalaCode }> = [
+      { gala: "SANJ", age: 12, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
+    ];
+    expect(pickApplicableStandards(rows, OPEN_REFS, 15)).toEqual({});
+  });
+
+  it("omits a gala the swimmer is too young or too old to enter", () => {
+    const rows: Array<StandardCut & { gala: GalaCode }> = [
+      { gala: "SANS", isCatchAllYoung: false, isCatchAllOld: false, timeMs: 55000 },
+      { gala: "SANY", isCatchAllYoung: false, isCatchAllOld: false, timeMs: 62000 },
+    ];
+    const refs: GalaRef[] = [
+      { code: "SANS", minAge: 15 },
+      { code: "SANY", minAge: 17, maxAge: 25 },
+    ];
+    expect(pickApplicableStandards(rows, refs, 14)).toEqual({});
+    expect(pickApplicableStandards(rows, refs, 16)).toEqual({ SANS: 55000 });
+    expect(pickApplicableStandards(rows, refs, 20)).toEqual({
+      SANS: 55000,
+      SANY: 62000,
+    });
+    expect(pickApplicableStandards(rows, refs, 30)).toEqual({ SANS: 55000 });
+  });
+});
+
+describe("galaResolutionAges (the birthday rule, per tour)", () => {
+  // Born 15 June 2012: 13 today (1 May 2026), turns 14 on 15 June 2026.
+  const dob = "2012-06-15";
+  const refs = (tours: Partial<Record<GalaCode, string>>): GalaRef[] =>
+    GALA_ORDER.map((code) => ({ code, tourDate: tours[code] ?? null }));
+  const allAges = (age: number) =>
+    Object.fromEntries(GALA_ORDER.map((c) => [c, age]));
+
+  it("uses the fallback age everywhere when no tour dates exist", () => {
+    expect(galaResolutionAges(dob, 13, refs({}))).toEqual(allAges(13));
+  });
+
+  it("judges a gala with a tour date at the age ON TOUR DAY", () => {
     // The SANJ tour falls after the birthday; the others have no date.
-    expect(tierResolutionAges(dob, 13, { SANJ: "2026-07-01" })).toEqual({
+    expect(galaResolutionAges(dob, 13, refs({ SANJ: "2026-07-01" }))).toEqual({
+      ...allAges(13),
       SANJ: 14,
-      LEVEL_3: 13,
-      LEVEL_2: 13,
     });
   });
 
   it("handles different tours on either side of the birthday", () => {
     expect(
-      tierResolutionAges(dob, 13, { SANJ: "2026-07-01", LEVEL_2: "2026-06-01" }),
-    ).toEqual({ SANJ: 14, LEVEL_2: 13, LEVEL_3: 13 });
+      galaResolutionAges(
+        dob,
+        13,
+        refs({ SANJ: "2026-07-01", LEVEL_2: "2026-06-01" }),
+      ),
+    ).toEqual({ ...allAges(13), SANJ: 14, LEVEL_2: 13 });
   });
 });
 
-describe("pickApplicableStandardsPerTier — each tier at its own age", () => {
-  const rows: Array<StandardCut & { tier: Tier }> = [
-    { tier: "SANJ", age: 13, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
-    { tier: "SANJ", age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 59000 },
-    { tier: "LEVEL_2", age: 13, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 66000 },
+describe("pickApplicableStandardsPerGala — each gala at its own age", () => {
+  const rows: Array<StandardCut & { gala: GalaCode }> = [
+    { gala: "SANJ", age: 13, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 60000 },
+    { gala: "SANJ", age: 14, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 59000 },
+    { gala: "LEVEL_2", age: 13, isCatchAllYoung: false, isCatchAllOld: false, timeMs: 66000 },
   ];
+  const ages = (over: Partial<Record<GalaCode, number>>, base = 13) =>
+    Object.fromEntries(
+      GALA_ORDER.map((c) => [c, over[c] ?? base]),
+    ) as Record<GalaCode, number>;
 
-  it("resolves each tier at its own age", () => {
-    const out = pickApplicableStandardsPerTier(rows, {
-      SANJ: 14, // aged up by SANJ tour day → the harder 14 cut
-      LEVEL_3: 13,
-      LEVEL_2: 13,
-    });
+  it("resolves each gala at its own age", () => {
+    const out = pickApplicableStandardsPerGala(
+      rows,
+      OPEN_REFS,
+      ages({ SANJ: 14 }), // aged up by SANJ tour day → the harder 14 cut
+    );
     expect(out).toEqual({ SANJ: 59000, LEVEL_2: 66000 }); // no L3 rows → omitted
   });
 
-  it("matches pickApplicableStandards when every tier shares one age", () => {
-    expect(
-      pickApplicableStandardsPerTier(rows, { SANJ: 13, LEVEL_3: 13, LEVEL_2: 13 }),
-    ).toEqual(pickApplicableStandards(rows, 13));
+  it("matches pickApplicableStandards when every gala shares one age", () => {
+    expect(pickApplicableStandardsPerGala(rows, OPEN_REFS, ages({}))).toEqual(
+      pickApplicableStandards(rows, OPEN_REFS, 13),
+    );
   });
 
-  it("omits a tier whose own age has no cut", () => {
+  it("omits a gala whose own age has no cut", () => {
     // SANJ has no 15 cut → absent even though 13/14 rows exist.
     expect(
-      pickApplicableStandardsPerTier(rows, { SANJ: 15, LEVEL_3: 15, LEVEL_2: 13 }),
+      pickApplicableStandardsPerGala(rows, OPEN_REFS, ages({ SANJ: 15, LEVEL_3: 15 })),
     ).toEqual({ LEVEL_2: 66000 });
   });
 });
 
-describe("highestTierMet (§4.9 order) — hardest first", () => {
-  const cutsByTier = { SANJ: 58000, LEVEL_3: 60000, LEVEL_2: 63000 };
+describe("highestGalaMet (§4.9 order) — hardest first, either course", () => {
+  const lcm = { SANJ: 58000, LEVEL_3: 60000, LEVEL_2: 63000 };
+  const both = { LCM: lcm, SCM: {} };
 
-  it("returns the hardest tier the PB meets", () => {
-    expect(highestTierMet(57000, cutsByTier)).toBe("SANJ"); // beats the fastest cut
-    expect(highestTierMet(59000, cutsByTier)).toBe("LEVEL_3");
-    expect(highestTierMet(61000, cutsByTier)).toBe("LEVEL_2");
-    expect(highestTierMet(64000, cutsByTier)).toBeNull(); // slower than all cuts
+  it("returns the hardest gala the PB meets", () => {
+    expect(highestGalaMet({ LCM: 57000 }, both)?.gala).toBe("SANJ");
+    expect(highestGalaMet({ LCM: 59000 }, both)?.gala).toBe("LEVEL_3");
+    expect(highestGalaMet({ LCM: 61000 }, both)?.gala).toBe("LEVEL_2");
+    expect(highestGalaMet({ LCM: 64000 }, both)).toBeNull(); // slower than all
   });
 
   it("treats equal-to-cut as met", () => {
-    expect(highestTierMet(58000, cutsByTier)).toBe("SANJ");
-    expect(highestTierMet(63000, cutsByTier)).toBe("LEVEL_2");
+    expect(highestGalaMet({ LCM: 58000 }, both)?.gala).toBe("SANJ");
+    expect(highestGalaMet({ LCM: 63000 }, both)?.gala).toBe("LEVEL_2");
   });
 
-  it("skips tiers with no cut", () => {
-    expect(highestTierMet(61000, { LEVEL_2: 63000 })).toBe("LEVEL_2");
+  it("skips galas with no cut", () => {
+    expect(
+      highestGalaMet({ LCM: 61000 }, { LCM: { LEVEL_2: 63000 }, SCM: {} })?.gala,
+    ).toBe("LEVEL_2");
     // SANJ not met, LEVEL_3 absent → falls through to LEVEL_2.
-    expect(highestTierMet(59000, { SANJ: 58000, LEVEL_2: 63000 })).toBe("LEVEL_2");
-    expect(highestTierMet(59000, {})).toBeNull();
+    expect(
+      highestGalaMet(
+        { LCM: 59000 },
+        { LCM: { SANJ: 58000, LEVEL_2: 63000 }, SCM: {} },
+      )?.gala,
+    ).toBe("LEVEL_2");
+    expect(highestGalaMet({ LCM: 59000 }, { LCM: {}, SCM: {} })).toBeNull();
+  });
+
+  it("NEVER measures a PB against the other course's cut (§4.2)", () => {
+    // A blistering short-course time must not qualify on the long-course cut.
+    expect(
+      highestGalaMet({ SCM: 50000 }, { LCM: lcm, SCM: {} }, "BEST"),
+    ).toBeNull();
+  });
+
+  it("qualifies on EITHER course, and names the course that did it", () => {
+    const cuts = { LCM: { SANJ: 58000 }, SCM: { SANJ: 56000 } };
+    // Only the short-course PB clears its own cut.
+    expect(highestGalaMet({ LCM: 59000, SCM: 55000 }, cuts, "BEST")).toEqual({
+      gala: "SANJ",
+      course: "SCM",
+    });
+    // Only the long-course PB clears its own cut.
+    expect(highestGalaMet({ LCM: 57000, SCM: 57000 }, cuts, "BEST")).toEqual({
+      gala: "SANJ",
+      course: "LCM",
+    });
+  });
+
+  it("reports the course with the BIGGER margin when both qualify", () => {
+    const cuts = { LCM: { SANJ: 58000 }, SCM: { SANJ: 56000 } };
+    // LCM margin 3s, SCM margin 1s → LCM is the stronger swim.
+    expect(highestGalaMet({ LCM: 55000, SCM: 55000 }, cuts, "BEST")).toEqual({
+      gala: "SANJ",
+      course: "LCM",
+    });
+  });
+
+  it("isolates one course when asked", () => {
+    const cuts = { LCM: { SANJ: 58000 }, SCM: { SANJ: 56000 } };
+    // The SCM PB qualifies, but an LCM-only read must ignore it.
+    expect(highestGalaMet({ LCM: 59000, SCM: 55000 }, cuts, "LCM")).toBeNull();
+    expect(highestGalaMet({ LCM: 59000, SCM: 55000 }, cuts, "SCM")?.course).toBe(
+      "SCM",
+    );
   });
 });
 
-describe("computeMatrixCell (§5.7) — highest tier met + gap to next up", () => {
-  const cuts = { SANJ: 58000, LEVEL_3: 60000, LEVEL_2: 63000 };
+describe("computeMatrixCell (§5.7) — highest gala met + gap to next up", () => {
+  const lcm = { SANJ: 58000, LEVEL_3: 60000, LEVEL_2: 63000 };
+  const cuts = { LCM: lcm, SCM: {} };
+  const empty = { LCM: {}, SCM: {} };
+  const BLANK = {
+    hasCut: false,
+    gala: null,
+    galaCourse: null,
+    nextGala: null,
+    gapMs: null,
+    gapCourse: null,
+  };
 
-  it("is blank/neutral when no tier has a cut", () => {
-    expect(computeMatrixCell(60000, {})).toEqual({
-      hasCut: false,
-      tier: null,
-      nextTier: null,
-      gapMs: null,
-    });
+  it("is blank/neutral when no gala has a cut", () => {
+    expect(computeMatrixCell({ LCM: 60000 }, empty)).toEqual(BLANK);
   });
 
-  it("has a cut but no tier/gap when there is no PB yet (target = easiest)", () => {
-    expect(computeMatrixCell(null, cuts)).toEqual({
+  it("has a cut but no gala/gap when there is no PB yet (target = easiest)", () => {
+    expect(computeMatrixCell({}, cuts)).toEqual({
+      ...BLANK,
       hasCut: true,
-      tier: null,
-      nextTier: "LEVEL_2",
-      gapMs: null,
+      nextGala: "LEVEL_2",
     });
   });
 
-  it("none met → target the easiest tier, gap = PB − its cut", () => {
+  it("none met → target the easiest gala, gap = PB − its cut", () => {
     // 64000 is slower than every cut; next up is L2.
-    expect(computeMatrixCell(64000, cuts)).toEqual({
+    expect(computeMatrixCell({ LCM: 64000 }, cuts)).toEqual({
       hasCut: true,
-      tier: null,
-      nextTier: "LEVEL_2",
+      gala: null,
+      galaCourse: null,
+      nextGala: "LEVEL_2",
       gapMs: 1000,
+      gapCourse: "LCM",
     });
   });
 
   it("met L2 → next up is L3, gap = PB − L3 cut", () => {
-    expect(computeMatrixCell(61000, cuts)).toEqual({
+    expect(computeMatrixCell({ LCM: 61000 }, cuts)).toEqual({
       hasCut: true,
-      tier: "LEVEL_2",
-      nextTier: "LEVEL_3",
+      gala: "LEVEL_2",
+      galaCourse: "LCM",
+      nextGala: "LEVEL_3",
       gapMs: 1000, // 61000 − 60000
+      gapCourse: "LCM",
     });
   });
 
-  it("met L3 → next up is SANJ, gap = PB − SANJ cut", () => {
-    expect(computeMatrixCell(59000, cuts)).toEqual({
+  it("met the hardest available gala → no next up, no gap", () => {
+    expect(computeMatrixCell({ LCM: 57000 }, cuts)).toEqual({
       hasCut: true,
-      tier: "LEVEL_3",
-      nextTier: "SANJ",
-      gapMs: 1000, // 59000 − 58000
-    });
-  });
-
-  it("met the hardest available tier → no next up, no gap", () => {
-    expect(computeMatrixCell(57000, cuts)).toEqual({
-      hasCut: true,
-      tier: "SANJ",
-      nextTier: null,
+      gala: "SANJ",
+      galaCourse: "LCM",
+      nextGala: null,
       gapMs: null,
+      gapCourse: null,
     });
     // equal-to-cut counts as met.
-    expect(computeMatrixCell(58000, cuts)).toEqual({
+    expect(computeMatrixCell({ LCM: 58000 }, cuts).gala).toBe("SANJ");
+  });
+
+  it("walks only the galas that have a cut (sparse coverage, §4.9)", () => {
+    // 50 m has no age-graded cut above L2 — meeting L2 tops out.
+    expect(
+      computeMatrixCell({ LCM: 30000 }, { LCM: { LEVEL_2: 31000 }, SCM: {} }),
+    ).toMatchObject({ hasCut: true, gala: "LEVEL_2", nextGala: null, gapMs: null });
+    // Distance event: SANJ-only. Not met → gap to SANJ.
+    expect(
+      computeMatrixCell({ LCM: 970000 }, { LCM: { SANJ: 950000 }, SCM: {} }),
+    ).toMatchObject({ gala: null, nextGala: "SANJ", gapMs: 20000 });
+    // L2 met but next-up SANJ (no L3 cut here) → the gap skips the absent gala.
+    expect(
+      computeMatrixCell({ LCM: 61000 }, { LCM: { SANJ: 58000, LEVEL_2: 63000 }, SCM: {} }),
+    ).toMatchObject({ gala: "LEVEL_2", nextGala: "SANJ", gapMs: 3000 });
+  });
+
+  // ---- the both-course rule (§4.2) ---------------------------------------
+
+  it("counts a gala as met when EITHER course clears its own cut", () => {
+    const both = { LCM: { SANJ: 58000 }, SCM: { SANJ: 56000 } };
+    // Long course misses, short course clears → still qualified, marked SCM.
+    expect(computeMatrixCell({ LCM: 59000, SCM: 55000 }, both, "BEST")).toMatchObject({
       hasCut: true,
-      tier: "SANJ",
-      nextTier: null,
-      gapMs: null,
+      gala: "SANJ",
+      galaCourse: "SCM",
     });
   });
 
-  it("walks only the tiers that have a cut (sparse coverage, §4.9)", () => {
-    // 50m is LEVEL_2-only — no harder tier exists, so meeting L2 tops out.
-    expect(computeMatrixCell(30000, { LEVEL_2: 31000 })).toEqual({
-      hasCut: true,
-      tier: "LEVEL_2",
-      nextTier: null,
-      gapMs: null,
+  it("measures the gap in the course the swimmer is CLOSEST in", () => {
+    const both = {
+      LCM: { SANJ: 58000, LEVEL_2: 63000 },
+      SCM: { SANJ: 56000, LEVEL_2: 61000 },
+    };
+    // L2 met in both; chasing SANJ. LCM shortfall 2s, SCM shortfall 4s → LCM.
+    expect(computeMatrixCell({ LCM: 60000, SCM: 60000 }, both, "BEST")).toMatchObject({
+      gala: "LEVEL_2",
+      nextGala: "SANJ",
+      gapMs: 2000,
+      gapCourse: "LCM",
     });
-    // Distance event: SANJ-only. Met → tops out; not met → gap to SANJ.
-    expect(computeMatrixCell(900000, { SANJ: 950000 })).toEqual({
-      hasCut: true,
-      tier: "SANJ",
-      nextTier: null,
-      gapMs: null,
+  });
+
+  it("ignores the other course entirely in a single-course mode", () => {
+    const both = { LCM: { SANJ: 58000 }, SCM: { SANJ: 56000 } };
+    // The SCM PB would qualify, but an LCM grid must not show it.
+    expect(computeMatrixCell({ LCM: 59000, SCM: 55000 }, both, "LCM")).toMatchObject({
+      gala: null,
+      nextGala: "SANJ",
+      gapMs: 1000,
+      gapCourse: "LCM",
     });
-    expect(computeMatrixCell(970000, { SANJ: 950000 })).toEqual({
-      hasCut: true,
-      tier: null,
-      nextTier: "SANJ",
-      gapMs: 20000,
-    });
-    // L2 met but next-up SANJ (no L3 cut here) → gap skips the absent tier.
-    expect(computeMatrixCell(61000, { SANJ: 58000, LEVEL_2: 63000 })).toEqual({
-      hasCut: true,
-      tier: "LEVEL_2",
-      nextTier: "SANJ",
-      gapMs: 3000, // 61000 − 58000
-    });
+  });
+
+  it("has a cut but no measurable gap when the PB is in the other course only", () => {
+    // A short-course-only swimmer on a grid that only has long-course cuts:
+    // the cut exists, but nothing of theirs can be measured against it.
+    expect(
+      computeMatrixCell({ SCM: 55000 }, { LCM: { SANJ: 58000 }, SCM: {} }, "BEST"),
+    ).toMatchObject({ hasCut: true, gala: null, nextGala: "SANJ", gapMs: null });
   });
 });
 
 describe("prepareStandardImport (§4.4/§4.9) — rejects + reports, never drops", () => {
-  // A minimal LCM whitelist: 100 IM is SCM-only, 50 IM does not exist.
+  // A minimal whitelist: 100 IM is SCM-only, 50 IM does not exist.
   const BOTH = ["SCM", "LCM"] as const;
   const events: EventDef[] = [
     { distance: 50, stroke: "FREE", allowedCourses: [...BOTH], active: true },
@@ -808,8 +977,16 @@ describe("prepareStandardImport (§4.4/§4.9) — rejects + reports, never drops
     { distance: 800, stroke: "FREE", allowedCourses: [...BOTH], active: true },
   ];
 
+  // Coverage + age scope come from the gala rows, exactly as Convex supplies them.
+  const galas = GALA_SEED.map((g) => ({
+    code: g.code,
+    ageScope: g.ageScope,
+    coveredEvents: g.coveredEvents,
+  }));
+
   const good = (over: Partial<RawStandardRow> = {}): RawStandardRow => ({
-    tier: "LEVEL_2",
+    gala: "LEVEL_2",
+    course: "LCM",
     gender: "F",
     distance: 100,
     stroke: "FREE",
@@ -819,13 +996,16 @@ describe("prepareStandardImport (§4.4/§4.9) — rejects + reports, never drops
     time: "1:06:00",
     ...over,
   });
+  const run = (rows: RawStandardRow[]) =>
+    prepareStandardImport(rows, events, galas);
 
   it("accepts a good row and reports a bad (unparseable) one — keeping the row", () => {
     const rows: RawStandardRow[] = [good(), good({ time: "not-a-time" })];
-    const { accepted, rejected } = prepareStandardImport(rows, events);
+    const { accepted, rejected } = run(rows);
 
     expect(accepted).toHaveLength(1);
     expect(accepted[0].timeMs).toBe(66000);
+    expect(accepted[0].course).toBe("LCM");
 
     expect(rejected).toHaveLength(1);
     expect(rejected[0].index).toBe(1);
@@ -838,7 +1018,7 @@ describe("prepareStandardImport (§4.4/§4.9) — rejects + reports, never drops
       good({ distance: 50, stroke: "IM" }), // no 50 IM at all
       good({ distance: 100, stroke: "IM" }), // 100 IM is SCM-only
     ];
-    const { accepted, rejected } = prepareStandardImport(rows, events);
+    const { accepted, rejected } = run(rows);
     expect(accepted).toHaveLength(0);
     expect(rejected).toHaveLength(2);
     expect(rejected.every((r) => /valid LCM event/.test(r.reason))).toBe(true);
@@ -846,10 +1026,10 @@ describe("prepareStandardImport (§4.4/§4.9) — rejects + reports, never drops
 
   it("rejects coverage violations (SANJ 50 Free, LEVEL_2 400 Free)", () => {
     const rows: RawStandardRow[] = [
-      good({ tier: "SANJ", distance: 50, stroke: "FREE" }),
-      good({ tier: "LEVEL_2", distance: 400, stroke: "FREE" }),
+      good({ gala: "SANJ", distance: 50, stroke: "FREE", age: 13 }),
+      good({ gala: "LEVEL_2", distance: 400, stroke: "FREE" }),
     ];
-    const { accepted, rejected } = prepareStandardImport(rows, events);
+    const { accepted, rejected } = run(rows);
     expect(accepted).toHaveLength(0);
     expect(rejected).toHaveLength(2);
     expect(rejected.every((r) => /no coverage/.test(r.reason))).toBe(true);
@@ -857,39 +1037,68 @@ describe("prepareStandardImport (§4.4/§4.9) — rejects + reports, never drops
 
   it("rejects off-enum fields and impossible catch-all flags", () => {
     const rows: RawStandardRow[] = [
-      good({ tier: "LEVEL_9" }),
+      good({ gala: "LEVEL_9" }),
+      good({ course: "MYSTERY" }),
       good({ gender: "X" }),
       good({ age: 0 }),
       good({ isCatchAllYoung: true, isCatchAllOld: true }),
     ];
-    const { accepted, rejected } = prepareStandardImport(rows, events);
+    const { accepted, rejected } = run(rows);
     expect(accepted).toHaveLength(0);
-    expect(rejected.map((r) => r.index)).toEqual([0, 1, 2, 3]);
+    expect(rejected.map((r) => r.index)).toEqual([0, 1, 2, 3, 4]);
   });
 
   it("parses catch-all rows to the right ms and flags", () => {
     const rows: RawStandardRow[] = [
       good({ age: 10, isCatchAllYoung: true, time: "1:15:00" }),
-      good({ age: 17, isCatchAllOld: true, time: "1:03:00" }),
+      good({ age: 16, isCatchAllOld: true, time: "1:03:00" }),
     ];
-    const { accepted, rejected } = prepareStandardImport(rows, events);
+    const { accepted, rejected } = run(rows);
     expect(rejected).toHaveLength(0);
     expect(accepted[0]).toMatchObject({ age: 10, isCatchAllYoung: true, timeMs: 75000 });
-    expect(accepted[1]).toMatchObject({ age: 17, isCatchAllOld: true, timeMs: 63000 });
+    expect(accepted[1]).toMatchObject({ age: 16, isCatchAllOld: true, timeMs: 63000 });
   });
 
-  it("accepts the whole bundled sample dataset (populates standards)", () => {
-    // The full LCM whitelist (§4.3) — the sample only touches Free events.
-    const BOTH = ["SCM", "LCM"] as const;
-    const whitelist: EventDef[] = [50, 100, 200, 400, 800, 1500].map((d) => ({
-      distance: d,
-      stroke: "FREE",
-      allowedCourses: [...BOTH],
-      active: true,
-    }));
-    const { accepted, rejected } = prepareStandardImport(SAMPLE_STANDARDS, whitelist);
+  it("takes the same event in BOTH courses as two distinct cuts", () => {
+    const rows: RawStandardRow[] = [
+      good({ course: "LCM", time: "1:06:00" }),
+      good({ course: "SCM", time: "1:04:00" }),
+    ];
+    const { accepted, rejected } = run(rows);
     expect(rejected).toEqual([]);
-    expect(accepted).toHaveLength(SAMPLE_STANDARDS.length);
+    expect(accepted).toHaveLength(2);
+    expect(accepted.map((c) => [c.course, c.timeMs])).toEqual([
+      ["LCM", 66000],
+      ["SCM", 64000],
+    ]);
+  });
+
+  // ---- age scope must match the gala's shape ------------------------------
+
+  it("rejects an age on an OPEN gala, and a missing age on an age-graded one", () => {
+    const withAge = good({ gala: "SANS", age: 20, distance: 100, stroke: "FREE" });
+    const withoutAge = good({ gala: "LEVEL_2", age: null });
+    const { accepted, rejected } = run([withAge, withoutAge]);
+    expect(accepted).toHaveLength(0);
+    expect(rejected[0].reason).toMatch(/open gala/);
+    expect(rejected[1].reason).toMatch(/age-graded/);
+  });
+
+  it("accepts an OPEN gala row with no age at all", () => {
+    const { accepted, rejected } = run([
+      good({ gala: "SANS", age: null, time: "59:84" }),
+    ]);
+    expect(rejected).toEqual([]);
+    expect(accepted[0].age).toBeUndefined();
+    expect(accepted[0].gala).toBe("SANS");
+  });
+
+  it("rejects an open standard flagged as a catch-all", () => {
+    const { accepted, rejected } = run([
+      good({ gala: "SANS", age: null, isCatchAllYoung: true }),
+    ]);
+    expect(accepted).toHaveLength(0);
+    expect(rejected[0].reason).toMatch(/open standard cannot be a catch-all/);
   });
 });
 
@@ -898,85 +1107,79 @@ describe("prepareStandardImport (§4.4/§4.9) — rejects + reports, never drops
 // ---------------------------------------------------------------------------
 
 describe("parseStandardsCsv — type coercion + rejects", () => {
-  const header = "tier,gender,distance,stroke,age,isCatchAllYoung,isCatchAllOld,time";
+  const header =
+    "gala,course,gender,distance,stroke,age,isCatchAllYoung,isCatchAllOld,time";
 
   it("skips the header and coerces numbers + REAL booleans", () => {
-    const csv = [
-      header,
-      "LEVEL_2,F,100,FREE,10,true,false,1:15:00",
-      "SANJ,M,200,IM,17,false,true,2:20:00",
-    ].join("\n");
-    const { rows, rejected } = parseStandardsCsv(csv);
-    expect(rejected).toEqual([]);
-    expect(rows).toHaveLength(2);
-
-    // The 12&U-style young catch-all must be boolean TRUE (not the string).
-    expect(rows[0].row).toEqual({
-      tier: "LEVEL_2",
-      gender: "F",
-      distance: 100,
-      stroke: "FREE",
-      age: 10,
-      isCatchAllYoung: true,
-      isCatchAllOld: false,
-      time: "1:15:00",
-    });
-    expect(typeof rows[0].row.isCatchAllYoung).toBe("boolean");
-    expect(typeof rows[0].row.distance).toBe("number");
-    // Oldest catch-all on the second row.
-    expect(rows[1].row.isCatchAllOld).toBe(true);
-    expect(rows[1].row.isCatchAllYoung).toBe(false);
-  });
-
-  it("works without a header row and ignores blank lines", () => {
-    const csv = ["LEVEL_2,F,50,FREE,12,false,false,0:32:00", "", "   "].join("\n");
+    const csv = [header, "LEVEL_2,LCM,F,100,FREE,14,false,false,1:06:00"].join("\n");
     const { rows, rejected } = parseStandardsCsv(csv);
     expect(rejected).toEqual([]);
     expect(rows).toHaveLength(1);
-    expect(rows[0].line).toBe(1);
+    expect(rows[0].row).toEqual({
+      gala: "LEVEL_2",
+      course: "LCM",
+      gender: "F",
+      distance: 100,
+      stroke: "FREE",
+      age: 14,
+      isCatchAllYoung: false,
+      isCatchAllOld: false,
+      time: "1:06:00",
+    });
+    // The trap: the STRING "false" is truthy in JS. These must be real booleans.
+    expect(rows[0].row.isCatchAllYoung).toBe(false);
+    expect(typeof rows[0].row.isCatchAllYoung).toBe("boolean");
+    expect(typeof rows[0].row.distance).toBe("number");
   });
 
-  it("rejects a non-boolean flag rather than guessing (never truthy-coerce)", () => {
-    const csv = [header, "LEVEL_2,F,100,FREE,10,yes,false,1:15:00"].join("\n");
+  it("reads a BLANK age as an open standard, not as an error", () => {
+    const csv = [header, "SANS,LCM,F,100,FREE,,false,false,59:84"].join("\n");
     const { rows, rejected } = parseStandardsCsv(csv);
-    expect(rows).toHaveLength(0);
+    expect(rejected).toEqual([]);
+    expect(rows[0].row.age).toBeNull();
+  });
+
+  it("rejects a non-blank, non-integer age", () => {
+    const csv = [header, "LEVEL_2,LCM,F,100,FREE,thirteen,false,false,1:06:00"].join("\n");
+    const { rows, rejected } = parseStandardsCsv(csv);
+    expect(rows).toEqual([]);
+    expect(rejected[0].reason).toMatch(/age "thirteen" is not a whole number/);
+  });
+
+  it("rejects a row with the wrong column count, naming the line", () => {
+    const csv = [header, "LEVEL_2,LCM,F,100,FREE,14,false,false"].join("\n");
+    const { rows, rejected } = parseStandardsCsv(csv);
+    expect(rows).toEqual([]);
     expect(rejected).toHaveLength(1);
     expect(rejected[0].line).toBe(2);
-    expect(rejected[0].reason).toMatch(/isCatchAllYoung/);
+    expect(rejected[0].reason).toMatch(/expected 9 columns, got 8/);
   });
 
-  it("rejects wrong column counts and non-numeric distance/age", () => {
-    const csv = [
-      header,
-      "LEVEL_2,F,100,FREE,10,true,false", // 7 cols
-      "LEVEL_2,F,x,FREE,10,true,false,1:15:00", // distance NaN
-      "LEVEL_2,F,100,FREE,ten,true,false,1:15:00", // age NaN
-      "LEVEL_2,F,100,FREE,10,true,false,", // empty time
-    ].join("\n");
+  it("rejects a non-boolean catch-all flag rather than coercing it", () => {
+    const csv = [header, "LEVEL_2,LCM,F,100,FREE,14,yes,false,1:06:00"].join("\n");
     const { rows, rejected } = parseStandardsCsv(csv);
-    expect(rows).toHaveLength(0);
-    expect(rejected.map((r) => r.line)).toEqual([2, 3, 4, 5]);
-    expect(rejected[0].reason).toMatch(/8 columns/);
-    expect(rejected[1].reason).toMatch(/distance/);
-    expect(rejected[2].reason).toMatch(/age/);
-    expect(rejected[3].reason).toMatch(/time/);
+    expect(rows).toEqual([]);
+    expect(rejected[0].reason).toMatch(/isCatchAllYoung "yes" must be true or false/);
   });
 
-  it("tracks the source line so server rejects map back correctly", () => {
+  it("ignores blank lines and keeps 1-based source line numbers", () => {
     const csv = [
       header,
-      "LEVEL_2,F,100,FREE,10,true,false,1:15:00",
-      "", // blank — must not shift the line count
-      "LEVEL_2,F,100,FREE,12,false,false,1:10:00",
+      "LEVEL_2,LCM,F,100,FREE,14,false,false,1:06:00",
+      "",
+      "LEVEL_2,LCM,F,100,FREE,15,false,false,1:05:00",
     ].join("\n");
     const { rows } = parseStandardsCsv(csv);
     expect(rows.map((r) => r.line)).toEqual([2, 4]);
   });
-});
 
-// ---------------------------------------------------------------------------
-// findAgeInversions (§5.8/§11a) — monotonicity WARNING, adjacent pairs
-// ---------------------------------------------------------------------------
+  it("works without a header row at all", () => {
+    const csv = "LEVEL_2,LCM,F,100,FREE,14,false,false,1:06:00";
+    const { rows, rejected } = parseStandardsCsv(csv);
+    expect(rejected).toEqual([]);
+    expect(rows).toHaveLength(1);
+  });
+});
 
 describe("findAgeInversions — younger cut faster than older", () => {
   const cut = (
@@ -995,8 +1198,8 @@ describe("findAgeInversions — younger cut faster than older", () => {
     expect(findAgeInversions(cuts)).toEqual([]);
   });
 
-  it("flags the exact adjacent pair where the younger is faster (the L2 case)", () => {
-    // Age 15 (3:49) faster than 16 (3:51) — the one known real inversion.
+  it("flags the exact adjacent pair where the younger is faster", () => {
+    // The shape of the real 2027 case (SANJ women 100 Back, 12&U then 13).
     const cuts = [cut(14, 235000), cut(15, 229220), cut(16, 231220)];
     const inv = findAgeInversions(cuts);
     expect(inv).toHaveLength(1);
@@ -1024,6 +1227,17 @@ describe("findAgeInversions — younger cut faster than older", () => {
     expect(findAgeInversions([cut(12, 70000), cut(14, 70000)])).toEqual([]);
   });
 
+  it("skips OPEN standards — a single ageless cut cannot be inverted", () => {
+    const open: AgeCut[] = [
+      { isCatchAllYoung: false, isCatchAllOld: false, timeMs: 57000 },
+    ];
+    expect(findAgeInversions(open)).toEqual([]);
+    // Mixed in with age rows, the ageless one is simply ignored.
+    expect(
+      findAgeInversions([...open, cut(12, 75000), cut(14, 70000)]),
+    ).toEqual([]);
+  });
+
   it("cutAgeOrder hugs the bound for catch-alls", () => {
     expect(cutAgeOrder({ age: 10, isCatchAllYoung: true, isCatchAllOld: false })).toBe(9.5);
     expect(cutAgeOrder({ age: 17, isCatchAllYoung: false, isCatchAllOld: true })).toBe(17.5);
@@ -1035,93 +1249,126 @@ describe("findAgeInversions — younger cut faster than older", () => {
 // computeCalibratedRadius (Step 12.5, §4.9) — the stroke-profile radial metric
 // ---------------------------------------------------------------------------
 
-describe("computeCalibratedRadius", () => {
-  // A representative full-coverage event (Girls 100 Free, age 14 in the sample):
-  // SANJ 1:00.00 < L3 1:03.00 < L2 1:06.00.
-  const full = { l2Ms: 66000, l3Ms: 63000, sanjMs: 60000 };
-
-  it("returns null without a PB or without any cut", () => {
-    expect(computeCalibratedRadius(null, full)).toBeNull();
-    expect(
-      computeCalibratedRadius(60000, { l2Ms: null, l3Ms: null, sanjMs: null }),
-    ).toBeNull();
+describe("buildRingScale", () => {
+  it("orders rings easiest (inner) → hardest (outer), whatever the input order", () => {
+    const scale = buildRingScale(["SANJ", "LEVEL_2", "LEVEL_3"]);
+    expect(scale.order).toEqual(["LEVEL_2", "LEVEL_3", "SANJ"]);
+    expect(scale.pos).toEqual({ LEVEL_2: 1, LEVEL_3: 2, SANJ: 3 });
+    expect(scale.max).toBe(3.5); // one ring-unit of headroom past the hardest
   });
 
-  it("lands exactly on a ring when the PB equals that tier's cut", () => {
-    expect(computeCalibratedRadius(66000, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_2);
-    expect(computeCalibratedRadius(63000, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
-    expect(computeCalibratedRadius(60000, full)).toBeCloseTo(STROKE_RING_POS.SANJ);
+  it("sizes itself to however many galas the swimmer can enter", () => {
+    // A 17+ swimmer: the age-graded galas have closed, so only the open pair.
+    const senior = buildRingScale(["SANS", "SANY"]);
+    expect(senior.order).toEqual(["SANY", "SANS"]); // SANY is the easier of the two
+    expect(senior.pos).toEqual({ SANY: 1, SANS: 2 });
+    expect(senior.max).toBe(2.5);
+
+    // A 15-16-year-old: the ladder plus SANS.
+    const sixteen = buildRingScale(["LEVEL_2", "LEVEL_3", "SANJ", "SANS"]);
+    expect(sixteen.order).toEqual(["LEVEL_2", "LEVEL_3", "SANJ", "SANS"]);
+    expect(sixteen.max).toBe(4.5);
+  });
+
+  it("is empty and zero-bounded with no galas at all", () => {
+    const none = buildRingScale([]);
+    expect(none.order).toEqual([]);
+    expect(none.max).toBe(0);
+  });
+
+  it("ignores duplicates", () => {
+    expect(buildRingScale(["SANJ", "SANJ", "LEVEL_2"]).order).toEqual([
+      "LEVEL_2",
+      "SANJ",
+    ]);
+  });
+});
+
+describe("computeCalibratedRadius", () => {
+  // The classic three-ring wheel (an under-16 swimmer). A representative
+  // full-coverage event: SANJ 1:00.00 < L3 1:03.00 < L2 1:06.00.
+  const scale = buildRingScale(["LEVEL_2", "LEVEL_3", "SANJ"]);
+  const RING = { L2: 1, L3: 2, SANJ: 3 } as const;
+  const cut = (gala: GalaCode, timeMs: number) => ({ gala, timeMs });
+  const full = [cut("LEVEL_2", 66000), cut("LEVEL_3", 63000), cut("SANJ", 60000)];
+
+  it("returns null without a PB or without any cut", () => {
+    expect(computeCalibratedRadius(null, full, scale)).toBeNull();
+    expect(computeCalibratedRadius(60000, [], scale)).toBeNull();
+  });
+
+  it("lands exactly on a ring when the PB equals that gala's cut", () => {
+    expect(computeCalibratedRadius(66000, full, scale)).toBeCloseTo(RING.L2);
+    expect(computeCalibratedRadius(63000, full, scale)).toBeCloseTo(RING.L3);
+    expect(computeCalibratedRadius(60000, full, scale)).toBeCloseTo(RING.SANJ);
   });
 
   it("crossing the SANJ ring == beating the SANJ cut (the headline invariant)", () => {
     // One hundredth under the SANJ cut sits just past the outer ring.
-    expect(computeCalibratedRadius(59990, full)!).toBeGreaterThan(STROKE_RING_POS.SANJ);
+    expect(computeCalibratedRadius(59990, full, scale)!).toBeGreaterThan(RING.SANJ);
     // One hundredth over sits just inside it.
-    expect(computeCalibratedRadius(60010, full)!).toBeLessThan(STROKE_RING_POS.SANJ);
+    expect(computeCalibratedRadius(60010, full, scale)!).toBeLessThan(RING.SANJ);
   });
 
-  it("caps a within-band PB at the ring of the tier actually met", () => {
-    // Bar length reads as "tier achieved", never "tier nearly achieved": a PB
+  it("caps a within-band PB at the ring of the gala actually met", () => {
+    // Bar length reads as "gala achieved", never "gala nearly achieved": a PB
     // between the L2 and L3 cuts has met L2 only, so it sits exactly on the L2
     // ring — it does NOT creep toward the (unmet) L3 ring.
-    expect(computeCalibratedRadius(64500, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_2);
+    expect(computeCalibratedRadius(64500, full, scale)).toBeCloseTo(RING.L2);
     // Between L3 and SANJ: met L3, not SANJ → parks on the L3 ring, however
     // close to the SANJ cut it lands (the reported 100 Breast bug).
-    expect(computeCalibratedRadius(61500, full)).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
-    // A hair short of SANJ still caps at L3, never grazing the SANJ ring.
-    expect(computeCalibratedRadius(60010, full)!).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
+    expect(computeCalibratedRadius(61500, full, scale)).toBeCloseTo(RING.L3);
+    expect(computeCalibratedRadius(60010, full, scale)!).toBeCloseTo(RING.L3);
   });
 
   it("extrapolates past the outer ring when faster than SANJ", () => {
     // 1s under SANJ, using the L3→SANJ slope (1 ring / 3000 ms): 2 + 4000/3000.
-    expect(computeCalibratedRadius(59000, full)).toBeCloseTo(3 + 1 / 3);
+    expect(computeCalibratedRadius(59000, full, scale)).toBeCloseTo(3 + 1 / 3);
   });
 
-  it("caps the extrapolated radius at STROKE_RADIUS_MAX", () => {
+  it("caps the extrapolated radius at the scale's outer bound", () => {
     // An absurdly fast time can't run off the canvas.
-    expect(computeCalibratedRadius(1000, full)).toBe(STROKE_RADIUS_MAX);
+    expect(computeCalibratedRadius(1000, full, scale)).toBe(scale.max);
   });
 
-  it("clamps to the centre when slower than the L2 (inner) cut", () => {
-    expect(computeCalibratedRadius(90000, full)).toBe(0);
+  it("clamps to the centre when slower than the innermost cut", () => {
+    expect(computeCalibratedRadius(90000, full, scale)).toBe(0);
   });
 
   it("handles partial coverage with a gap between anchors (L2 + SANJ only)", () => {
     // 200 Fly-style: L2 and SANJ exist, no L3. At each cut the bar lands on that
     // ring; a PB between them has met L2 but not SANJ, so it caps on the L2 ring
     // rather than drifting up into the SANJ gap.
-    const cuts = { l2Ms: 66000, l3Ms: null, sanjMs: 60000 };
-    expect(computeCalibratedRadius(66000, cuts)).toBeCloseTo(1); // L2 ring
-    expect(computeCalibratedRadius(60000, cuts)).toBeCloseTo(3); // SANJ ring
-    expect(computeCalibratedRadius(63000, cuts)).toBeCloseTo(1); // met L2 only → L2 ring
+    const cuts = [cut("LEVEL_2", 66000), cut("SANJ", 60000)];
+    expect(computeCalibratedRadius(66000, cuts, scale)).toBeCloseTo(RING.L2);
+    expect(computeCalibratedRadius(60000, cuts, scale)).toBeCloseTo(RING.SANJ);
+    expect(computeCalibratedRadius(63000, cuts, scale)).toBeCloseTo(RING.L2);
   });
 
   it("places a single-anchor spoke by direction, exact at its own ring", () => {
     // 800 Free-style: SANJ only. At the cut the radius is exactly the SANJ ring…
-    const cuts = { l2Ms: null, l3Ms: null, sanjMs: 600000 };
-    expect(computeCalibratedRadius(600000, cuts)).toBeCloseTo(STROKE_RING_POS.SANJ);
+    const cuts = [cut("SANJ", 600000)];
+    expect(computeCalibratedRadius(600000, cuts, scale)).toBeCloseTo(RING.SANJ);
     // …faster pushes outward, slower pulls inward.
-    expect(computeCalibratedRadius(576000, cuts)!).toBeGreaterThan(STROKE_RING_POS.SANJ);
-    expect(computeCalibratedRadius(624000, cuts)!).toBeLessThan(STROKE_RING_POS.SANJ);
+    expect(computeCalibratedRadius(576000, cuts, scale)!).toBeGreaterThan(RING.SANJ);
+    expect(computeCalibratedRadius(624000, cuts, scale)!).toBeLessThan(RING.SANJ);
   });
 
-  it("caps a below-SANJ top tier at its own ring (50s have only L2)", () => {
-    // A 50 has only an L2 cut (no L3/SANJ, §4.9). At the cut the bar sits on the
-    // L2 ring, and a FASTER PB must not overshoot past it toward the (absent)
-    // SANJ ring — it caps exactly on L2 rather than extrapolating outward.
-    const cuts = { l2Ms: 26000, l3Ms: null, sanjMs: null };
-    expect(computeCalibratedRadius(26000, cuts)).toBeCloseTo(STROKE_RING_POS.LEVEL_2);
-    expect(computeCalibratedRadius(24000, cuts)).toBe(STROKE_RING_POS.LEVEL_2);
+  it("caps a below-outer-ring top gala at its own ring (50s have only L2)", () => {
+    // A 50 has no L3/SANJ cut (§4.9). At the cut the bar sits on the L2 ring, and
+    // a FASTER PB must not overshoot toward the rings this event does not have —
+    // headroom is reserved for beating the gala on the wheel's OUTERMOST ring.
+    const cuts = [cut("LEVEL_2", 26000)];
+    expect(computeCalibratedRadius(26000, cuts, scale)).toBeCloseTo(RING.L2);
+    expect(computeCalibratedRadius(24000, cuts, scale)).toBe(RING.L2);
     // Slower than L2 still pulls inward toward the centre (a real gap to show).
-    expect(computeCalibratedRadius(27000, cuts)!).toBeLessThan(STROKE_RING_POS.LEVEL_2);
+    expect(computeCalibratedRadius(27000, cuts, scale)!).toBeLessThan(RING.L2);
   });
 
   it("caps an L2+L3 (no SANJ) event at the L3 ring", () => {
-    // If an event's coverage stops at L3, a PB beating L3 caps on the L3 ring
-    // rather than shooting past into the empty SANJ zone.
-    const cuts = { l2Ms: 66000, l3Ms: 63000, sanjMs: null };
-    expect(computeCalibratedRadius(63000, cuts)).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
-    expect(computeCalibratedRadius(50000, cuts)).toBe(STROKE_RING_POS.LEVEL_3);
+    const cuts = [cut("LEVEL_2", 66000), cut("LEVEL_3", 63000)];
+    expect(computeCalibratedRadius(63000, cuts, scale)).toBeCloseTo(RING.L3);
+    expect(computeCalibratedRadius(50000, cuts, scale)).toBe(RING.L3);
   });
 
   it("never draws an unmet SANJ spoke for a near-SANJ PB (regression: 100 Breast)", () => {
@@ -1129,10 +1376,57 @@ describe("computeCalibratedRadius", () => {
     // cut 1:21.58 (81580) but is 0.57s SLOWER than the SANJ cut 1:13.84 (73840).
     // The old piecewise line put the spoke at ~2.93 — visually grazing the SANJ
     // ring — which read as "qualified for SANJ". It must cap on the L3 ring.
-    const cuts = { l2Ms: 91250, l3Ms: 81580, sanjMs: 73840 };
-    const r = computeCalibratedRadius(74410, cuts)!;
-    expect(r).toBeCloseTo(STROKE_RING_POS.LEVEL_3);
-    expect(r).toBeLessThan(STROKE_RING_POS.SANJ);
+    const cuts = [
+      cut("LEVEL_2", 91250),
+      cut("LEVEL_3", 81580),
+      cut("SANJ", 73840),
+    ];
+    const r = computeCalibratedRadius(74410, cuts, scale)!;
+    expect(r).toBeCloseTo(RING.L3);
+    expect(r).toBeLessThan(RING.SANJ);
+  });
+
+  // ---- the ring counts the entry windows actually produce ------------------
+
+  it("holds the invariant on a FOUR-ring wheel (a 15-16-year-old)", () => {
+    // L2 < L3 < SANJ < SANS in difficulty, so SANS is the outer ring.
+    const s4 = buildRingScale(["LEVEL_2", "LEVEL_3", "SANJ", "SANS"]);
+    const cuts = [
+      cut("LEVEL_2", 74450),
+      cut("LEVEL_3", 66980),
+      cut("SANJ", 63890),
+      cut("SANS", 59840),
+    ];
+    expect(computeCalibratedRadius(74450, cuts, s4)).toBeCloseTo(1);
+    expect(computeCalibratedRadius(66980, cuts, s4)).toBeCloseTo(2);
+    expect(computeCalibratedRadius(63890, cuts, s4)).toBeCloseTo(3);
+    expect(computeCalibratedRadius(59840, cuts, s4)).toBeCloseTo(4);
+    // Beating the OUTER ring (SANS) earns headroom; beating SANJ alone does not.
+    expect(computeCalibratedRadius(59830, cuts, s4)!).toBeGreaterThan(4);
+    expect(computeCalibratedRadius(63880, cuts, s4)).toBeCloseTo(3);
+  });
+
+  it("holds the invariant on a TWO-ring wheel (a 17+ swimmer)", () => {
+    // Only the open galas remain, and SANY is the easier of the two.
+    const s2 = buildRingScale(["SANS", "SANY"]);
+    expect(s2.order).toEqual(["SANY", "SANS"]);
+    const cuts = [cut("SANY", 67470), cut("SANS", 59840)];
+    expect(computeCalibratedRadius(67470, cuts, s2)).toBeCloseTo(1);
+    expect(computeCalibratedRadius(59840, cuts, s2)).toBeCloseTo(2);
+    // Between them: met SANY, not SANS → parks on ring 1.
+    expect(computeCalibratedRadius(63000, cuts, s2)).toBeCloseTo(1);
+    // Faster than SANS gets headroom, bounded by the 2-ring scale.
+    expect(computeCalibratedRadius(1000, cuts, s2)).toBe(s2.max);
+  });
+
+  it("ignores a cut for a gala that is not on this wheel", () => {
+    // A SANY cut cannot be placed on an under-16 wheel, so it must not become an
+    // anchor — otherwise the swimmer would be measured against a gala they
+    // cannot enter.
+    const cuts = [cut("LEVEL_2", 66000), cut("SANY", 55000)];
+    expect(computeCalibratedRadius(66000, cuts, scale)).toBeCloseTo(RING.L2);
+    // 55000 beats the ignored SANY cut but is still capped on the L2 ring.
+    expect(computeCalibratedRadius(55000, cuts, scale)).toBe(RING.L2);
   });
 });
 

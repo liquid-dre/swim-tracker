@@ -6,29 +6,32 @@ import {
   computeMatrixCell,
   computePersonalBests,
   eventSortKey,
-  pickApplicableStandardsPerTier,
-  tierResolutionAges,
+  galaResolutionAges,
+  pickApplicableStandardsPerGala,
+  GALA_ORDER,
+  type Course,
   type Distance,
+  type GalaCode,
   type ResultForPB,
   type StandardCut,
   type Stroke,
-  type Tier,
 } from "../lib/swim";
-import { loadTourDates } from "./tours";
+import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
 
 /*
   Coach dashboard squad overview (the "punchy home" — the vibrance revamp). One
   read that summarises the roster the way a coach scans it after a meet: four
   headline counts, then one representative "top event" per swimmer with its
-  headline PB, the hardest tier that PB meets, the gap to the next cut, and a
+  headline PB, the hardest gala that PB meets, the gap to the next cut, and a
   short trend of recent meet times for a sparkline.
 
   Everything is DERIVED with the exact same domain rules as the rest of the app —
-  headline PB = fastest MEET time only (§4.6), tiers resolve to the swimmer's
-  EXACT single-year age on LCM standards only (§4.9), tier order SANJ > L3 > L2.
-  Nothing here invents a number: SCM never carries a tier, and no cut is drawn
-  where coverage doesn't exist. Coach-only (cross-roster, §5.9) — a viewer is
-  rejected server-side.
+  headline PB = fastest MEET time only (§4.6), cuts resolve to the swimmer's
+  EXACT single-year age (§4.9), and each PB is judged against its OWN course's
+  cut because both courses are valid for entry (§4.2). Gala order comes from
+  GALA_ORDER. Nothing here invents a number: no cut is drawn where coverage
+  doesn't exist. Coach-only (cross-roster, §5.9) — a viewer is rejected
+  server-side.
 */
 
 const DASH_SWIMMERS_LIMIT = 500;
@@ -56,19 +59,16 @@ const distance = v.union(
   v.literal(1500),
 );
 const gender = v.union(v.literal("M"), v.literal("F"));
-const tier = v.union(
-  v.literal("LEVEL_2"),
-  v.literal("LEVEL_3"),
-  v.literal("SANJ"),
-);
+const course = v.union(v.literal("SCM"), v.literal("LCM"));
 
 const topEvent = v.object({
   distance,
   stroke,
   label: v.string(),
-  pbMs: v.number(), // headline MEET LCM PB
-  tier: v.union(tier, v.null()), // hardest tier met, or null (has a cut, none met)
-  nextTier: v.union(tier, v.null()), // the next cut to chase, or null at the top
+  course, // the course this PB (and its cut) belong to — never mixed
+  pbMs: v.number(), // headline MEET PB in that course
+  gala: v.union(galaCodeValidator, v.null()), // hardest gala met, or null (cut exists, none met)
+  nextGala: v.union(galaCodeValidator, v.null()), // the next cut to chase, or null at the top
   gapMs: v.union(v.number(), v.null()), // PB − next cut (≥0 to drop); null at top / no cut
   // Recent MEET times for this event (chronological), for the sparkline. 1 point
   // is legitimate (a flat spark); the client handles a short series.
@@ -80,11 +80,19 @@ const rosterRow = v.object({
   name: v.string(),
   gender,
   age: v.number(),
-  // null when the swimmer has no LCM meet time to anchor a tier read yet.
+  // null when the swimmer has no meet time to anchor a gala read yet.
   top: v.union(v.null(), topEvent),
 });
 
-const TIER_RANK: Record<Tier, number> = { SANJ: 3, LEVEL_3: 2, LEVEL_2: 1 };
+// Rank from the single source of truth in lib/galas (GALA_ORDER is hardest
+// first, so invert the index) — never a second, drift-prone copy.
+const GALA_RANK: Record<GalaCode, number> = GALA_ORDER.reduce(
+  (acc, code, i) => {
+    acc[code] = GALA_ORDER.length - i;
+    return acc;
+  },
+  {} as Record<GalaCode, number>,
+);
 
 export const getCoachDashboard = query({
   args: {
@@ -96,7 +104,7 @@ export const getCoachDashboard = query({
     counts: v.object({
       swimmers: v.number(), // active swimmers
       pbsThisWeek: v.number(), // lifetime headline PBs set in the last 7 days
-      cutsQualified: v.number(), // swimmer×event cells with a tier met (LCM)
+      cutsQualified: v.number(), // swimmer×event×course PBs that meet a gala cut
       closeToCut: v.number(), // swimmers within 1.00s of a next cut
     }),
     // First-run signals: which setup steps (swimmers → standards → results)
@@ -126,16 +134,25 @@ export const getCoachDashboard = query({
 
     // Cuts, loaded once and grouped by (gender|distance|stroke); each swimmer
     // resolves to their exact age. Small table at club scale.
-    const tourDates = await loadTourDates(ctx);
+    const galas = await loadGalas(ctx);
+    const galaRefs = toGalaRefs(galas);
+    const codeById = new Map(galas.map((g) => [g._id, g.code as GalaCode]));
     const allStandards = await ctx.db
       .query("standards")
       .take(DASH_STANDARDS_LIMIT);
-    const cutsByEvent = new Map<string, Array<StandardCut & { tier: Tier }>>();
+    const cutsByEvent = new Map<
+      string,
+      Array<StandardCut & { gala: GalaCode; course: Course }>
+    >();
     for (const s of allStandards) {
+      if (s.galaId === undefined || s.course === undefined) continue;
       const key = `${s.gender}|${s.distance}|${s.stroke}`;
-      const cut: StandardCut & { tier: Tier } = {
-        tier: s.tier,
-        age: s.age,
+      const gala = codeById.get(s.galaId);
+      if (gala === undefined) continue;
+      const cut = {
+        gala,
+        course: s.course as Course,
+        age: s.age ?? null,
         isCatchAllYoung: s.isCatchAllYoung,
         isCatchAllOld: s.isCatchAllOld,
         timeMs: s.timeMs,
@@ -202,25 +219,38 @@ export const getCoachDashboard = query({
         distance: Distance;
         stroke: Stroke;
         label: string;
+        course: Course;
         pbMs: number;
-        tier: Tier | null;
-        nextTier: Tier | null;
+        gala: GalaCode | null;
+        nextGala: GalaCode | null;
         gapMs: number | null;
       } | null = null;
       let swimmerIsClose = false;
 
+      // Both courses count (§4.2): a swimmer is qualified on an event if either
+      // their LCM or their SCM PB beats that course's own cut, so each PB is
+      // judged in its OWN course and every qualifying PB counts once.
       for (const pb of pbs) {
-        if (pb.course !== "LCM" || !pb.headline) continue;
-        // Same rule as the status matrix: tiers WITH a tour date judge at the
+        if (!pb.headline) continue;
+        const course = pb.course as Course;
+        // Same rule as the status matrix: galas WITH a tour date judge at the
         // swimmer's age on tour day; the rest at their CURRENT age (§4.9) —
         // never the age the PB was swum, so these counts match what the
         // qualification screens show.
-        const applicable = pickApplicableStandardsPerTier(
-          cutsByEvent.get(`${swimmer.gender}|${pb.distance}|${pb.stroke}`) ?? [],
-          tierResolutionAges(swimmer.dob, age, tourDates),
+        const applicable = pickApplicableStandardsPerGala(
+          (cutsByEvent.get(`${swimmer.gender}|${pb.distance}|${pb.stroke}`) ?? [])
+            .filter((c) => c.course === course),
+          galaRefs,
+          galaResolutionAges(swimmer.dob, age, galaRefs),
         );
-        const cell = computeMatrixCell(pb.headline.timeMs, applicable);
-        if (cell.tier !== null) cutsQualified += 1;
+        const cell = computeMatrixCell(
+          { [course]: pb.headline.timeMs },
+          course === "LCM"
+            ? { LCM: applicable, SCM: {} }
+            : { LCM: {}, SCM: applicable },
+          course,
+        );
+        if (cell.gala !== null) cutsQualified += 1;
         if (cell.gapMs !== null && cell.gapMs > 0 && cell.gapMs <= CLOSE_MS) {
           swimmerIsClose = true;
         }
@@ -229,9 +259,10 @@ export const getCoachDashboard = query({
           distance: pb.distance,
           stroke: pb.stroke,
           label: pb.label,
+          course,
           pbMs: pb.headline.timeMs,
-          tier: cell.tier,
-          nextTier: cell.nextTier,
+          gala: cell.gala,
+          nextGala: cell.nextGala,
           gapMs: cell.gapMs,
         };
         if (top === null || isBetterTop(candidate, top)) top = candidate;
@@ -288,17 +319,17 @@ export const getCoachDashboard = query({
 
 /**
  * Is `a` a better "top event" than the incumbent `b`? Proudest first: hardest
- * tier met, then closest to the next cut (smallest positive gap), then canonical
+ * gala met, then closest to the next cut (smallest positive gap), then canonical
  * event order as a stable tiebreak. Events with a cut beat events with none.
  */
 function isBetterTop(
-  a: { tier: Tier | null; gapMs: number | null; distance: number; stroke: string },
-  b: { tier: Tier | null; gapMs: number | null; distance: number; stroke: string },
+  a: { gala: GalaCode | null; gapMs: number | null; distance: number; stroke: string },
+  b: { gala: GalaCode | null; gapMs: number | null; distance: number; stroke: string },
 ): boolean {
-  const ra = a.tier ? TIER_RANK[a.tier] : 0;
-  const rb = b.tier ? TIER_RANK[b.tier] : 0;
+  const ra = a.gala ? GALA_RANK[a.gala] : 0;
+  const rb = b.gala ? GALA_RANK[b.gala] : 0;
   if (ra !== rb) return ra > rb;
-  // Both same tier: prefer the one with a measurable gap, closest to the next cut.
+  // Both same gala: prefer the one with a measurable gap, closest to the next cut.
   const ga = a.gapMs === null ? Infinity : a.gapMs;
   const gb = b.gapMs === null ? Infinity : b.gapMs;
   if (ga !== gb) return ga < gb;

@@ -15,7 +15,7 @@ import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { useNewKeys } from "@/lib/useNewKeys";
 import { formatShortDate } from "@/lib/format";
 import { formatSeconds } from "@/lib/format";
-import { formatTime, TIER_FULL } from "@/lib/swim";
+import { formatTime, GALA_FULL, GALA_ORDER } from "@/lib/swim";
 
 /*
   Tour qualification — who is going to which tour. Each swimmer appears once,
@@ -42,10 +42,10 @@ export function QualificationScreen() {
 
   // Convex pushes changes live: a swimmer who qualifies while this screen is
   // open appears with a one-shot background fade so the change is seen, not
-  // silently reshuffled. Keyed per tier so moving UP a tour also flashes.
+  // silently reshuffled. Keyed per gala so moving UP a tour also flashes.
   const newKeys = useNewKeys(
-    (data?.tiers ?? []).flatMap((t) =>
-      t.swimmers.map((s) => `${t.tier}|${s.swimmerId}`),
+    (data?.galas ?? []).flatMap((g) =>
+      g.swimmers.map((s) => `${g.gala}|${s.swimmerId}`),
     ),
     data !== undefined,
   );
@@ -57,8 +57,8 @@ export function QualificationScreen() {
         breadcrumb={trailForHref(pathname)}
         description={
           isViewer
-            ? "Which tour your swimmer(s) currently qualify for — the highest tier their long-course meet times meet. Trials and practice never count."
-            : "Who is going where. Each swimmer appears under the highest tour they qualify for, with the long-course meet times that got them there. Trials and practice never count."
+            ? "Which tour your swimmer(s) currently qualify for — the highest gala their meet times meet, in either course. Trials and practice never count."
+            : "Who is going where. Each swimmer appears under the highest tour they qualify for, with the meet times that got them there. Either course can qualify them; trials and practice never count."
         }
       />
 
@@ -79,13 +79,13 @@ export function QualificationScreen() {
           />
         )
       ) : (
-        data.tiers.map(({ tier, tour, swimmers }) => (
-          <section key={tier} className="flex flex-col gap-3">
+        data.galas.map(({ gala, displayName, tour, swimmers }) => (
+          <section key={gala} className="flex flex-col gap-3">
             <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <div className="flex items-center gap-2">
-                <TierBadge tier={tier} />
+                <TierBadge gala={gala} />
                 <h2 className="text-sm font-semibold text-ink">
-                  {tour?.name ?? `${TIER_FULL[tier]} tour`}
+                  {tour?.name ?? displayName}
                 </h2>
               </div>
               <p className="text-xs text-ink-muted">
@@ -122,19 +122,19 @@ export function QualificationScreen() {
             {swimmers.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-8 text-center shadow-theme-sm">
                 <p className="text-sm text-ink-muted">
-                  {/* "Highest tour only": someone may well meet this tier's
+                  {/* "Highest tour only": someone may well meet this gala's
                       cuts but be listed above — never claim nobody has. */}
                   {isViewer ? (
                     <>
-                      No {TIER_FULL[tier]} qualification yet
-                      {tier !== "SANJ" &&
+                      No {GALA_FULL[gala]} qualification yet
+                      {gala !== GALA_ORDER[0] &&
                         " — a swimmer qualifying higher is listed under that tour"}
                       .
                     </>
                   ) : (
                     <>
-                      No one&rsquo;s highest tour is {TIER_FULL[tier]} yet
-                      {tier !== "SANJ" &&
+                      No one&rsquo;s highest tour is {GALA_FULL[gala]} yet
+                      {gala !== GALA_ORDER[0] &&
                         " — swimmers who qualify higher are listed under that tour"}
                       .
                     </>
@@ -164,7 +164,7 @@ export function QualificationScreen() {
                           key={s.swimmerId}
                           className={
                             "border-t border-border align-top transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2" +
-                            (newKeys.has(`${tier}|${s.swimmerId}`)
+                            (newKeys.has(`${gala}|${s.swimmerId}`)
                               ? " animate-row-flash"
                               : "")
                           }

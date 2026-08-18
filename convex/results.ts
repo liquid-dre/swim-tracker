@@ -5,14 +5,15 @@ import { mutation } from "./_generated/server";
 import { assertMayWriteResult, requireSignedIn } from "./authz";
 import {
   computeAge,
-  highestTierMet,
+  galaResolutionAges,
+  highestGalaMet,
   isValidEvent,
   parseTime,
-  pickApplicableStandardsPerTier,
-  tierResolutionAges,
-  type Tier,
+  pickApplicableStandardsPerGala,
+  type Course,
+  type GalaCode,
 } from "../lib/swim";
-import { loadTourDates } from "./tours";
+import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
 
 // Result logging (BRD §6, Step 5) — the core data-entry flow. Every write goes
 // through the same domain gates: whitelisted event + valid course, a bulletproof-
@@ -128,14 +129,10 @@ export const logResult = mutation({
     // What this swim MEANT, so the save feedback can say so (§4.6: a new
     // headline = fastest MEET time on this event+course).
     newPb: v.boolean(),
-    // The hardest tier this time meets that the previous best didn't (LCM
-    // meets only; cuts resolved per the tour rule). Null when nothing changed.
-    newlyMetTier: v.union(
-      v.literal("LEVEL_2"),
-      v.literal("LEVEL_3"),
-      v.literal("SANJ"),
-      v.null(),
-    ),
+    // The hardest gala this time meets that the previous best didn't, judged
+    // against THIS COURSE's own cut (both courses qualify, §4.2) and resolved
+    // per the tour rule. Null when nothing changed.
+    newlyMetGala: v.union(galaCodeValidator, v.null()),
   }),
   handler: async (ctx, args) => {
     const profile = await requireSignedIn(ctx);
@@ -174,13 +171,18 @@ export const logResult = mutation({
     const newPb =
       args.swimType === "MEET" && (prevBestMs === null || timeMs < prevBestMs);
 
-    // A new LCM PB may also be the first time a qualifying cut is met — the
-    // one moment worth naming over "Time saved". Judged at the age the swimmer
-    // is FOR THE COMPETITION (tour date, else current age) — the same rule the
-    // qualification screens use — so the toast never claims a cut those screens
-    // won't show. Both times are judged under the same cuts.
-    let newlyMetTier: Tier | null = null;
-    if (newPb && args.course === "LCM") {
+    // A new PB in EITHER course may be the first time a qualifying cut is met —
+    // the one moment worth naming over "Time saved". Both courses are valid for
+    // entry (§4.2), so a short-course PB earns the celebration too, but only
+    // against a short-course cut. Judged at the age the swimmer is FOR THE
+    // COMPETITION (tour date, else current age) — the same rule the qualification
+    // screens use — so the toast never claims a cut those screens won't show.
+    let newlyMetGala: GalaCode | null = null;
+    if (newPb) {
+      const course = args.course as Course;
+      const galas = await loadGalas(ctx);
+      const galaRefs = toGalaRefs(galas);
+      const codeById = new Map(galas.map((g) => [g._id, g.code as GalaCode]));
       const rows = await ctx.db
         .query("standards")
         .withIndex("by_event", (q) =>
@@ -189,18 +191,32 @@ export const logResult = mutation({
             .eq("distance", args.distance)
             .eq("stroke", args.stroke),
         )
-        .take(500);
+        .take(1000);
       const ageToday = computeAge(
         swimmer.dob,
         new Date().toISOString().slice(0, 10),
       );
-      const cuts = pickApplicableStandardsPerTier(
-        rows,
-        tierResolutionAges(swimmer.dob, ageToday, await loadTourDates(ctx)),
+      // Only THIS course's cuts — a long-course time never earns a celebration
+      // for beating a short-course standard.
+      const cuts = pickApplicableStandardsPerGala(
+        rows.flatMap((r) => {
+          if (r.galaId === undefined || r.course !== course) return [];
+          const gala = codeById.get(r.galaId);
+          return gala === undefined ? [] : [{ ...r, gala, age: r.age ?? null }];
+        }),
+        galaRefs,
+        galaResolutionAges(swimmer.dob, ageToday, galaRefs),
       );
-      const tierNow = highestTierMet(timeMs, cuts);
-      const tierBefore = prevBestMs === null ? null : highestTierMet(prevBestMs, cuts);
-      if (tierNow !== null && tierNow !== tierBefore) newlyMetTier = tierNow;
+      const byCourse =
+        course === "LCM"
+          ? { LCM: cuts, SCM: {} }
+          : { LCM: {}, SCM: cuts };
+      const galaNow = highestGalaMet({ [course]: timeMs }, byCourse, course)?.gala ?? null;
+      const galaBefore =
+        prevBestMs === null
+          ? null
+          : highestGalaMet({ [course]: prevBestMs }, byCourse, course)?.gala ?? null;
+      if (galaNow !== null && galaNow !== galaBefore) newlyMetGala = galaNow;
     }
 
     const resultId = await ctx.db.insert("results", {
@@ -219,7 +235,7 @@ export const logResult = mutation({
       createdAt: Date.now(),
     });
 
-    return { resultId, newPb, newlyMetTier };
+    return { resultId, newPb, newlyMetGala };
   },
 });
 

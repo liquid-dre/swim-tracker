@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import { formatTime, type Tier } from "@/lib/swim";
+import { formatTime, type Course } from "@/lib/swim";
+import { GALA_FULL, GALA_TOKEN, type GalaCode } from "@/lib/galas";
 import { notify } from "@/lib/notify";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
@@ -12,41 +13,41 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
   one place the product cheers. It celebrates a REAL achievement: the proudest
   qualified cut derived from the swimmer's headline meet PBs (never fabricated).
 
-  - The medal is tinted by the actual tier (gold SANJ / purple L3 / sky L2) so
-    the tier's meaning is reinforced, never masked by a generic gold.
-  - Colour is never the only signal: the tier is named in the heading and chip.
+  - The medal is tinted by the actual gala's own colour (DESIGN.md §3) so the
+    gala's identity is reinforced, never masked by a generic gold.
+  - Colour is never the only signal: the gala is named in the heading and chip,
+    along with the course the cut was met in (both courses qualify, §4.2).
   - Motion is opt-in to the viewer's system setting: confetti auto-plays ONCE on
     mount and can be replayed; under prefers-reduced-motion it never fires and
     the Replay control is withheld (the card still reads perfectly, static).
 */
 
 type Props = {
-  tier: Tier;
+  gala: GalaCode;
   /** Human event label, e.g. "50 Fly". */
   eventLabel: string;
-  /** Headline LCM meet PB for the event, in integer ms. */
+  /** The course the cut was met in — both courses are valid for entry (§4.2). */
+  course: Course;
+  /** Headline meet PB for the event in that course, in integer ms. */
   timeMs: number;
 };
 
-const TIER_FULL: Record<Tier, string> = {
-  LEVEL_2: "Level 2",
-  LEVEL_3: "Level 3",
-  SANJ: "SANJ",
+const COURSE_FULL: Record<Course, string> = {
+  LCM: "long course",
+  SCM: "short course",
 };
 
-// The tier's own colour (DESIGN.md §3) — reused so the medal reads as that tier.
-const TIER_COLOR: Record<Tier, string> = {
-  LEVEL_2: "var(--color-tier-l2)",
-  LEVEL_3: "var(--color-tier-l3)",
-  SANJ: "var(--color-tier-sanj)",
-};
+/** The gala's own colour (DESIGN.md §3) — the medal reads as that gala. */
+function galaColor(gala: GalaCode): string {
+  return `var(--color-tier-${GALA_TOKEN[gala]})`;
+}
 
 // Celebration palette: the water accent plus the two colours that already MEAN
-// success — gold (top tier) and green (qualified) — so nothing decorative steals
+// success — gold and green (qualified) — so nothing decorative steals
 // a signal. Brand indigo and white round it out.
 const CONFETTI = ["#06b6d4", "#22d3ee", "#f79009", "#12b76a", "#465fff", "#ffffff"];
 
-export function QualifyCelebration({ tier, eventLabel, timeMs }: Props) {
+export function QualifyCelebration({ gala, eventLabel, course, timeMs }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
@@ -117,7 +118,7 @@ export function QualifyCelebration({ tier, eventLabel, timeMs }: Props) {
   }, [burst, motionOk]);
 
   const onShare = useCallback(async () => {
-    const summary = `${eventLabel} — ${formatTime(timeMs)} · qualified for ${TIER_FULL[tier]}`;
+    const summary = `${eventLabel} (${COURSE_FULL[course]}) — ${formatTime(timeMs)} · qualified for ${GALA_FULL[gala]}`;
     try {
       if (typeof navigator !== "undefined" && navigator.share) {
         await navigator.share({ title: "Swim Tracker", text: summary });
@@ -132,7 +133,7 @@ export function QualifyCelebration({ tier, eventLabel, timeMs }: Props) {
     } catch {
       // User dismissed the share sheet — not an error worth surfacing.
     }
-  }, [eventLabel, timeMs, tier]);
+  }, [eventLabel, timeMs, gala, course]);
 
   return (
     <div
@@ -150,17 +151,17 @@ export function QualifyCelebration({ tier, eventLabel, timeMs }: Props) {
       />
 
       <span className="celebrate-shimmer relative z-[1] mx-auto mb-1 block h-16 w-16 overflow-hidden rounded-full">
-        <Medal color={TIER_COLOR[tier]} />
+        <Medal color={galaColor(gala)} />
       </span>
 
       <span className="tnum relative z-[1] block text-3xl font-extrabold tracking-tight">
         {formatTime(timeMs)}
       </span>
       <h2 className="relative z-[1] mt-1 text-lg font-extrabold tracking-tight">
-        You qualified for {TIER_FULL[tier]}!
+        You qualified for {GALA_FULL[gala]}!
       </h2>
       <p className="relative z-[1] mx-auto mt-1 max-w-[42ch] text-sm text-white/80">
-        {eventLabel} · long course · your fastest meet time clears the cut.
+        {eventLabel} · {COURSE_FULL[course]} · your fastest meet time clears the cut.
       </p>
 
       <div className="relative z-[1] mt-4 flex items-center justify-center gap-2">
@@ -185,7 +186,7 @@ export function QualifyCelebration({ tier, eventLabel, timeMs }: Props) {
   );
 }
 
-/** A tier-tinted award medal built from plain geometry (no sketchy paths). */
+/** A gala-tinted award medal built from plain geometry (no sketchy paths). */
 function Medal({ color }: { color: string }) {
   return (
     <svg viewBox="0 0 64 64" fill="none" aria-hidden className="h-full w-full">

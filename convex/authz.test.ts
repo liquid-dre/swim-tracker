@@ -222,14 +222,33 @@ describe("super-user role", () => {
   });
 });
 
-describe("tours (dates are super-user reference data; qualification is role-scoped)", () => {
-  test("coaches and viewers cannot write tour dates", async () => {
-    const { asCoach, asViewer } = await setup();
+describe("galas (reference data is super-user; qualification is role-scoped)", () => {
+  test("coaches and viewers cannot write tour dates or entry age ranges", async () => {
+    const { t, asCoach, asViewer } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("galas", {
+        code: "SANJ",
+        displayName: "SA National Junior Championships",
+        shortLabel: "SANJ",
+        ageScope: "AGE_GRADED",
+        maxAge: 16,
+        coveredEvents: [{ distance: 100, stroke: "FREE" }],
+        sortHint: 2,
+        season: "2027",
+      });
+    });
     await expect(
-      asCoach.mutation(api.tours.setTour, { tier: "SANJ", date: "2026-12-01" }),
+      asCoach.mutation(api.galas.setGalaTour, { code: "SANJ", date: "2026-12-01" }),
     ).rejects.toThrow(/super-user/i);
     await expect(
-      asViewer.mutation(api.tours.clearTour, { tier: "SANJ" }),
+      asViewer.mutation(api.galas.clearGalaTour, { code: "SANJ" }),
+    ).rejects.toThrow(/super-user/i);
+    await expect(
+      asCoach.mutation(api.galas.setGalaEligibility, {
+        code: "SANJ",
+        minAge: null,
+        maxAge: 18,
+      }),
     ).rejects.toThrow(/super-user/i);
   });
 
@@ -243,6 +262,16 @@ describe("tours (dates are super-user reference data; qualification is role-scop
         .query("profiles")
         .withIndex("by_authId", (q) => q.eq("authId", ids.coachA))
         .unique();
+      // The SANJ gala row the cuts hang off.
+      const sanj = await ctx.db.insert("galas", {
+        code: "SANJ",
+        displayName: "SA National Junior Championships",
+        shortLabel: "SANJ",
+        ageScope: "AGE_GRADED",
+        coveredEvents: [{ distance: 100, stroke: "FREE" }],
+        sortHint: 2,
+        season: "2027",
+      });
       for (const [swimmerId, gender] of [
         [ids.swimmerA, "F"],
         [ids.swimmerB, "M"],
@@ -263,7 +292,8 @@ describe("tours (dates are super-user reference data; qualification is role-scop
         // swimmer is on the day the suite runs (fixed DOBs, corrected §4.9
         // rule = judged at current age). Both beat 70.00, so both qualify.
         await ctx.db.insert("standards", {
-          tier: "SANJ",
+          galaId: sanj,
+          course: "LCM",
           gender,
           distance: 100,
           stroke: "FREE",
@@ -275,17 +305,17 @@ describe("tours (dates are super-user reference data; qualification is role-scop
       }
     });
 
-    // The coach sees both; the viewer sees only Ava — across EVERY tier.
+    // The coach sees both; the viewer sees only Ava — across EVERY gala.
     const coachView = await asCoach.query(api.tours.getTourQualification, {});
     expect(
       new Set(
-        coachView.tiers.flatMap((x) => x.swimmers.map((s) => s.swimmerId)),
+        coachView.galas.flatMap((x) => x.swimmers.map((s) => s.swimmerId)),
       ),
     ).toEqual(new Set([ids.swimmerA, ids.swimmerB]));
 
     const viewerView = await asViewer.query(api.tours.getTourQualification, {});
     expect(
-      viewerView.tiers.flatMap((x) => x.swimmers.map((s) => s.swimmerId)),
+      viewerView.galas.flatMap((x) => x.swimmers.map((s) => s.swimmerId)),
     ).toEqual([ids.swimmerA]);
     expect(viewerView.hasSwimmers).toBe(true);
   });

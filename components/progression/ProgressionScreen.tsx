@@ -19,7 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { TargetTierToggle } from "@/components/qualifying/TargetTierToggle";
 import { trailForHref } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
-import { formatTime, type Course, type Stroke, type Tier } from "@/lib/swim";
+import { formatTime, type Course, type Stroke, type GalaCode } from "@/lib/swim";
 import { EventFilter } from "@/components/analysis/EventFilter";
 import { type EventValue } from "@/components/analysis/EventPicker";
 import { ProgressionChart } from "./ProgressionChart";
@@ -87,7 +87,7 @@ export function ProgressionScreen() {
   const [mode, setMode] = useState<Mode>("one");
   // The projection needs one cut to aim at, so it owns its target tier locally
   // (default SANJ — the hardest, so the line reaches the furthest goal).
-  const [projectionTier, setProjectionTier] = useState<Tier>("SANJ");
+  const [projectionTier, setProjectionTier] = useState<GalaCode>("SANJ");
   // History (every logged swim + the cuts, no forecast) is the default view —
   // the honest, unembellished read; Projection is opt-in.
   const [chartView, setChartView] = useState<ChartView>("history");

@@ -1,16 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import { curveLinear } from "@visx/curve";
+import { Grid } from "@/components/charts/grid";
+import { Line } from "@/components/charts/line";
+import { LineChart } from "@/components/charts/line-chart";
+import { StaticChartPreviewProvider } from "@/components/charts/static-chart-preview-context";
+import { ChartTooltip as BklitChartTooltip } from "@/components/charts/tooltip";
+import { XAxis } from "@/components/charts/x-axis";
 import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+  GalaCutOverlay,
+  SWIM_TOOLTIP_PANEL,
+  SwimDots,
+  TooltipMeta,
+  TooltipRows,
+  TooltipValue,
+  ValueAxis,
+  type CutLine,
+} from "@/components/charts/swim";
+import { CHART, TIER_STYLE } from "@/components/analysis/chartTheme";
+import { formatTime } from "@/lib/swim";
+import { formatShortDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { DateField } from "@/components/ui/DateField";
@@ -18,7 +28,7 @@ import { Kbd } from "@/components/ui/Kbd";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { QualifyCelebration } from "@/components/me/QualifyCelebration";
 import { Segmented } from "@/components/ui/Segmented";
-import { TierBadge, type Tier } from "@/components/ui/TierBadge";
+import { TierBadge, type BadgeGala } from "@/components/ui/TierBadge";
 import { notify } from "@/lib/notify";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
@@ -28,34 +38,97 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
   vocabulary on one page, so the system can be critiqued and later steps have a
   living reference. No product logic lives here.
 
-  NOTE: swim times are shown as literal canonical `m:ss:hh` strings — the real
-  ms<->text parser is a later step. `fmtAxis` is a preview-only tick helper.
+  Swim times run through the real `formatTime`, and the chart is the real bklit
+  composition with the real cut-overlay shapes — so this page documents the
+  system as built rather than a sketch of it. Only the DATA is invented.
 */
 
-const SANJ_MS = 132000; // 2:12.00
-const L3_MS = 136000; // 2:16.00
-const L2_MS = 142000; // 2:22.00
+/*
+  200 Free LCM for one 15-year-old across the 2025-26 season, with a birthday in
+  January. Four galas, not five: the entry windows mean nobody is ever eligible
+  for all five at once (SANS opens at 15, SANY at 17, and the age-graded galas
+  close at 16), so a five-line chart would document a system the app does not
+  have. At 15 the real set is L2 / L3 / SANJ / SANS.
+*/
+const SANS_MS = 128_000; // 2:08.00 — open standard: one cut at every age
+const SANJ_15 = 132_000; // 2:12.00 — age-graded, so it steps on the birthday
+const SANJ_16 = 130_500; // 2:10.50
+const L3_15 = 136_000; // 2:16.00
+const L3_16 = 134_500; // 2:14.50
+const L2_15 = 142_000; // 2:22.00
+const L2_16 = 140_000; // 2:20.00
 
-type Point = { label: string; ms: number; type: "MEET" | "PRACTICE" };
-
-const SERIES: Point[] = [
-  { label: "Sep", ms: 140200, type: "PRACTICE" },
-  { label: "Oct", ms: 138400, type: "MEET" },
-  { label: "Nov", ms: 137100, type: "PRACTICE" },
-  { label: "Dec", ms: 135600, type: "MEET" },
-  { label: "Feb", ms: 134200, type: "MEET" },
-  { label: "Apr", ms: 132900, type: "PRACTICE" },
-  { label: "Jun", ms: 131800, type: "MEET" },
-];
-
-function fmtAxis(ms: number): string {
-  const totalSec = ms / 1000;
-  const m = Math.floor(totalSec / 60);
-  const s = Math.floor(totalSec % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
+/** ISO date -> epoch ms, matching how the real chart places a swim. */
+function at(iso: string): number {
+  return Date.parse(`${iso}T00:00:00Z`);
 }
 
-type Row = { name: string; age: number; event: string; pb: string; tier: Tier; gap: string };
+const SEASON_START = at("2025-09-01");
+const BIRTHDAY = at("2026-01-14");
+const SEASON_END = at("2026-06-20");
+
+type Point = { date: string; ms: number; type: "MEET" | "PRACTICE" };
+
+const SERIES: Point[] = [
+  { date: "2025-09-13", ms: 140_200, type: "PRACTICE" },
+  { date: "2025-10-18", ms: 138_400, type: "MEET" },
+  { date: "2025-11-22", ms: 137_100, type: "PRACTICE" },
+  { date: "2025-12-06", ms: 135_600, type: "MEET" },
+  { date: "2026-02-21", ms: 134_200, type: "MEET" },
+  { date: "2026-04-11", ms: 132_900, type: "PRACTICE" },
+  { date: "2026-06-20", ms: 131_800, type: "MEET" },
+];
+
+/*
+  The two cut shapes the app draws, side by side. An OPEN gala (SANS) publishes
+  one cut for every age, so its line spans the season. An AGE-GRADED gala steps
+  on the birthday: a segment at the 15 cut, a vertical riser, then a segment at
+  the 16 cut — one continuous standard rather than two floating rules.
+*/
+function agedCut(
+  gala: "SANJ" | "LEVEL_3" | "LEVEL_2",
+  at15: number,
+  at16: number,
+): CutLine[] {
+  const st = TIER_STYLE[gala];
+  const base = { color: st.color, dash: st.dash, full: false };
+  return [
+    { ...base, key: `${gala}-15`, y: at15, x1: SEASON_START, x2: BIRTHDAY },
+    { ...base, key: `${gala}-riser`, y: at15, y2: at16, x1: BIRTHDAY, x2: BIRTHDAY },
+    { ...base, key: `${gala}-16`, y: at16, x1: BIRTHDAY, x2: SEASON_END },
+  ];
+}
+
+const CUT_LINES: CutLine[] = [
+  {
+    key: "SANS",
+    color: TIER_STYLE.SANS.color,
+    dash: TIER_STYLE.SANS.dash,
+    y: SANS_MS,
+    full: true,
+    x1: SEASON_START,
+    x2: SEASON_END,
+  },
+  ...agedCut("SANJ", SANJ_15, SANJ_16),
+  ...agedCut("LEVEL_3", L3_15, L3_16),
+  ...agedCut("LEVEL_2", L2_15, L2_16),
+];
+
+const PREVIEW_ROWS = SERIES.map((p, i) => ({
+  date: new Date(at(p.date)),
+  t: at(p.date),
+  ms: p.ms,
+  // The last MEET swim is the PB, so the wheel of marks is all represented.
+  msmark:
+    p.type === "MEET" && i === SERIES.length - 1
+      ? ("pb" as const)
+      : p.type === "MEET"
+        ? ("meet" as const)
+        : ("trial" as const),
+  type: p.type,
+}));
+
+type Row = { name: string; age: number; event: string; pb: string; tier: BadgeGala; gap: string };
 
 const ROWS: Row[] = [
   { name: "Ntando Mbeki", age: 14, event: "200 Free", pb: "2:11:80", tier: "SANJ", gap: "qualified" },
@@ -94,7 +167,12 @@ export default function PreviewPage() {
             breadcrumb={[{ label: "Dashboard", href: "/" }, { label: "Dashboard" }]}
             description="The deep-water band carries the title and breadcrumb. Chrome only — no data lives here, so it never competes with the tier or stroke palettes."
           />
-          <QualifyCelebration tier="SANJ" eventLabel="50 Fly" timeMs={29880} />
+          <QualifyCelebration
+            gala="SANS"
+            eventLabel="50 Fly"
+            course="LCM"
+            timeMs={29880}
+          />
         </div>
       </section>
 
@@ -145,7 +223,7 @@ export default function PreviewPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <TierBadge tier="SANJ" />
+            <TierBadge gala="SANJ" />
             <span className="inline-flex items-center gap-1.5 rounded-sm bg-success-subtle px-2 py-1 text-xs font-medium text-success-ink">
               <CheckIcon /> Qualified
             </span>
@@ -170,59 +248,46 @@ export default function PreviewPage() {
         </div>
 
         <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={SERIES} margin={{ top: 8, right: 12, bottom: 4, left: 8 }}>
-              <CartesianGrid stroke="var(--color-border)" vertical={false} />
-              <XAxis
-                dataKey="label"
-                tick={{ fill: "var(--color-ink-muted)", fontSize: 12 }}
-                tickLine={false}
-                axisLine={{ stroke: "var(--color-border)" }}
-              />
-              <YAxis
-                reversed
-                width={52}
-                domain={[130500, 143000]}
-                tickFormatter={fmtAxis}
-                tick={{ fill: "var(--color-ink-muted)", fontSize: 12 }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip cursor={{ stroke: "var(--color-border-strong)" }} content={<ChartTooltip />} />
-
-              {/* LCM qualifying standards. Faster (lower ms) sits higher on the reversed axis. */}
-              <ReferenceLine
-                y={L2_MS}
-                stroke="var(--color-tier-l2)"
-                strokeDasharray="4 4"
-                label={{ value: "L2", position: "left", fill: "var(--color-tier-l2-ink)", fontSize: 11 }}
-              />
-              <ReferenceLine
-                y={L3_MS}
-                stroke="var(--color-tier-l3)"
-                strokeDasharray="4 4"
-                label={{ value: "L3", position: "left", fill: "var(--color-tier-l3-ink)", fontSize: 11 }}
-              />
-              <ReferenceLine
-                y={SANJ_MS}
-                stroke="var(--color-tier-sanj)"
-                strokeDasharray="4 4"
-                label={{ value: "SANJ", position: "left", fill: "var(--color-tier-sanj-ink)", fontSize: 11 }}
-              />
-
+          <MaybeStatic reduced={reduced}>
+            <LineChart
+              animationDuration={600}
+              // Fill the h-64 parent rather than bklit's default "2 / 1".
+              aspectRatio=""
+              data={PREVIEW_ROWS}
+              margin={{ top: 8, right: 16, bottom: 26, left: 56 }}
+              style={{ height: "100%" }}
+              xDataKey="date"
+              xLabelFormat={(d) =>
+                formatShortDate(d.toISOString().slice(0, 10))
+              }
+              // Floored well below the fastest cut, never at zero: an axis from
+              // zero would squeeze this whole season into the top of the plot.
+              // The real chart floors just under the world record.
+              yDomain={[124_000, 144_000]}
+            >
+              <Grid horizontal stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+              <XAxis numTicks={5} tickMode="domain" />
+              <ValueAxis format={formatTime} label="Time" width={56} />
+              <GalaCutOverlay cuts={CUT_LINES} strokeOpacity={0.9} />
               <Line
-                type="monotone"
+                curve={curveLinear}
                 dataKey="ms"
-                stroke="var(--color-brand-500)"
+                fadeEdges={false}
+                stroke={CHART.accent}
                 strokeWidth={2}
-                dot={<SwimDot />}
-                activeDot={{ r: 5, fill: "var(--color-brand-500)", stroke: "var(--color-surface)", strokeWidth: 2 }}
-                isAnimationActive={!reduced}
-                animationDuration={600}
-                animationEasing="ease-out"
+              />
+              <SwimDots color={CHART.accent} dataKey="ms" markKey="msmark" />
+              <BklitChartTooltip
+                content={({ point }) => (
+                  <PreviewTooltip row={point as (typeof PREVIEW_ROWS)[number]} />
+                )}
+                indicatorColor={CHART.axis}
+                indicatorDasharray="3 3"
+                panelStyle={SWIM_TOOLTIP_PANEL}
+                showDots={false}
               />
             </LineChart>
-          </ResponsiveContainer>
+          </MaybeStatic>
         </div>
       </section>
 
@@ -253,7 +318,7 @@ export default function PreviewPage() {
                 <td className="px-4 py-3 text-ink-muted">{r.event}</td>
                 <td className="time px-4 py-3 text-right text-ink">{r.pb}</td>
                 <td className="px-4 py-3">
-                  <TierBadge tier={r.tier} />
+                  <TierBadge gala={r.tier} />
                 </td>
                 <td className="px-6 py-3 text-ink-muted">
                   {r.gap === "qualified" ? (
@@ -386,9 +451,9 @@ export default function PreviewPage() {
           greyscale and under colour-blindness.
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-4">
-          {(["SANJ", "LEVEL_3", "LEVEL_2", "NONE"] as Tier[]).map((t) => (
+          {(["SANS", "SANY", "SANJ", "LEVEL_3", "LEVEL_2", "NONE"] as BadgeGala[]).map((t) => (
             <div key={t} className="flex items-center gap-2">
-              <TierBadge tier={t} />
+              <TierBadge gala={t} />
               <span className="text-sm text-ink-muted">
                 {t === "SANJ" ? "top" : t === "LEVEL_3" ? "mid" : t === "LEVEL_2" ? "entry" : "unranked"}
               </span>
@@ -461,45 +526,63 @@ function Skeleton({ className = "" }: { className?: string }) {
 
 function ChartLegend() {
   return (
-    <div className="flex items-center gap-4 text-xs text-ink-muted">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-ink-muted">
       <span className="inline-flex items-center gap-1.5">
         <span className="size-2.5 rounded-full bg-brand-500" aria-hidden /> Meet
       </span>
       <span className="inline-flex items-center gap-1.5">
-        <span className="size-2.5 rounded-full border-2 border-brand-500 bg-white" aria-hidden /> Practice
+        <span
+          className="size-2.5 rounded-full border-2 border-brand-500 bg-white"
+          aria-hidden
+        />{" "}
+        Practice
       </span>
+      {/* A gala is never colour-only: glyph + short label, always. */}
+      {(["SANS", "SANJ", "LEVEL_3", "LEVEL_2"] as const).map((gala) => {
+        const st = TIER_STYLE[gala];
+        return (
+          <span className="inline-flex items-center gap-1.5" key={gala}>
+            <span aria-hidden className="text-2xs leading-none" style={{ color: st.ink }}>
+              {st.glyph}
+            </span>
+            <span className="font-medium text-ink">{st.label}</span>
+          </span>
+        );
+      })}
     </div>
   );
 }
 
-type DotProps = { cx?: number; cy?: number; payload?: Point };
-
-function SwimDot({ cx, cy, payload }: DotProps) {
-  if (cx == null || cy == null || !payload) return null;
-  const isMeet = payload.type === "MEET";
+/* bklit hands `content` the hovered row. The card is bklit's TooltipBox; only
+   the stack inside it is ours — the same helpers the real charts use. */
+function PreviewTooltip({
+  row,
+}: {
+  row: { t: number; ms: number; type: "MEET" | "PRACTICE" };
+}) {
+  if (!row?.ms) return null;
   return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={4}
-      fill={isMeet ? "var(--color-brand-500)" : "var(--color-surface)"}
-      stroke="var(--color-brand-500)"
-      strokeWidth={2}
-    />
+    <TooltipRows>
+      <TooltipValue>{formatTime(row.ms)}</TooltipValue>
+      <TooltipMeta>
+        <span>{formatShortDate(new Date(row.t).toISOString().slice(0, 10))}</span>
+        <span>{row.type === "MEET" ? "Meet" : "Practice"}</span>
+      </TooltipMeta>
+    </TooltipRows>
   );
 }
 
-type TooltipProps = { active?: boolean; payload?: Array<{ payload: Point }> };
-
-function ChartTooltip({ active, payload }: TooltipProps) {
-  if (!active || !payload?.length) return null;
-  const p = payload[0].payload;
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-theme-md">
-      <div className="time text-base text-ink">{fmtAxis(p.ms)}</div>
-      <div className="mt-0.5 text-xs text-ink-muted">
-        {p.label} · {p.type === "MEET" ? "Meet" : "Practice"}
-      </div>
-    </div>
+/** Renders children at rest (no enter animation) when motion is reduced. */
+function MaybeStatic({
+  reduced,
+  children,
+}: {
+  reduced: boolean;
+  children: React.ReactNode;
+}) {
+  return reduced ? (
+    <StaticChartPreviewProvider>{children}</StaticChartPreviewProvider>
+  ) : (
+    <>{children}</>
   );
 }

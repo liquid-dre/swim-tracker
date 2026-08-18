@@ -7,11 +7,12 @@ import { cn } from "@/lib/utils";
 /*
   shadcn/ui Badge on our tokens (DESIGN.md §4/§5). Structure only in the base;
   colour lives in the variants so every badge reads from the same vocabulary.
-  The tier variants (sanj / l3 / l2) carry the semantic tier scale — a subtle
-  tinted surface + tier-coloured ink + a matching hairline border, so a tier
-  badge looks deliberate rather than a default grey pill. `none` is the muted
-  dashed-outline "no tier met" state. Colour is never the sole signal here — the
-  label text (SANJ / L3 / L2) always rides along (see TierBadge).
+  The gala variants (sans / sany / sanj / l3 / l2) carry the semantic gala
+  identity set — a subtle tinted surface + gala-coloured ink + a matching
+  hairline border, so a gala badge looks deliberate rather than a default grey
+  pill. `none` is the muted dashed-outline "no gala met" state. Colour is never
+  the sole signal here — the label text (SANS / SANY / SANJ / L3 / L2) always
+  rides along (see TierBadge), and colour never encodes difficulty ORDER.
 */
 const badgeVariants = cva(
   "inline-flex w-fit shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium leading-none transition-[color,background-color,border-color] [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring [&>svg]:pointer-events-none [&>svg]:size-3 [&>svg]:shrink-0",
@@ -23,6 +24,8 @@ const badgeVariants = cva(
         outline: "border-border text-ink-muted",
         success: "border-success-subtle bg-success-subtle text-success-ink",
         warning: "border-warning-subtle bg-warning-subtle text-warning-ink",
+        sans: "border-tier-sans-border bg-tier-sans-bg text-tier-sans-ink",
+        sany: "border-tier-sany-border bg-tier-sany-bg text-tier-sany-ink",
         sanj: "border-tier-sanj-border bg-tier-sanj-bg text-tier-sanj-ink",
         l3: "border-tier-l3-border bg-tier-l3-bg text-tier-l3-ink",
         l2: "border-tier-l2-border bg-tier-l2-bg text-tier-l2-ink",

@@ -78,14 +78,21 @@
   --shadow-sm: var(--shadow-theme-sm);
   --shadow-md: var(--shadow-theme-md);
 
-  /* ---- App-semantic tier tokens (DESIGN.md §3) — never colour-only ----
-     One distinctive hue per tier, forming an ascending prestige ramp:
-     sapphire (L2, entry) → purple (L3, mid) → gold (SANJ, top). Each is the
-     tier's ONE colour everywhere it appears (badges, cut lines, progress bars,
-     the matrix), so a colour reads as the same tier system-wide. Kept clear of
-     the reserved signals — green = qualified, red = error, brand indigo =
-     action — so a tier is never mistaken for a state. */
-  --color-tier-sanj: #f79009; /* gold — top (hardest) */
+  /* ---- App-semantic gala tokens (DESIGN.md §3) — never colour-only ----
+     Five galas cannot form a legible ordered ramp, so these hues are a
+     CATEGORICAL IDENTITY SET, not a scale: difficulty order is carried by
+     GALA_ORDER and by the badge label, never by colour. Two families:
+       • the AGE-GRADED ladder — sapphire (L2) → purple (L3) → gold (SANJ)
+       • the OPEN senior pair  — pink (SANY) and rose (SANS)
+     Grouping the two open galas chromatically is deliberate: they are the same
+     KIND of gala (one cut for every age, entry by window), and their labels do
+     the discriminating. Each hue is that gala's ONE colour everywhere it appears
+     (badges, cut lines, progress bars, the matrix). All are kept clear of the
+     reserved signals — green = qualified, red = error, brand indigo = action —
+     so a gala is never mistaken for a state. */
+  --color-tier-sans: #e31b54; /* rose — SA Senior Nationals (open, 15+) */
+  --color-tier-sany: #c11574; /* deep pink — SA National Youth (open, 17–25) */
+  --color-tier-sanj: #f79009; /* gold — top of the age-graded ladder */
   --color-tier-l3: #9333ea; /* vivid purple — mid */
   --color-tier-l2: #0086c9; /* sapphire / deep sky — entry */
   --color-tier-none: #98a2b3; /* gray-400 — no standard met */
@@ -123,7 +130,13 @@
   --color-water-2: #123f7a;
   --color-water-3: #0e5a73;
 
-  /* Derived tier badge tints (bg / ink / border) — a11y-tuned label colours. */
+  /* Derived gala badge tints (bg / ink / border) — a11y-tuned label colours. */
+  --color-tier-sans-bg: #fff1f3;
+  --color-tier-sans-ink: #c01048;
+  --color-tier-sans-border: #fecdd6;
+  --color-tier-sany-bg: #fdf2fa;
+  --color-tier-sany-ink: #9e165f;
+  --color-tier-sany-border: #fcceee;
   --color-tier-sanj-bg: #fffaeb;
   --color-tier-sanj-ink: #b54708;
   --color-tier-sanj-border: #fedf89;
@@ -234,6 +247,38 @@
   --sidebar-accent-foreground: var(--color-gray-800);
   --sidebar-border: var(--color-gray-200);
   --sidebar-ring: var(--color-brand-500);
+  /* bklit chart furniture (DESIGN.md §3). The registry ships a greyscale
+     oklch palette of its own; every value is repointed at our ramp so a chart
+     cannot introduce a colour the rest of the app does not have. --chart-1..5
+     are bklit's default SERIES palette, so they mirror SERIES_COLORS in
+     components/analysis/chartTheme.ts. */
+  --chart-1: var(--color-brand-500);
+  --chart-2: var(--color-blue-light-500);
+  --chart-3: var(--color-success-500);
+  --chart-4: var(--color-warning-500);
+  --chart-5: var(--color-brand-700);
+  --chart-background: #ffffff;
+  --chart-foreground: var(--color-gray-700);
+  --chart-foreground-muted: var(--color-gray-500);
+  --chart-line-primary: var(--chart-1);
+  --chart-line-secondary: var(--chart-2);
+  --chart-crosshair: var(--color-gray-300);
+  --chart-grid: var(--color-gray-200);
+  --chart-brush-border: var(--chart-grid);
+  --chart-tooltip-background: #ffffff;
+  --chart-tooltip-foreground: var(--color-gray-900);
+  --chart-tooltip-muted: var(--color-gray-500);
+  --chart-marker-background: #ffffff;
+  --chart-marker-border: var(--color-gray-200);
+  --chart-marker-foreground: var(--color-gray-700);
+  --chart-label: var(--color-gray-500);
+  /* Sequential ramp (choropleth / heat scales). Brand tints, lightest first. */
+  --chart-scale-01: var(--color-brand-25);
+  --chart-scale-02: var(--color-brand-100);
+  --chart-scale-03: var(--color-brand-300);
+  --chart-scale-04: var(--color-brand-500);
+  --chart-scale-05: var(--color-brand-700);
+  --chart-scale-pattern-color: var(--color-brand-50);
 }
 
 .dark {
@@ -285,6 +330,29 @@
   --sidebar-accent-foreground: var(--color-gray-100);
   --sidebar-border: var(--color-gray-800);
   --sidebar-ring: var(--color-brand-500);
+  /* Chart furniture, dark. Only the neutrals flip — the series hues and the
+     tier colours stay put so a line means the same thing in either theme.
+     bklit omits the tooltip trio from its own dark block; they are set here
+     too, or the light values would leak through. */
+  --chart-background: var(--color-gray-900);
+  --chart-foreground: var(--color-gray-200);
+  --chart-foreground-muted: var(--color-gray-400);
+  --chart-crosshair: var(--color-gray-600);
+  --chart-grid: var(--color-gray-800);
+  --chart-brush-border: var(--chart-grid);
+  --chart-tooltip-background: var(--color-gray-800);
+  --chart-tooltip-foreground: var(--color-gray-100);
+  --chart-tooltip-muted: var(--color-gray-400);
+  --chart-marker-background: var(--color-gray-800);
+  --chart-marker-border: var(--color-gray-700);
+  --chart-marker-foreground: var(--color-gray-100);
+  --chart-label: var(--color-gray-400);
+  --chart-scale-01: var(--color-brand-900);
+  --chart-scale-02: var(--color-brand-800);
+  --chart-scale-03: var(--color-brand-600);
+  --chart-scale-04: var(--color-brand-500);
+  --chart-scale-05: var(--color-brand-300);
+  --chart-scale-pattern-color: var(--color-gray-900);
 }
 
 /*
@@ -342,6 +410,38 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* bklit chart tokens. The `shadcn add` codegen emitted these as
+     `var(----chart-*)` — it prefixes `--` onto a name that already carries it,
+     so every one of them resolved to nothing and `text-chart-label` in
+     components/charts/x-axis.tsx rendered unstyled. Three more
+     (brush-border, line-primary, line-secondary) came through without the
+     `--color-` prefix and so generated no utility at all. Both fixed here. */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-background: var(--chart-background);
+  --color-chart-foreground: var(--chart-foreground);
+  --color-chart-foreground-muted: var(--chart-foreground-muted);
+  --color-chart-line-primary: var(--chart-line-primary);
+  --color-chart-line-secondary: var(--chart-line-secondary);
+  --color-chart-crosshair: var(--chart-crosshair);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-brush-border: var(--chart-brush-border);
+  --color-chart-tooltip-background: var(--chart-tooltip-background);
+  --color-chart-tooltip-foreground: var(--chart-tooltip-foreground);
+  --color-chart-tooltip-muted: var(--chart-tooltip-muted);
+  --color-chart-marker-background: var(--chart-marker-background);
+  --color-chart-marker-border: var(--chart-marker-border);
+  --color-chart-marker-foreground: var(--chart-marker-foreground);
+  --color-chart-label: var(--chart-label);
+  --color-chart-scale-01: var(--chart-scale-01);
+  --color-chart-scale-02: var(--chart-scale-02);
+  --color-chart-scale-03: var(--chart-scale-03);
+  --color-chart-scale-04: var(--chart-scale-04);
+  --color-chart-scale-05: var(--chart-scale-05);
+  --color-chart-scale-pattern-color: var(--chart-scale-pattern-color);
 }
 
 @layer base {

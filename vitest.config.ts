@@ -14,6 +14,19 @@ export default defineConfig({
         },
       },
       {
+        // Chart geometry and data-shaping. Pure TS (no JSX, no DOM) on purpose:
+        // the components keep only scale lookups and rendering, so the parts
+        // that could be wrong in a visible way are testable on node.
+        test: {
+          name: "components",
+          environment: "node",
+          include: ["components/**/*.test.ts"],
+        },
+        resolve: {
+          alias: { "@": new URL(".", import.meta.url).pathname },
+        },
+      },
+      {
         test: {
           name: "convex",
           environment: "edge-runtime",

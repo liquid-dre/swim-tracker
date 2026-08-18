@@ -13,7 +13,7 @@ import { Select } from "@/components/ui/Select";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { trailForHref } from "@/lib/nav";
 import { swimmerProfileBase } from "@/lib/swimmerHref";
-import { formatTime, type Course, type Stroke, type Tier } from "@/lib/swim";
+import { formatTime, type Course, type Stroke, type GalaCode } from "@/lib/swim";
 import { formatShortDate, formatSeconds } from "@/lib/format";
 import { EventFilter } from "@/components/analysis/EventFilter";
 import { type EventValue } from "@/components/analysis/EventPicker";
@@ -94,9 +94,9 @@ export function CompareScreen() {
   );
 
   // Vertical cut lines: one pinned exact age AND one gender (a single cut is only
-  // unambiguous then — cuts differ by both). Uses the exact-age resolver. The
-  // long-course cut is the reference on both courses, so lines/colours show on
-  // SCM too (the resolver returns the same cut regardless of course).
+  // unambiguous then — cuts differ by both). Uses the exact-age resolver, for the
+  // course this comparison is actually ranking: every gala publishes its own
+  // short- and long-course standards, so no cut is borrowed across courses (§4.2).
   const showLines = effectiveAge !== "ALL" && gender !== "ALL";
   const applicable = useQuery(
     api.standards.getApplicableStandards,
@@ -105,6 +105,7 @@ export function CompareScreen() {
           gender: gender as "M" | "F",
           distance: event.distance as 50 | 100 | 200 | 400 | 800 | 1500,
           stroke: event.stroke as Stroke,
+          course: event.course as Course,
           age: effectiveAge as number,
         }
       : "skip",
@@ -120,9 +121,9 @@ export function CompareScreen() {
     return out;
   }, [showLines, applicable]);
 
-  const barTiers: Tier[] = useMemo(
+  const barTiers: GalaCode[] = useMemo(
     () =>
-      [...new Set(rows.map((r) => r.highestTier).filter((t): t is Tier => t !== null))],
+      [...new Set(rows.map((r) => r.highestGala).filter((t): t is GalaCode => t !== null))],
     [rows],
   );
 

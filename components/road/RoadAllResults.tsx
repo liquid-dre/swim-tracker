@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 
-import type { Tier } from "@/lib/swim";
+import { buildRingScale, type GalaCode } from "@/lib/swim";
+import { GALA_ORDER, GALA_SHORT, GALA_TOKEN } from "@/lib/galas";
 import type { ProfileEvent } from "@/components/profile/strokeProfile";
 import {
   AllTierLegend,
@@ -11,19 +12,25 @@ import {
 } from "./QualifyingProgress";
 
 /*
-  Road-to-qualify "All" mode (Step R3). Reuses the stroke-profile read (all three
-  cuts + the shared calibrated PB position + highest tier met, LCM / exact-age /
-  meet-PB) to draw one bar per event with the L2/L3/SANJ zones, ranked by the
-  hardest tier met. Presentational — fed by the query, or the preview harness.
+  Road-to-qualify "All" mode (Step R3). Reuses the stroke-profile read (each
+  event's cuts + the shared calibrated PB position + highest gala met, long
+  course / exact-age / meet-PB) to draw one bar per event with a zone per ring,
+  ranked by the hardest gala met. The zone count is the swimmer's own — the galas
+  they can enter, so 2-4 — which is why the track is labelled per swimmer rather
+  than with a fixed L2/L3/SANJ axis. Presentational: fed by the query, or the
+  preview harness.
 */
 
 export type AllData = {
   swimmer: { name: string; age: number; active: boolean };
   events: ProfileEvent[];
+  /** The wheel/track rings, inner → outer, as `getStrokeProfile` returns them. */
+  ringGalas: GalaCode[];
 };
 
 export function AllTierResults({ data }: { data: AllData }) {
   const events = data.events;
+  const scale = useMemo(() => buildRingScale(data.ringGalas), [data.ringGalas]);
 
   const bars = useMemo<AllBar[]>(
     () =>
@@ -31,22 +38,21 @@ export function AllTierResults({ data }: { data: AllData }) {
         key: `${e.distance}|${e.stroke}`,
         label: e.label,
         pbMs: e.pbMs,
-        l2Ms: e.l2Ms,
-        l3Ms: e.l3Ms,
-        sanjMs: e.sanjMs,
+        cuts: e.cuts,
         calibratedRadius: e.calibratedRadius,
       })),
     [events],
   );
 
   const counts = useMemo(() => {
-    const c = { SANJ: 0, LEVEL_3: 0, LEVEL_2: 0, none: 0, noTime: 0 };
+    const c = { none: 0, noTime: 0 } as Record<GalaCode | "none" | "noTime", number>;
+    for (const gala of GALA_ORDER) c[gala] = 0;
     for (const e of events) {
       if (e.pbMs === null) c.noTime += 1;
-      if (e.highestTier === null) {
+      if (e.highestGala === null) {
         if (e.pbMs !== null) c.none += 1;
       } else {
-        c[e.highestTier] += 1;
+        c[e.highestGala] += 1;
       }
     }
     return c;
@@ -61,32 +67,41 @@ export function AllTierResults({ data }: { data: AllData }) {
           {!data.swimmer.active && <span className="text-ink-faint">· inactive</span>}
         </div>
         <span aria-hidden className="h-3.5 w-px bg-border" />
-        <Stat label="Target" value="All tiers" />
         <Stat label="Applicable" value={String(events.length)} />
-        <Stat label="SANJ" value={String(counts.SANJ)} tier="SANJ" muted={counts.SANJ === 0} />
-        <Stat label="L3" value={String(counts.LEVEL_3)} tier="LEVEL_3" muted={counts.LEVEL_3 === 0} />
-        <Stat label="L2" value={String(counts.LEVEL_2)} tier="LEVEL_2" muted={counts.LEVEL_2 === 0} />
+        {/* One chip per ring on this swimmer's track, hardest first — never a
+            gala they cannot enter. */}
+        {[...scale.order].reverse().map((gala) => (
+          <Stat
+            key={gala}
+            label={GALA_SHORT[gala]}
+            value={String(counts[gala])}
+            tier={gala}
+            muted={counts[gala] === 0}
+          />
+        ))}
       </div>
 
       <section className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-sm font-semibold text-ink">Qualifying progress</h2>
           <p className="text-xs text-ink-faint">
-            Easiest → hardest · fill = highest tier met
+            Easiest → hardest · fill = highest gala met
           </p>
         </div>
-        <AllTierProgress bars={bars} />
-        <AllTierLegend />
+        <AllTierProgress bars={bars} scale={scale} />
+        <AllTierLegend scale={scale} />
       </section>
     </div>
   );
 }
 
-const TIER_DOT: Record<Tier, string> = {
-  SANJ: "var(--color-tier-sanj)",
-  LEVEL_3: "var(--color-tier-l3)",
-  LEVEL_2: "var(--color-tier-l2)",
-};
+const TIER_DOT: Record<GalaCode, string> = GALA_ORDER.reduce(
+  (acc, gala) => {
+    acc[gala] = `var(--color-tier-${GALA_TOKEN[gala]})`;
+    return acc;
+  },
+  {} as Record<GalaCode, string>,
+);
 
 function Stat({
   label,
@@ -96,7 +111,7 @@ function Stat({
 }: {
   label: string;
   value: string;
-  tier?: Tier;
+  tier?: GalaCode;
   muted?: boolean;
 }) {
   return (

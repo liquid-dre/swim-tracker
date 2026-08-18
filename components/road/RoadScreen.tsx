@@ -16,7 +16,8 @@ import { StandardsMissing } from "@/components/ui/StandardsMissing";
 import { trailForHref } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { usePickerSwimmers } from "@/lib/usePickerSwimmers";
-import { formatTime, TIER_FULL, type Tier } from "@/lib/swim";
+import { formatTime, type Course, type CourseMode } from "@/lib/swim";
+import { GALA_FULL, GALA_MEDIUM, GALA_ORDER, type GalaCode } from "@/lib/galas";
 import { formatSeconds, formatShortDate } from "@/lib/format";
 import {
   SingleTierLegend,
@@ -27,33 +28,37 @@ import { AllTierResults } from "./RoadAllResults";
 
 /*
   Road to qualify (Step 12 / R3, BRD §5.10–5.11). For one swimmer at one target,
-  two linked LCM-only reads of readiness. The target toggle is L2 / L3 / SANJ /
-  All:
+  two linked reads of readiness. The target is any of the five galas, or All:
 
     • Gap to cut — the anchor. One horizontal bar per applicable event, closest
       to the cut first, so the low-hanging events surface immediately. Qualified
       events (PB ≤ cut) are flagged in the success green and grouped; events with
-      no long-course meet time are listed separately, never drawn as a huge gap.
-    • Qualifying progress — single-tier: one bar per event filling toward that
-      tier's cut, most-complete first. All: one bar per event with the L2/L3/SANJ
+      no meet time are listed separately, never drawn as a huge gap.
+    • Qualifying progress — single-gala: one bar per event filling toward that
+      gala's cut, most-complete first. All: one bar per event with the age-graded
       cuts as fixed calibrated zones, filled to the swimmer's PB and coloured by
-      the highest tier met.
+      the highest gala met.
+
+  Both courses qualify (§4.2), so each row is measured in whichever course the
+  swimmer is CLOSEST in and says which one that was; the course selector pins it
+  to one course when you want an unambiguous single-course read.
 
   Coverage is automatic (§4.9): SANJ has no 50s, L2 nothing above 200 m — the
-  query only returns events the tier covers at the swimmer's EXACT age, so the
-  toggle reshapes the whole screen without any client-side event list.
+  query only returns events the gala covers at the swimmer's EXACT age, so the
+  target reshapes the whole screen without any client-side event list.
+
+  With five galas a segmented control no longer fits, so the target uses the
+  shared styled picker (CLAUDE.md's one-dropdown rule) with All alongside it.
 */
 
-// The Road target selector — the three tiers plus an All view. The three real
-// tiers stay in the shared/persisted store (so the choice carries to other
-// screens); "ALL" is a Road-local overlay that never touches that store, so the
-// projection toggle elsewhere (Tier only) is unaffected.
-type RoadTarget = Tier | "ALL";
+type RoadTarget = GalaCode | "ALL";
 
 type RoadEvent = {
   distance: number;
   stroke: string;
   label: string;
+  /** The course this row is measured in (§4.2). */
+  course: Course;
   cutMs: number;
   pbMs: number | null;
   gapMs: number | null;
@@ -75,25 +80,26 @@ export function RoadScreen() {
   // Opens on the all-tiers zoned view by default; the specific-tier choice is a
   // per-session, page-local override (no global default any more).
   const [showAll, setShowAll] = useState(true);
-  const [tier, setTier] = useState<Tier>("LEVEL_2");
+  const [gala, setGala] = useState<GalaCode>("LEVEL_2");
+  const [courseMode, setCourseMode] = useState<CourseMode>("BEST");
   const [swimmerId, setSwimmerId] = useState<Id<"swimmers"> | "">("");
 
-  const target: RoadTarget = showAll ? "ALL" : tier;
+  const target: RoadTarget = showAll ? "ALL" : gala;
   const setTarget = (next: RoadTarget) => {
     if (next === "ALL") setShowAll(true);
     else {
       setShowAll(false);
-      setTier(next);
+      setGala(next);
     }
   };
 
-  // Single-tier gap/progress read (skipped in All mode).
+  // Single-gala gap/progress read (skipped in All mode).
   const data = useQuery(
     api.analysis.getRoadToQualify,
-    swimmerId === "" || showAll ? "skip" : { swimmerId, tier },
+    swimmerId === "" || showAll ? "skip" : { swimmerId, gala, courseMode },
   );
-  // All-tier read reuses the stroke-profile data (all three cuts + the shared
-  // calibrated position + highest tier met, already LCM / exact-age / meet-PB).
+  // All-gala read reuses the stroke-profile data (the three age-graded cuts + the
+  // shared calibrated position + highest gala met, exact-age / meet-PB).
   const allData = useQuery(
     api.analysis.getStrokeProfile,
     swimmerId === "" || !showAll ? "skip" : { swimmerId },
@@ -115,7 +121,7 @@ export function RoadScreen() {
       <PageHeader
         title="Road to qualify"
         breadcrumb={trailForHref(pathname)}
-        description="For one swimmer, the gap from their fastest long-course meet time to each qualifying cut, closest first. Trials and practice never count; standards resolve to the swimmer's exact age."
+        description="For one swimmer, the gap from their fastest meet time to each qualifying cut, closest first. Either course can qualify them, so each row is measured in the course they're nearest in. Trials and practice never count; standards resolve to the swimmer's exact age."
       />
 
       {/* Slim toolbar: swimmer + target tier inline, so the gap chart leads. */}
@@ -135,17 +141,35 @@ export function RoadScreen() {
                 }))}
               />
             </div>
-            <Segmented
-              ariaLabel="Target qualifying tier"
-              value={target}
-              onChange={setTarget}
-              options={[
-                { value: "LEVEL_2", label: "L2" },
-                { value: "LEVEL_3", label: "L3" },
-                { value: "SANJ", label: "SANJ" },
-                { value: "ALL", label: "All" },
-              ]}
-            />
+            <div className="w-full max-w-xs sm:w-44">
+              <Select
+                aria-label="Target gala"
+                value={target}
+                onValueChange={(v) => setTarget(v as RoadTarget)}
+                options={[
+                  ...GALA_ORDER.map((code) => ({
+                    value: code as string,
+                    label: GALA_MEDIUM[code],
+                  })),
+                  // Not "All galas": this view is the calibrated zoned scale,
+                  // which only the three age-graded galas sit on (SANS/SANY are
+                  // open standards). The label must not overclaim.
+                  { value: "ALL", label: "All age-graded" },
+                ]}
+              />
+            </div>
+            {!showAll && (
+              <Segmented
+                ariaLabel="Which course to measure"
+                value={courseMode}
+                onChange={setCourseMode}
+                options={[
+                  { value: "BEST", label: "Best of both" },
+                  { value: "LCM", label: "Long" },
+                  { value: "SCM", label: "Short" },
+                ]}
+              />
+            )}
           </>
         }
       />
@@ -153,7 +177,7 @@ export function RoadScreen() {
       {!swimmerChosen ? (
         <EmptyState
           title="Choose a swimmer"
-          body="Select a swimmer above to see how close they are to every Level 2, Level 3 or SANJ cut for their exact age."
+          body="Select a swimmer above to see how close they are to every gala cut for their exact age, in whichever course they're nearest in."
         />
       ) : showAll ? (
         allData === undefined ? (
@@ -172,7 +196,7 @@ export function RoadScreen() {
         ) : allData.events.length === 0 ? (
           <EmptyState
             title={`No qualifying cuts at age ${allData.swimmer.age}`}
-            body={`${allData.swimmer.name} has no long-course qualifying cuts at their exact age yet. This may be an age no tier covers.`}
+            body={`${allData.swimmer.name} has no qualifying cuts at their exact age yet. This may be an age no gala covers.`}
           />
         ) : (
           <>
@@ -181,9 +205,9 @@ export function RoadScreen() {
                 name={allData.swimmer.name}
                 age={allData.swimmer.age}
                 date={allData.agedUpAt}
-                pinnedTiers={(["SANJ", "LEVEL_3", "LEVEL_2"] as const)
-                  .filter((t) => allData.tourDates[t] !== undefined)
-                  .map((t) => TIER_FULL[t])}
+                pinnedTiers={GALA_ORDER.filter(
+                  (code) => allData.tourDates[code] !== undefined,
+                ).map((code) => GALA_FULL[code])}
               />
             )}
             <AllTierResults data={allData} />
@@ -202,16 +226,23 @@ export function RoadScreen() {
         ) : (
           <StandardsMissing isStaff={isStaff} />
         )
+      ) : data.ineligible ? (
+        // Outside the gala's entry window there is no road at all — say why,
+        // rather than showing an empty list that reads as "nothing imported".
+        <EmptyState
+          title={`Age ${data.swimmer.age} can't enter ${data.displayName}`}
+          body={`${data.swimmer.name} is outside this gala's entry age range, so none of its cuts apply to them. Pick another target, or correct the range under Admin › Galas.`}
+        />
       ) : data.events.length === 0 ? (
         <EmptyState
-          title={`No ${TIER_FULL[tier]} cuts at age ${data.swimmer.age}`}
-          body={`${data.swimmer.name} has no ${TIER_FULL[tier]} events at their exact age. This tier may not cover their age group. Try another target tier.`}
+          title={`No ${GALA_MEDIUM[gala]} cuts at age ${data.swimmer.age}`}
+          body={`${data.swimmer.name} has no ${GALA_MEDIUM[gala]} events at their exact age. This gala may not cover their age group. Try another target.`}
         />
       ) : (
         <>
           {data.tour && (
             <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
-              {data.tour.name ?? `${TIER_FULL[tier]} tour`} ·{" "}
+              {data.tour.name ?? `${GALA_FULL[gala]} tour`} ·{" "}
               {formatShortDate(data.tour.date)} — every cut here is the one{" "}
               {data.swimmer.name} must meet at age {data.tour.ageAtTour}, their
               age on tour day.
@@ -224,7 +255,7 @@ export function RoadScreen() {
               date={data.agedUpAt}
             />
           )}
-          <RoadResults data={data} tier={tier} />
+          <RoadResults data={data} gala={gala} courseMode={courseMode} />
         </>
       )}
     </div>
@@ -236,8 +267,18 @@ export function RoadScreen() {
 // Results — presentational (fed by the query, or by the preview harness)
 // ---------------------------------------------------------------------------
 
-export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
+export function RoadResults({
+  data,
+  gala,
+  courseMode = "BEST",
+}: {
+  data: RoadData;
+  gala: GalaCode;
+  courseMode?: CourseMode;
+}) {
   const events = data.events;
+  // Only worth tagging each row when more than one course is in play.
+  const showCourse = courseMode === "BEST";
 
   // Three groups the BRD calls for: still chasing (the closest-first anchor),
   // already qualified (grouped, green), and no long-course meet time yet.
@@ -264,6 +305,7 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
         .map((e) => ({
           key: `${e.distance}|${e.stroke}`,
           label: e.label,
+          course: e.course,
           pbMs: e.pbMs as number,
           cutMs: e.cutMs,
           gapMs: e.gapMs as number,
@@ -278,7 +320,7 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
         name={data.swimmer.name}
         age={data.swimmer.age}
         active={data.swimmer.active}
-        tier={tier}
+        gala={gala}
         applicable={events.length}
         qualified={qualified.length}
         chasing={chasing.length}
@@ -290,7 +332,7 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-sm font-semibold text-ink">Gap to the cut</h2>
           <p className="text-xs text-ink-faint">
-            Shorter bar = closer · {TIER_FULL[tier]}
+            Shorter bar = closer · {GALA_MEDIUM[gala]}
           </p>
         </div>
 
@@ -300,30 +342,35 @@ export function RoadResults({ data, tier }: { data: RoadData; tier: Tier }) {
             count={chasing.length}
             rows={chasing}
             maxGapPct={maxGapPct}
+            showCourse={showCourse}
           />
         ) : (
           <p className="text-sm text-ink-muted">
-            No events left to chase at this tier — every applicable event is
+            No events left to chase at this gala — every applicable event is
             either qualified or has no time yet.
           </p>
         )}
 
-        {qualified.length > 0 && <QualifiedGroup rows={qualified} />}
+        {qualified.length > 0 && (
+          <QualifiedGroup rows={qualified} showCourse={showCourse} />
+        )}
 
-        {noTime.length > 0 && <NoTimeGroup rows={noTime} />}
+        {noTime.length > 0 && (
+          <NoTimeGroup rows={noTime} showCourse={showCourse} />
+        )}
       </section>
 
-      {/* Qualifying progress — one bar per event filling toward this tier's cut */}
+      {/* Qualifying progress — one bar per event filling toward this gala's cut */}
       {progressBars.length > 0 && (
         <section className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="text-sm font-semibold text-ink">Qualifying progress</h2>
             <p className="text-xs text-ink-faint">
-              Full bar = qualified · {TIER_FULL[tier]}
+              Full bar = qualified · {GALA_MEDIUM[gala]}
             </p>
           </div>
           <SingleTierProgress bars={progressBars} />
-          <SingleTierLegend tierLabel={TIER_FULL[tier]} />
+          <SingleTierLegend tierLabel={GALA_MEDIUM[gala]} />
         </section>
       )}
     </div>
@@ -338,7 +385,7 @@ function SummaryBar({
   name,
   age,
   active,
-  tier,
+  gala,
   applicable,
   qualified,
   chasing,
@@ -347,7 +394,7 @@ function SummaryBar({
   name: string;
   age: number;
   active: boolean;
-  tier: Tier;
+  gala: GalaCode;
   applicable: number;
   qualified: number;
   chasing: number;
@@ -361,7 +408,7 @@ function SummaryBar({
         {!active && <span className="text-ink-faint">· inactive</span>}
       </div>
       <span aria-hidden className="h-3.5 w-px bg-border" />
-      <Stat label="Target" value={TIER_FULL[tier]} />
+      <Stat label="Target" value={GALA_MEDIUM[gala]} />
       <Stat label="Applicable" value={String(applicable)} />
       <Stat
         label="Qualified"
@@ -422,16 +469,40 @@ function GroupHeading({ label, count }: { label: string; count: number }) {
   );
 }
 
+/*
+  Which course a row is measured in. In "best of both" mode different events can
+  legitimately resolve in different courses, so every row has to say which one —
+  otherwise "1.0s to SANJ" silently hides whether that is the 50 m or the 25 m
+  cut. Suppressed on a pinned single-course view, where the toolbar already
+  answers it and a tag on every row would be noise.
+*/
+const COURSE_TAG: Record<Course, { short: string; full: string }> = {
+  LCM: { short: "LC", full: "long course" },
+  SCM: { short: "SC", full: "short course" },
+};
+
+function CourseTag({ course, show }: { course: Course; show: boolean }) {
+  if (!show) return null;
+  return (
+    <span className="rounded border border-border px-1 text-2xs font-medium leading-[1.4] text-ink-faint">
+      {COURSE_TAG[course].short}
+      <span className="sr-only"> ({COURSE_TAG[course].full})</span>
+    </span>
+  );
+}
+
 function GapGroup({
   heading,
   count,
   rows,
   maxGapPct,
+  showCourse,
 }: {
   heading: string;
   count: number;
   rows: RoadEvent[];
   maxGapPct: number;
+  showCourse: boolean;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -439,14 +510,27 @@ function GapGroup({
       {/* Flush divider rows, not a bordered inner box — no card-in-card. */}
       <ul className="flex flex-col divide-y divide-gray-100">
         {rows.map((e) => (
-          <GapRow key={`${e.distance}|${e.stroke}`} e={e} maxGapPct={maxGapPct} />
+          <GapRow
+            key={`${e.distance}|${e.stroke}`}
+            e={e}
+            maxGapPct={maxGapPct}
+            showCourse={showCourse}
+          />
         ))}
       </ul>
     </div>
   );
 }
 
-function GapRow({ e, maxGapPct }: { e: RoadEvent; maxGapPct: number }) {
+function GapRow({
+  e,
+  maxGapPct,
+  showCourse,
+}: {
+  e: RoadEvent;
+  maxGapPct: number;
+  showCourse: boolean;
+}) {
   const gapMs = e.gapMs as number;
   const gapPct = e.gapPct as number;
   // Sliver floor so the closest events are still a visible mark, not nothing.
@@ -455,7 +539,10 @@ function GapRow({ e, maxGapPct }: { e: RoadEvent; maxGapPct: number }) {
   return (
     <li className="flex items-center gap-4 py-3">
       <div className="w-24 shrink-0 sm:w-28">
-        <div className="font-medium text-ink">{e.label}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium text-ink">{e.label}</span>
+          <CourseTag course={e.course} show={showCourse} />
+        </div>
         <div className="time tnum mt-0.5 text-xs text-ink-faint">
           {formatTime(e.pbMs as number)} → {formatTime(e.cutMs)}
         </div>
@@ -481,7 +568,13 @@ function GapRow({ e, maxGapPct }: { e: RoadEvent; maxGapPct: number }) {
   );
 }
 
-function QualifiedGroup({ rows }: { rows: RoadEvent[] }) {
+function QualifiedGroup({
+  rows,
+  showCourse,
+}: {
+  rows: RoadEvent[];
+  showCourse: boolean;
+}) {
   return (
     <div className="flex flex-col gap-2">
       <GroupHeading label="Qualified" count={rows.length} />
@@ -501,9 +594,10 @@ function QualifiedGroup({ rows }: { rows: RoadEvent[] }) {
               >
                 <Check className="size-3" strokeWidth={3} />
               </span>
-              <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
                 <span className="font-medium text-ink">{e.label}</span>
-                <span className="time tnum ml-2 text-xs text-ink-faint">
+                <CourseTag course={e.course} show={showCourse} />
+                <span className="time tnum text-xs text-ink-faint">
                   {formatTime(e.pbMs as number)} ≤ {formatTime(e.cutMs)}
                 </span>
               </div>
@@ -523,19 +617,28 @@ function QualifiedGroup({ rows }: { rows: RoadEvent[] }) {
   );
 }
 
-function NoTimeGroup({ rows }: { rows: RoadEvent[] }) {
+function NoTimeGroup({
+  rows,
+  showCourse,
+}: {
+  rows: RoadEvent[];
+  showCourse: boolean;
+}) {
   return (
     <div className="flex flex-col gap-2">
       <GroupHeading label="No time yet" count={rows.length} />
       {/* Flush muted rows — the heading already says "no time", so each row only
-          carries the cut a long-course meet time would have to beat. */}
+          carries the cut a meet time would have to beat. */}
       <ul className="flex flex-col divide-y divide-gray-100">
         {rows.map((e) => (
           <li
             key={`${e.distance}|${e.stroke}`}
             className="flex items-center justify-between gap-4 py-2.5"
           >
-            <span className="font-medium text-ink-muted">{e.label}</span>
+            <span className="flex items-center gap-1.5 font-medium text-ink-muted">
+              {e.label}
+              <CourseTag course={e.course} show={showCourse} />
+            </span>
             <span className="time tnum text-xs text-ink-faint">
               cut {formatTime(e.cutMs)}
             </span>

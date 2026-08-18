@@ -4,6 +4,26 @@
 // can be unit-tested in isolation and reused by both the server (Convex) and the
 // client. Times are integer **milliseconds** everywhere internally (BRD §4.4).
 
+// Gala identity (codes, order, labels, coverage, eligibility) lives in
+// ./galas — a type-only import there keeps the module graph one-directional.
+import type {
+  AgeScope,
+  CoveredEvent,
+  GalaCode,
+  GalaCoverage,
+  GalaEligibility,
+} from "./galas";
+import {
+  GALA_FULL,
+  GALA_MEDIUM,
+  GALA_ORDER,
+  GALA_SHORT,
+  GALA_TOKEN,
+  galaCoversEvent,
+  isGalaAgeEligible,
+  isGalaCode,
+} from "./galas";
+
 // ---------------------------------------------------------------------------
 // Domain types (mirror the shared validators in convex/schema.ts, BRD §4.1–4.3)
 // ---------------------------------------------------------------------------
@@ -683,64 +703,48 @@ export function computePersonalBests(
 }
 
 // ---------------------------------------------------------------------------
-// 8. Qualifying standards — tiers, coverage, resolution (BRD §4.9, Step 8)
+// 8. Qualifying standards — galas, coverage, resolution (BRD §4.9, Step 8)
 // ---------------------------------------------------------------------------
 //
-// All standards are LONG COURSE (LCM) only — never SCM (§4.2, §4.9). Every
-// function here is pure so the same rules run in the Convex importer/queries
-// and in unit tests. Times are integer milliseconds (via parseTime).
+// Cuts exist SEPARATELY for each course: every gala publishes both a long-course
+// and a short-course standard and both are valid for entry, so a cut is only
+// ever compared against a PB of the SAME course (§4.2) — never borrowed across
+// courses, never interpolated. Every function here is pure so the same rules run
+// in the Convex importer/queries and in unit tests. Times are integer ms.
+//
+// Gala identity, ordering, labels and coverage live in `lib/galas.ts`; this
+// section is the resolution logic that consumes them.
 
-export type Tier = "LEVEL_2" | "LEVEL_3" | "SANJ";
+// Re-exported so the ~25 consumers keep importing swim-domain names from one
+// place; the definitions themselves live in ./galas.
+export type { AgeScope, CoveredEvent, GalaCode, GalaCoverage, GalaEligibility };
+export {
+  GALA_FULL,
+  GALA_MEDIUM,
+  GALA_ORDER,
+  GALA_SHORT,
+  GALA_TOKEN,
+  galaCoversEvent,
+  isGalaAgeEligible,
+  isGalaCode,
+};
 
 /**
- * Tier order HARDEST → EASIEST (§4.9 — deliberately inverted from the names):
- * SANJ (fastest cut) > LEVEL_3 > LEVEL_2 (entry). Every "highest tier met" and
- * colour/rank decision must walk tiers in this order.
+ * The gala fields resolution needs: its code, its age window, and its tour date
+ * (which decides WHICH age the cut resolves at — the birthday rule).
  */
-export const TIER_ORDER: ReadonlyArray<Tier> = ["SANJ", "LEVEL_3", "LEVEL_2"];
+export type GalaRef = GalaEligibility & {
+  code: GalaCode;
+  tourDate?: string | null;
+};
 
 /**
- * Coverage is a HARD rule (§4.9), not merely missing data: a tier only has cuts
- * for the events listed below (LCM implied). Anything else has no cut and must
- * never be imported, resolved, or drawn — never interpolate or borrow a tier.
- *
- *   - 50 m:     LEVEL_2 only (no 50 m L3/SANJ, ever).
- *   - LEVEL_2:  up to 200 m inclusive (+ 200 IM); nothing longer.
- *   - LEVEL_3:  100/200/400 + 200 IM; no 50s, no 800/1500, no 200 Fly, no 400 IM.
- *   - SANJ:     100→1500 Free, all strokes' 100/200, 400 Free/IM, 200 IM; no 50s.
- *
- * Note this is coverage only; whether the (distance, stroke) is a real LCM event
- * is a separate check (`isValidEvent(..., "LCM", …)`), e.g. 100 IM is SCM-only.
+ * The minimal cut fields the resolver reads. `age` is ABSENT on an open
+ * standard (SANS/SANY publish one cut for every age); age-graded galas always
+ * carry an exact age plus, for the youngest band, a catch-all flag.
  */
-export function tierCoversEvent(
-  tier: Tier,
-  distance: Distance | number,
-  stroke: Stroke | string,
-): boolean {
-  const d = Number(distance);
-  const s = stroke as Stroke;
-  switch (tier) {
-    case "LEVEL_2":
-      // 50–200 m (50 m is LEVEL_2-only; 200 IM included). 25 m sprints are
-      // development events with no qualifying cut, so exclude them.
-      return d >= 50 && d <= 200;
-    case "LEVEL_3":
-      if (s === "IM") return d === 200; // 200 IM only (no 400 IM)
-      if (s === "FLY") return d === 100; // no 200 Fly
-      if (s === "FREE") return d === 100 || d === 200 || d === 400;
-      return d === 100 || d === 200; // BACK / BREAST
-    case "SANJ":
-      if (s === "FREE") return d >= 100; // 100/200/400/800/1500
-      if (s === "IM") return d === 200 || d === 400; // 200 IM + 400 IM
-      return d === 100 || d === 200; // BACK / BREAST / FLY
-    default:
-      return false;
-  }
-}
-
-/** The minimal cut fields the resolver reads (one per exact age / catch-all). */
 export type StandardCut = {
-  age: number;
+  age?: number | null;
   isCatchAllYoung: boolean; // applies to ages <= age (e.g. "10&U")
   isCatchAllOld: boolean; // applies to ages >= age (e.g. "17-19")
   timeMs: number;
@@ -750,8 +754,12 @@ export type StandardCut = {
  * The cut (ms) that applies to a swimmer's EXACT single-year age, honouring
  * catch-alls (§4.9): `isCatchAllYoung` matches ages ≤ its bound, `isCatchAllOld`
  * matches ages ≥ its bound, otherwise the age must match exactly. An exact-age
- * row always wins over a catch-all. Returns null when no row applies (sparse
- * coverage → no line). Never interpolates.
+ * row always wins over a catch-all, and a catch-all wins over an OPEN row (a
+ * row with no age at all, which applies to every age). Returns null when no row
+ * applies (sparse coverage → no line). Never interpolates.
+ *
+ * NOTE this ignores the gala's age WINDOW — eligibility is a separate gate, so
+ * prefer `resolveGalaCut` unless you have already checked it.
  */
 export function resolveStandardTime(
   cuts: ReadonlyArray<StandardCut>,
@@ -760,196 +768,268 @@ export function resolveStandardTime(
   let exact: StandardCut | null = null;
   let young: StandardCut | null = null; // narrowest young catch-all that covers
   let old: StandardCut | null = null; // widest old catch-all that covers
+  let open: StandardCut | null = null; // age-agnostic cut (SANS / SANY)
 
   for (const c of cuts) {
-    if (!c.isCatchAllYoung && !c.isCatchAllOld) {
+    if (c.age == null) {
+      open = c;
+    } else if (!c.isCatchAllYoung && !c.isCatchAllOld) {
       if (c.age === exactAge) exact = c;
     } else if (c.isCatchAllYoung && exactAge <= c.age) {
-      if (young === null || c.age < young.age) young = c;
+      if (young === null || (c.age as number) < (young.age as number)) young = c;
     } else if (c.isCatchAllOld && exactAge >= c.age) {
-      if (old === null || c.age > old.age) old = c;
+      if (old === null || (c.age as number) > (old.age as number)) old = c;
     }
   }
 
-  const match = exact ?? young ?? old;
+  const match = exact ?? young ?? old ?? open;
   return match ? match.timeMs : null;
 }
 
-/** The applicable cuts for one exact age, per tier; missing tiers are omitted. */
-export type ApplicableStandards = {
-  LEVEL_2?: number;
-  LEVEL_3?: number;
-  SANJ?: number;
-};
-
 /**
- * Resolve the L2/L3/SANJ cuts for one (gender, distance, stroke) at an exact
- * age from a flat list of that event's cut rows (§4.9). Tiers with no applicable
- * cut are omitted entirely — the caller renders no line for them. LCM only.
+ * The cut a swimmer of this exact age must actually beat for one gala: null when
+ * the age falls outside the gala's entry window (no cut to chase even though
+ * rows exist), otherwise `resolveStandardTime` over that gala's rows.
  */
-export function pickApplicableStandards(
-  rows: ReadonlyArray<StandardCut & { tier: Tier }>,
+export function resolveGalaCut(
+  gala: GalaRef,
+  cuts: ReadonlyArray<StandardCut>,
   exactAge: number,
-): ApplicableStandards {
-  const out: ApplicableStandards = {};
-  for (const tier of TIER_ORDER) {
-    const ms = resolveStandardTime(
-      rows.filter((r) => r.tier === tier),
-      exactAge,
-    );
-    if (ms !== null) out[tier] = ms;
-  }
-  return out;
+): number | null {
+  if (!isGalaAgeEligible(gala, exactAge)) return null;
+  return resolveStandardTime(cuts, exactAge);
 }
 
-/** Full display names for the tiers — the one copy every screen shares. */
-export const TIER_FULL: Record<Tier, string> = {
-  SANJ: "SANJ",
-  LEVEL_3: "Level 3",
-  LEVEL_2: "Level 2",
-};
+/** The applicable cuts for one exact age, per gala; missing galas are omitted. */
+export type CutsByGala = Partial<Record<GalaCode, number>>;
 
-/** Tour dates by tier (ISO YYYY-MM-DD). Absent tier = no tour date set. */
-export type TourDateByTier = Partial<Record<Tier, string>>;
+/** Cuts for one event resolved in BOTH courses — a cut is course-specific. */
+export type CutsByCourse = Record<Course, CutsByGala>;
+
+/** An empty both-course cut set (the "no standards at all" starting point). */
+export function emptyCutsByCourse(): CutsByCourse {
+  return { LCM: {}, SCM: {} };
+}
 
 /**
- * The exact age each tier's cut resolves at for one swimmer (the birthday
- * rule, per tour): a tier WITH a tour date judges the swimmer at the age they
- * will be ON TOUR DAY; a tier without one keeps `fallbackAge` (the age the PB
+ * Resolve every gala's cut for one (gender, distance, stroke, course) at an
+ * exact age from a flat list of that event's cut rows (§4.9). Galas with no
+ * applicable cut — no coverage, no row for that age, or the swimmer outside the
+ * entry window — are omitted entirely, and the caller renders no line for them.
+ */
+export function pickApplicableStandards(
+  rows: ReadonlyArray<StandardCut & { gala: GalaCode }>,
+  galas: ReadonlyArray<GalaRef>,
+  exactAge: number,
+): CutsByGala {
+  const ages = {} as Record<GalaCode, number>;
+  for (const gala of galas) ages[gala.code] = exactAge;
+  return pickApplicableStandardsPerGala(rows, galas, ages);
+}
+
+/** Tour dates by gala (ISO YYYY-MM-DD). Absent gala = no tour date set. */
+export type TourDateByGala = Partial<Record<GalaCode, string>>;
+
+/**
+ * The exact age each gala's cut resolves at for one swimmer (the birthday
+ * rule, per tour): a gala WITH a tour date judges the swimmer at the age they
+ * will be ON TOUR DAY; a gala without one keeps `fallbackAge` (the age the PB
  * was swum, or today's age — current behaviour, §4.9). With no tour dates at
  * all this is `fallbackAge` across the board, i.e. exactly today's rule.
  */
-export function tierResolutionAges(
+export function galaResolutionAges(
   dob: string,
   fallbackAge: number,
-  tours: TourDateByTier,
-): Record<Tier, number> {
-  const out = {} as Record<Tier, number>;
-  for (const tier of TIER_ORDER) {
-    const tourDate = tours[tier];
-    out[tier] = tourDate !== undefined ? computeAge(dob, tourDate) : fallbackAge;
+  galas: ReadonlyArray<GalaRef>,
+): Record<GalaCode, number> {
+  const out = {} as Record<GalaCode, number>;
+  for (const gala of galas) {
+    const tourDate = gala.tourDate;
+    out[gala.code] =
+      tourDate != null ? computeAge(dob, tourDate) : fallbackAge;
   }
   return out;
 }
 
 /**
- * `pickApplicableStandards`, but each tier resolves at ITS OWN exact age —
- * needed once tour dates exist, because different tours fall on different
- * dates and the swimmer may age up between them. Same output shape, so
- * `computeMatrixCell` / `highestTierMet` work unchanged; coverage holes are
- * still omitted, never interpolated.
+ * `pickApplicableStandards`, but each gala resolves at ITS OWN exact age —
+ * needed because different tours fall on different dates and the swimmer may
+ * age up between them. Same output shape, so `computeMatrixCell` /
+ * `highestGalaMet` work unchanged; coverage holes and ineligible ages are still
+ * omitted, never interpolated.
  */
-export function pickApplicableStandardsPerTier(
-  rows: ReadonlyArray<StandardCut & { tier: Tier }>,
-  ages: Record<Tier, number>,
-): ApplicableStandards {
-  const out: ApplicableStandards = {};
-  for (const tier of TIER_ORDER) {
-    const ms = resolveStandardTime(
-      rows.filter((r) => r.tier === tier),
-      ages[tier],
+export function pickApplicableStandardsPerGala(
+  rows: ReadonlyArray<StandardCut & { gala: GalaCode }>,
+  galas: ReadonlyArray<GalaRef>,
+  ages: Record<GalaCode, number>,
+): CutsByGala {
+  const out: CutsByGala = {};
+  const byCode = new Map(galas.map((g) => [g.code, g]));
+  for (const code of GALA_ORDER) {
+    const gala = byCode.get(code);
+    if (gala === undefined) continue; // gala not loaded → nothing to resolve
+    const ms = resolveGalaCut(
+      gala,
+      rows.filter((r) => r.gala === code),
+      ages[code],
     );
-    if (ms !== null) out[tier] = ms;
+    if (ms !== null) out[code] = ms;
   }
   return out;
 }
 
 /**
- * The HARDEST tier a personal best meets, walking SANJ → LEVEL_3 → LEVEL_2
- * (§4.9). "Met" = the PB is at or under the cut (`pbMs <= cut`). Tiers with no
- * cut (undefined/null) are skipped. Returns null when no tier is met.
+ * Which courses a qualifying surface is judging on. "BEST" is the honest answer
+ * to "is my swimmer in?" — both courses are valid for entry, so a swimmer
+ * qualifies if EITHER their LCM or their SCM headline meet PB beats that
+ * course's own cut. "LCM"/"SCM" isolate one course for a per-course read.
  */
-export function highestTierMet(
-  pbMs: number,
-  cutsByTier: {
-    LEVEL_2?: number | null;
-    LEVEL_3?: number | null;
-    SANJ?: number | null;
-  },
-): Tier | null {
-  for (const tier of TIER_ORDER) {
-    const cut = cutsByTier[tier];
-    if (cut != null && pbMs <= cut) return tier;
+export type CourseMode = "LCM" | "SCM" | "BEST";
+
+/** The courses a mode actually looks at, in a stable order. */
+export function coursesForMode(mode: CourseMode): ReadonlyArray<Course> {
+  return mode === "BEST" ? (["LCM", "SCM"] as const) : ([mode] as const);
+}
+
+/** Headline MEET PBs for one event, per course (absent/null = never raced). */
+export type PbByCourse = Partial<Record<Course, number | null>>;
+
+/** A gala met, and the course the swimmer actually met it in. */
+export type GalaMet = { gala: GalaCode; course: Course };
+
+/**
+ * The HARDEST gala a swimmer's headline PBs meet, walking `GALA_ORDER`
+ * (SANS → SANY → SANJ → L3 → L2). "Met" = a PB is at or under the cut FOR THE
+ * SAME COURSE (`pbMs <= cut`) — a long-course PB is never measured against a
+ * short-course cut. Galas with no cut are skipped. Returns null when none is
+ * met. When both courses meet the same gala, the one with the bigger margin is
+ * reported, so the surfaced course is the swimmer's strongest.
+ */
+export function highestGalaMet(
+  pb: PbByCourse,
+  cuts: CutsByCourse,
+  mode: CourseMode = "BEST",
+): GalaMet | null {
+  const courses = coursesForMode(mode);
+  for (const gala of GALA_ORDER) {
+    let best: GalaMet | null = null;
+    let bestMargin = -1;
+    for (const course of courses) {
+      const cut = cuts[course]?.[gala];
+      const pbMs = pb[course];
+      if (cut == null || pbMs == null || pbMs > cut) continue;
+      const margin = cut - pbMs;
+      if (margin > bestMargin) {
+        bestMargin = margin;
+        best = { gala, course };
+      }
+    }
+    if (best !== null) return best;
   }
   return null;
 }
 
-/** Cuts by tier for one swimmer × event, already resolved to an EXACT age. */
-export type CutsByTier = {
-  LEVEL_2?: number | null;
-  LEVEL_3?: number | null;
-  SANJ?: number | null;
-};
-
 /**
- * One cell of the qualification status matrix (BRD §5.7): the hardest tier a
- * headline PB meets, plus the gap to the NEXT tier up. Purely derived so it is
+ * One cell of the qualification status matrix (BRD §5.7): the hardest gala a
+ * headline PB meets, plus the gap to the NEXT gala up. Purely derived so it is
  * unit-testable and identical everywhere.
  *
- * `cutsByTier` are this event's cuts resolved to the swimmer's EXACT single-year
- * age and gender (never the two-year display band, §4.9); a tier is absent when
- * no cut covers that age. Only tiers that actually have a cut are considered, so
- * "next up" always points at a real target.
+ * `cuts` are this event's cuts resolved to the swimmer's EXACT single-year age
+ * and gender (never the two-year display band, §4.9), separately per course; a
+ * gala is absent when it has no coverage, no row for that age, or the swimmer is
+ * outside its entry window. Only galas that actually have a cut are considered,
+ * so "next up" always points at a real target.
  *
- *   - `hasCut`   false when NO tier has a cut here → the cell is blank/neutral.
- *   - `tier`     the hardest tier met (SANJ > L3 > L2), or null if none met / no PB.
- *   - `nextTier` the next-harder tier that still has a cut to aim for; null once
- *                the hardest available tier is met (nothing left to chase).
- *   - `gapMs`    PB − the next tier's cut (always ≥ 0: how much to drop). null at
- *                the top tier, when no PB exists yet, or when no cut exists.
+ *   - `hasCut`     false when NO gala has a cut here → the cell is blank/neutral.
+ *   - `gala`       the hardest gala met, or null if none met / no PB.
+ *   - `galaCourse` which course met it (the cell's L/S marker); null if none met.
+ *   - `nextGala`   the next-harder gala that still has a cut to aim for; null
+ *                  once the hardest available gala is met (nothing left to chase).
+ *   - `gapMs`      PB − the next gala's cut (always ≥ 0: how much to drop),
+ *                  measured in whichever active course the swimmer is CLOSEST in.
+ *                  null at the top gala, with no PB, or when no cut exists.
+ *   - `gapCourse`  the course `gapMs` was measured in.
  */
 export type MatrixCell = {
   hasCut: boolean;
-  tier: Tier | null;
-  nextTier: Tier | null;
+  gala: GalaCode | null;
+  galaCourse: Course | null;
+  nextGala: GalaCode | null;
   gapMs: number | null;
+  gapCourse: Course | null;
+};
+
+const BLANK_CELL: MatrixCell = {
+  hasCut: false,
+  gala: null,
+  galaCourse: null,
+  nextGala: null,
+  gapMs: null,
+  gapCourse: null,
 };
 
 export function computeMatrixCell(
-  pbMs: number | null,
-  cutsByTier: CutsByTier,
+  pb: PbByCourse,
+  cuts: CutsByCourse,
+  mode: CourseMode = "BEST",
 ): MatrixCell {
-  // Tiers that actually have a cut here, hardest → easiest (§4.9 order).
-  const available = TIER_ORDER.filter((t) => cutsByTier[t] != null);
+  const courses = coursesForMode(mode);
 
-  // No cut at any tier for this exact age → nothing to show (blank/neutral).
-  if (available.length === 0) {
-    return { hasCut: false, tier: null, nextTier: null, gapMs: null };
-  }
+  // Galas that actually have a cut here in an active course, hardest → easiest.
+  const available = GALA_ORDER.filter((gala) =>
+    courses.some((course) => cuts[course]?.[gala] != null),
+  );
 
-  // A cut exists but no headline (meet) time yet: the target is the easiest
-  // tier, but there is no gap to measure without a PB.
-  if (pbMs === null) {
+  // No cut at any gala for this exact age → nothing to show (blank/neutral).
+  if (available.length === 0) return BLANK_CELL;
+
+  // A cut exists but no headline (meet) time yet in any active course: the
+  // target is the easiest gala, but there is no gap to measure without a PB.
+  const hasPb = courses.some((course) => pb[course] != null);
+  if (!hasPb) {
     return {
+      ...BLANK_CELL,
       hasCut: true,
-      tier: null,
-      nextTier: available[available.length - 1],
-      gapMs: null,
+      nextGala: available[available.length - 1],
     };
   }
 
-  // Highest tier met = the first (hardest) available cut the PB is at or under.
-  let metIdx = -1;
-  for (let i = 0; i < available.length; i++) {
-    if (pbMs <= (cutsByTier[available[i]] as number)) {
-      metIdx = i;
-      break;
+  const met = highestGalaMet(pb, cuts, mode);
+  const metIdx = met === null ? -1 : available.indexOf(met.gala);
+
+  // Next gala up: one step harder than the one met. If the hardest available
+  // gala is already met there is nothing above it; if none is met the target is
+  // the easiest available gala.
+  let nextGala: GalaCode | null;
+  if (metIdx === 0) nextGala = null;
+  else if (metIdx === -1) nextGala = available[available.length - 1];
+  else nextGala = available[metIdx - 1];
+
+  // The gap is the swimmer's BEST chance at that gala: the smallest shortfall
+  // across the active courses, since either course would qualify them.
+  let gapMs: number | null = null;
+  let gapCourse: Course | null = null;
+  if (nextGala !== null) {
+    for (const course of courses) {
+      const cut = cuts[course]?.[nextGala];
+      const pbMs = pb[course];
+      if (cut == null || pbMs == null) continue;
+      const gap = pbMs - cut;
+      if (gapMs === null || gap < gapMs) {
+        gapMs = gap;
+        gapCourse = course;
+      }
     }
   }
-  const tier = metIdx >= 0 ? available[metIdx] : null;
 
-  // Next tier up: the tier one step harder than the one met. If the hardest
-  // available tier is already met there is nothing above it; if none is met the
-  // target is the easiest available tier.
-  let nextTier: Tier | null;
-  if (metIdx === 0) nextTier = null;
-  else if (metIdx === -1) nextTier = available[available.length - 1];
-  else nextTier = available[metIdx - 1];
-
-  const gapMs =
-    nextTier !== null ? pbMs - (cutsByTier[nextTier] as number) : null;
-
-  return { hasCut: true, tier, nextTier, gapMs };
+  return {
+    hasCut: true,
+    gala: met?.gala ?? null,
+    galaCourse: met?.course ?? null,
+    nextGala,
+    gapMs,
+    gapCourse,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -959,89 +1039,128 @@ export function computeMatrixCell(
 // The stroke-profile wheel draws one bar per event around a circle. Raw times
 // CANNOT share a radial axis (a 30 s 50 and a 9:00 800 would be incomparable),
 // so each event's PB is mapped onto a PER-EVENT calibrated scale anchored to
-// that event's own L2/L3/SANJ cuts:
+// that event's own cuts. Ring 1 is the EASIEST gala on the wheel, ascending
+// outward to the hardest, with one ring-unit of headroom past it:
 //
-//     L2 cut  -> inner ring   (radius 1)
-//     L3 cut  -> middle ring  (radius 2)
-//     SANJ cut-> outer ring   (radius 3)
-//     centre  -> radius 0
+//     easiest gala's cut -> inner ring  (radius 1)
+//     …                                 (radius 2, 3, …)
+//     hardest gala's cut -> outer ring  (radius = ring count)
+//     centre                            (radius 0)
 //
-// OUTWARD = FASTER. The returned value is in RING UNITS (unitless), so the
-// wheel can place fixed pixel ring radii and every swimmer shares one scale.
-// It is piecewise-linear between the anchors that exist, extrapolating beyond
-// the fastest/slowest anchor along the nearest segment. Faster than SANJ pushes
-// past the outer ring; slower than L2 falls toward the centre (clamped there).
+// The ring ASSIGNMENT is a property of the whole wheel, not of one spoke —
+// otherwise ring 2 would mean Level 3 on one spoke and SANS on another and the
+// concentric circles would carry no meaning. It comes from the galas the swimmer
+// is ELIGIBLE for at this age (`buildRingScale`), so it is 2-4 rings in practice
+// and never 5: SANS starts at 15 and SANY at 17, while L2/L3/SANJ stop at 16.
+// A spoke simply anchors on whichever of those galas covers its event — a 50
+// Free has no L3/SANJ cut, so it interpolates between the rings it does have.
 //
-// CRUCIAL invariant (acceptance): at a tier's exact cut the radius equals that
-// tier's ring position exactly, so "the bar crosses the SANJ ring" is TRUE iff
+// OUTWARD = FASTER. The returned value is in RING UNITS (unitless), so the wheel
+// can place fixed pixel ring radii and every spoke shares one scale. It is
+// piecewise-linear between the anchors that exist, extrapolating beyond the
+// fastest/slowest anchor along the nearest segment. Faster than the hardest cut
+// pushes past the outer ring; slower than the easiest falls toward the centre.
+//
+// CRUCIAL invariant (acceptance): at a gala's exact cut the radius equals that
+// gala's ring position exactly, so "the bar crosses the SANJ ring" is TRUE iff
 // the PB beats the SANJ cut — regardless of how the between-ring slope is drawn.
-
-/** Fixed ring positions (radius units) for the three tiers. */
-export const STROKE_RING_POS: Record<Tier, number> = {
-  LEVEL_2: 1,
-  LEVEL_3: 2,
-  SANJ: 3,
-};
 
 /** Centre of the wheel (a PB slower than every cut clamps here). */
 export const STROKE_RADIUS_MIN = 0;
-/** How far a PB faster than SANJ may extrapolate past the outer ring. */
-export const STROKE_RADIUS_MAX = 3.5;
 
-// When a spoke has only ONE tier cut there is no second anchor to define a
-// slope, so the bar is placed with a synthetic unit: one ring-unit = this
-// fraction of the cut time. This only affects magnitude AWAY from that single
-// ring; the crossing AT the ring is still exact (radius === ring pos at the cut).
+/** One ring-unit of headroom past the outermost ring, for beating the hardest cut. */
+const RING_HEADROOM = 0.5;
+
+// When a spoke has only ONE cut there is no second anchor to define a slope, so
+// the bar is placed with a synthetic unit: one ring-unit = this fraction of the
+// cut time. This only affects magnitude AWAY from that single ring; the crossing
+// AT the ring is still exact (radius === ring pos at the cut).
 const SINGLE_ANCHOR_UNIT_FRACTION = 0.04;
 
-/** The three (possibly absent) cuts for one event, already resolved to an age. */
-export type ProfileCuts = {
-  l2Ms: number | null;
-  l3Ms: number | null;
-  sanjMs: number | null;
+/**
+ * The ring layout for one wheel. Derived from the galas a swimmer can enter, so
+ * every spoke on that wheel shares it.
+ */
+export type RingScale = {
+  /** Galas in ring order: index 0 is ring 1 (easiest), ascending outward. */
+  order: ReadonlyArray<GalaCode>;
+  /** Ring position (1-based) per gala. Absent = not on this wheel. */
+  pos: Partial<Record<GalaCode, number>>;
+  /** Outer bound of the track — the hardest ring plus headroom. */
+  max: number;
 };
+
+/**
+ * Build the ring layout from the galas present, easiest ring first. Input order
+ * does not matter; `GALA_ORDER` (hardest → easiest) decides, reversed.
+ */
+export function buildRingScale(galas: ReadonlyArray<GalaCode>): RingScale {
+  const present = new Set(galas);
+  // GALA_ORDER is hardest → easiest, so reversing gives easiest → hardest,
+  // which is inner ring → outer ring.
+  const order = [...GALA_ORDER].reverse().filter((g) => present.has(g));
+  const pos: Partial<Record<GalaCode, number>> = {};
+  order.forEach((gala, i) => {
+    pos[gala] = i + 1;
+  });
+  return {
+    order,
+    pos,
+    max: order.length === 0 ? STROKE_RADIUS_MIN : order.length + RING_HEADROOM,
+  };
+}
+
+/** One event's resolved cuts, as `getStrokeProfile` returns them. */
+export type ProfileCut = { gala: GalaCode; timeMs: number };
 
 /**
  * Map a headline PB onto its event's calibrated radial scale (ring units), or
  * null when there is no PB or no cut to anchor against. See the section header
  * for the full contract; the short version:
- *   - returns exactly the ring position when pb equals that tier's cut,
+ *   - returns exactly the ring position when pb equals that gala's cut,
  *   - interpolates linearly between adjacent anchors,
- *   - extrapolates past the extremes (clamped to [0, STROKE_RADIUS_MAX]).
+ *   - extrapolates past the extremes (clamped to [0, scale.max]).
+ *
+ * `cuts` may be in any order and may cover only some of the wheel's rings.
  */
 export function computeCalibratedRadius(
   pbMs: number | null,
-  cuts: ProfileCuts,
+  cuts: ReadonlyArray<ProfileCut>,
+  scale: RingScale,
 ): number | null {
   if (pbMs === null) return null;
 
-  // Anchors present, ordered inner -> outer (ring pos ascending => cut ms
-  // descending, since a harder tier is a faster cut).
+  // Anchors present on this spoke, ordered inner -> outer (ring pos ascending
+  // => cut ms descending, since a harder gala is a faster cut). Cuts for a gala
+  // that is not on this wheel are ignored rather than given a position.
   const anchors: Array<{ r: number; t: number }> = [];
-  if (cuts.l2Ms !== null) anchors.push({ r: STROKE_RING_POS.LEVEL_2, t: cuts.l2Ms });
-  if (cuts.l3Ms !== null) anchors.push({ r: STROKE_RING_POS.LEVEL_3, t: cuts.l3Ms });
-  if (cuts.sanjMs !== null) anchors.push({ r: STROKE_RING_POS.SANJ, t: cuts.sanjMs });
+  for (const gala of scale.order) {
+    const cut = cuts.find((c) => c.gala === gala);
+    if (cut !== undefined) anchors.push({ r: scale.pos[gala]!, t: cut.timeMs });
+  }
   if (anchors.length === 0) return null;
 
-  // The bar reaches a ring IFF the swimmer has MET that tier's cut — so a time
+  // The bar reaches a ring IFF the swimmer has MET that gala's cut — so a time
   // short of a cut can never look like it reached that ring (a 100 Breast 0.57s
   // slower than SANJ must not appear to touch the SANJ ring). Cap the radius at
-  // the ring of the HIGHEST tier met (pbMs ≤ cut, hardest first): SANJ met earns
-  // headroom past its ring (a real achievement); L3/L2 met caps exactly on that
-  // ring; nothing met keeps the sub-ring calibrated position (the PB is slower
-  // than the easiest cut, so it already sits below the innermost ring). This
-  // keeps the wheel and the road "all tiers" bars honest — bar length reads as
-  // "tier achieved", never "tier nearly achieved".
-  let maxRadius: number;
-  if (cuts.sanjMs !== null && pbMs <= cuts.sanjMs) {
-    maxRadius = STROKE_RADIUS_MAX;
-  } else if (cuts.l3Ms !== null && pbMs <= cuts.l3Ms) {
-    maxRadius = STROKE_RING_POS.LEVEL_3;
-  } else if (cuts.l2Ms !== null && pbMs <= cuts.l2Ms) {
-    maxRadius = STROKE_RING_POS.LEVEL_2;
-  } else {
-    // Nothing met — never reach the innermost (easiest) present ring.
-    maxRadius = anchors[0].r;
+  // the ring of the HARDEST gala met, walking outer -> inner.
+  //
+  // Headroom past the track is reserved for beating the gala on the wheel's
+  // OUTERMOST RING, not merely the outermost cut this event happens to have:
+  // a 200 Fly that only carries L2/L3 cuts must not extend as far as a 100 Free
+  // that beat SANS, or bar length would stop being comparable across spokes.
+  // Anything else met caps exactly on that ring; nothing met keeps the sub-ring
+  // calibrated position (the PB is slower than the easiest cut here, so it
+  // already sits below the innermost anchor). This is what keeps the wheel and
+  // the road "all galas" bars honest — length reads as "gala achieved", never
+  // "gala nearly achieved".
+  const outerRing = scale.order.length;
+  let maxRadius = anchors[0].r; // nothing met → never reach the innermost ring
+  for (let i = anchors.length - 1; i >= 0; i--) {
+    if (pbMs <= anchors[i].t) {
+      maxRadius = anchors[i].r === outerRing ? scale.max : anchors[i].r;
+      break;
+    }
   }
   const clamp = (r: number) =>
     Math.max(STROKE_RADIUS_MIN, Math.min(maxRadius, r));
@@ -1082,13 +1201,17 @@ export function computeCalibratedRadius(
 // judgement — parse, whitelist, coverage — lives here so it is unit-testable and
 // so a bad row is REPORTED with a reason, never silently dropped or guessed.
 
-/** One raw row as it arrives from the cleaned CSV (loosely typed on purpose). */
+/**
+ * One raw row as it arrives from the cleaned CSV (loosely typed on purpose).
+ * `age` is EMPTY on an open-gala row — SANS/SANY publish one cut for all ages.
+ */
 export type RawStandardRow = {
-  tier: string;
+  gala: string;
+  course: string;
   gender: string;
   distance: number | string;
   stroke: string;
-  age: number | string;
+  age: number | string | null;
   isCatchAllYoung: boolean;
   isCatchAllOld: boolean;
   time: string;
@@ -1096,11 +1219,13 @@ export type RawStandardRow = {
 
 /** A validated, parsed row ready to persist to the `standards` table. */
 export type PreparedStandard = {
-  tier: Tier;
+  gala: GalaCode;
+  course: Course;
   gender: "M" | "F";
   distance: Distance;
   stroke: Stroke;
-  age: number;
+  /** Absent on an open standard; an exact single-year age otherwise. */
+  age?: number;
   isCatchAllYoung: boolean;
   isCatchAllOld: boolean;
   timeMs: number;
@@ -1113,28 +1238,37 @@ export type RejectedStandard = {
   row: RawStandardRow;
 };
 
-const TIER_SET = new Set<Tier>(["LEVEL_2", "LEVEL_3", "SANJ"]);
 const GENDER_SET = new Set(["M", "F"]);
+const COURSE_SET = new Set<Course>(["LCM", "SCM"]);
 
 /**
  * Validate + parse raw standard rows (§4.4, §4.9). Returns the accepted rows
  * (parsed to ms) and the rejected rows (with a reason each). A row is rejected
- * if any field is off-enum, the age is not a sane whole number, both catch-all
- * flags are set, the (distance, stroke) is not a valid LCM event, the tier does
- * not cover that event, or the time fails `parseTime`. Nothing is guessed.
+ * if any field is off-enum, the age is present but not a sane whole number, both
+ * catch-all flags are set, the (distance, stroke) is not a valid event in that
+ * course, the gala does not cover that event, the gala's age scope disagrees with
+ * whether an age was supplied, or the time fails `parseTime`. Nothing is guessed.
+ *
+ * `galas` supplies coverage and age scope, so a new meet needs no code change.
  */
 export function prepareStandardImport(
   rows: ReadonlyArray<RawStandardRow>,
   events: ReadonlyArray<EventDef>,
+  galas: ReadonlyArray<GalaCoverage & { code: GalaCode; ageScope: AgeScope }>,
 ): { accepted: PreparedStandard[]; rejected: RejectedStandard[] } {
   const accepted: PreparedStandard[] = [];
   const rejected: RejectedStandard[] = [];
+  const galaByCode = new Map(galas.map((g) => [g.code as string, g]));
 
   rows.forEach((row, index) => {
     const reject = (reason: string) => rejected.push({ index, reason, row });
 
-    if (!TIER_SET.has(row.tier as Tier)) {
-      return reject(`unknown tier "${row.tier}"`);
+    const gala = galaByCode.get(row.gala);
+    if (gala === undefined) {
+      return reject(`unknown gala "${row.gala}"`);
+    }
+    if (!COURSE_SET.has(row.course as Course)) {
+      return reject(`unknown course "${row.course}" (expected LCM or SCM)`);
     }
     if (!GENDER_SET.has(row.gender)) {
       return reject(`unknown gender "${row.gender}" (expected M or F)`);
@@ -1148,9 +1282,24 @@ export function prepareStandardImport(
       return reject(`invalid stroke "${row.stroke}"`);
     }
 
-    const age = Number(row.age);
-    if (!Number.isInteger(age) || age <= 0 || age > 100) {
-      return reject(`invalid age "${row.age}"`);
+    // An OPEN gala must have no age; an AGE_GRADED gala must have one. Getting
+    // this wrong would make a cut resolve for every age, or for none.
+    const ageBlank =
+      row.age === null || row.age === undefined || String(row.age).trim() === "";
+    if (gala.ageScope === "OPEN") {
+      if (!ageBlank) {
+        return reject(`${row.gala} is an open gala — its rows must have no age`);
+      }
+    } else if (ageBlank) {
+      return reject(`${row.gala} is age-graded — every row needs an exact age`);
+    }
+
+    let age: number | undefined;
+    if (!ageBlank) {
+      age = Number(row.age);
+      if (!Number.isInteger(age) || age <= 0 || age > 100) {
+        return reject(`invalid age "${row.age}"`);
+      }
     }
 
     if (typeof row.isCatchAllYoung !== "boolean" || typeof row.isCatchAllOld !== "boolean") {
@@ -1159,16 +1308,19 @@ export function prepareStandardImport(
     if (row.isCatchAllYoung && row.isCatchAllOld) {
       return reject("row flagged as BOTH young and old catch-all");
     }
+    if (ageBlank && (row.isCatchAllYoung || row.isCatchAllOld)) {
+      return reject("an open standard cannot be a catch-all");
+    }
 
-    const tier = row.tier as Tier;
+    const course = row.course as Course;
     const stroke = row.stroke as Stroke;
 
-    // Standards are LCM only — the event must exist AND allow long course.
-    if (!isValidEvent(distance, stroke, "LCM", events)) {
-      return reject(`not a valid LCM event: ${eventLabel(distance, stroke)}`);
+    // The event must exist AND be swimmable in this cut's course (§4.3).
+    if (!isValidEvent(distance, stroke, course, events)) {
+      return reject(`not a valid ${course} event: ${eventLabel(distance, stroke)}`);
     }
-    if (!tierCoversEvent(tier, distance, stroke)) {
-      return reject(`${tier} has no coverage for ${eventLabel(distance, stroke)}`);
+    if (!galaCoversEvent(gala, distance, stroke)) {
+      return reject(`${row.gala} has no coverage for ${eventLabel(distance, stroke)}`);
     }
 
     let timeMs: number;
@@ -1181,11 +1333,12 @@ export function prepareStandardImport(
     }
 
     accepted.push({
-      tier,
+      gala: gala.code,
+      course,
       gender: row.gender as "M" | "F",
       distance: distance as Distance,
       stroke,
-      age,
+      ...(age === undefined ? {} : { age }),
       isCatchAllYoung: row.isCatchAllYoung,
       isCatchAllOld: row.isCatchAllOld,
       timeMs,
@@ -1207,9 +1360,10 @@ export function prepareStandardImport(
 // guesses. Enum-, coverage- and time-parsing live server-side in
 // `prepareStandardImport`; those rejects merge with these on the screen.
 
-/** The 8 columns of the cleaned CSV, in order (§11a). */
+/** The 9 columns of the cleaned CSV, in order (§11a). */
 export const STANDARDS_CSV_COLUMNS = [
-  "tier",
+  "gala",
+  "course",
   "gender",
   "distance",
   "stroke",
@@ -1220,16 +1374,18 @@ export const STANDARDS_CSV_COLUMNS = [
 ] as const;
 
 /**
- * A CSV row after coercion — distance/age are real numbers and the catch-all
- * flags real booleans, exactly the shape `importStandards` accepts (a stricter
- * `RawStandardRow`, which types those loosely for its own reporting).
+ * A CSV row after coercion — distance is a real number, `age` is a real number
+ * or null (blank = an open standard), and the catch-all flags are real booleans:
+ * exactly the shape `importStandards` accepts (a stricter `RawStandardRow`,
+ * which types those loosely for its own reporting).
  */
 export type StandardImportRow = {
-  tier: string;
+  gala: string;
+  course: string;
   gender: string;
   distance: number;
   stroke: string;
-  age: number;
+  age: number | null;
   isCatchAllYoung: boolean;
   isCatchAllOld: boolean;
   time: string;
@@ -1251,12 +1407,13 @@ function coerceBool(value: string): boolean | null {
 
 /**
  * Parse the coach's cleaned CSV text into typed rows ready for
- * `importStandards`, plus a rejected report. A leading `tier,gender,…` header
+ * `importStandards`, plus a rejected report. A leading `gala,course,…` header
  * row is detected and skipped; blank lines are ignored. Each data line must
- * have exactly 8 comma-separated cells; distance/age must be whole numbers on
- * the whitelist, the two flags must be "true"/"false", and time must be
- * non-empty. Everything else (tier/gender/stroke enums, coverage, the time
- * format itself) is validated downstream and reported there.
+ * have exactly 9 comma-separated cells; distance must be a whole number, `age`
+ * must be a whole number OR blank (an open standard), the two flags must be
+ * "true"/"false", and time must be non-empty. Everything else (gala/course/
+ * gender/stroke enums, coverage, age scope, the time format itself) is validated
+ * downstream and reported there.
  */
 export function parseStandardsCsv(text: string): {
   rows: ParsedCsvRow[];
@@ -1275,25 +1432,31 @@ export function parseStandardsCsv(text: string): {
     // The first non-empty line may be the header — detect and skip it once.
     if (!sawFirstNonEmpty) {
       sawFirstNonEmpty = true;
-      if (cells[0].toLowerCase() === "tier") return;
+      if (cells[0].toLowerCase() === "gala") return;
     }
 
     const reject = (reason: string) => rejected.push({ line, reason, raw });
 
-    if (cells.length !== 8) {
-      return reject(`expected 8 columns, got ${cells.length}`);
+    if (cells.length !== 9) {
+      return reject(`expected 9 columns, got ${cells.length}`);
     }
 
-    const [tier, gender, distanceStr, stroke, ageStr, youngStr, oldStr, time] =
+    const [gala, course, gender, distanceStr, stroke, ageStr, youngStr, oldStr, time] =
       cells;
 
     const distance = Number(distanceStr);
     if (distanceStr === "" || !Number.isInteger(distance)) {
       return reject(`distance "${distanceStr}" is not a whole number`);
     }
-    const age = Number(ageStr);
-    if (ageStr === "" || !Number.isInteger(age)) {
-      return reject(`age "${ageStr}" is not a whole number`);
+    // A BLANK age is meaningful, not missing: it marks an open standard. Only a
+    // non-blank, non-integer age is an error.
+    let age: number | null = null;
+    if (ageStr !== "") {
+      const parsed = Number(ageStr);
+      if (!Number.isInteger(parsed)) {
+        return reject(`age "${ageStr}" is not a whole number`);
+      }
+      age = parsed;
     }
 
     const isCatchAllYoung = coerceBool(youngStr);
@@ -1309,7 +1472,17 @@ export function parseStandardsCsv(text: string): {
 
     rows.push({
       line,
-      row: { tier, gender, distance, stroke, age, isCatchAllYoung, isCatchAllOld, time },
+      row: {
+        gala,
+        course,
+        gender,
+        distance,
+        stroke,
+        age,
+        isCatchAllYoung,
+        isCatchAllOld,
+        time,
+      },
     });
   });
 
@@ -1320,14 +1493,15 @@ export function parseStandardsCsv(text: string): {
 // 8d. Monotonicity — surface (don't block) a younger cut faster than an older
 // ---------------------------------------------------------------------------
 //
-// Within one (tier, gender, event) the cut should get FASTER (smaller ms) as
-// age rises. A younger age whose cut is faster than an older age's is almost
-// always a typo (§5.8, §11a) — but the one known real inversion (L2 F 200
-// Breast, 15 faster than 16) means we WARN, never block.
+// Within one (gala, course, gender, event) the cut should get FASTER (smaller
+// ms) as age rises. A younger age whose cut is faster than an older age's is
+// usually a typo (§5.8, §11a) — but the 2027 SSA tables contain a real one
+// (SANJ women 100 Back: 12&U 1:12.98, 13 1:14.83, in BOTH courses), so we WARN,
+// never block. Open galas have a single cut and cannot be inverted.
 
-/** The cut fields the monotonicity check reads (a single tier's column). */
+/** The cut fields the monotonicity check reads (a single gala's column). */
 export type AgeCut = {
-  age: number;
+  age?: number | null;
   isCatchAllYoung: boolean;
   isCatchAllOld: boolean;
   timeMs: number;
@@ -1342,26 +1516,32 @@ export type AgeInversion = { youngerIdx: number; olderIdx: number };
  * catch-all orders correctly against the exact ages around it.
  */
 export function cutAgeOrder(c: {
-  age: number;
+  age?: number | null;
   isCatchAllYoung: boolean;
   isCatchAllOld: boolean;
 }): number {
+  if (c.age == null) return 0; // open standard — no position on the age axis
   if (c.isCatchAllYoung) return c.age - 0.5;
   if (c.isCatchAllOld) return c.age + 0.5;
   return c.age;
 }
 
 /**
- * Adjacent-pair monotonicity check over ONE tier's cuts for a single event.
- * Orders by age, then reports each neighbouring pair where the younger cut is
- * strictly faster than the older (an inversion). Equal times are fine (a
+ * Adjacent-pair monotonicity check over ONE gala's cuts for a single event and
+ * course. Orders by age, then reports each neighbouring pair where the younger
+ * cut is strictly faster than the older (an inversion). Equal times are fine (a
  * plateau). Indices refer to the input array so callers can flag exact rows.
+ *
+ * Callers MUST pass one (gala, course, gender, event) column at a time — mixing
+ * courses would compare a 25 m cut against a 50 m one and invent inversions.
+ * Open standards (no age) are skipped: a single cut cannot be inverted.
  */
 export function findAgeInversions(
   cuts: ReadonlyArray<AgeCut>,
 ): AgeInversion[] {
   const ordered = cuts
-    .map((c, idx) => ({ idx, key: cutAgeOrder(c), timeMs: c.timeMs }))
+    .map((c, idx) => ({ idx, key: cutAgeOrder(c), timeMs: c.timeMs, age: c.age }))
+    .filter((c) => c.age != null)
     .sort((a, b) => a.key - b.key);
 
   const out: AgeInversion[] = [];

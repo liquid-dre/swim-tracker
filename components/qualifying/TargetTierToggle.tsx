@@ -1,39 +1,41 @@
 "use client";
 
-import { Segmented } from "@/components/ui/Segmented";
-import type { Tier } from "@/lib/swim";
+import { Select } from "@/components/ui/Select";
+import { GALA_MEDIUM, GALA_ORDER, type GalaCode } from "@/lib/galas";
 
 /*
-  The target-tier selector — a single control, easiest → hardest (LEVEL_2 ·
-  LEVEL_3 · SANJ), that frames a "how close to *this* meet" view. Thin wrapper
-  over the house Segmented control so it reads identically to the course toggle
-  elsewhere. State is owned LOCALLY by each caller (the progression projection
-  and the viewer road page) — there is no global/persisted target tier. LCM-only;
-  callers hide it on short-course views.
+  The target-gala selector — one control that frames a "how close to *this* meet"
+  view. With five galas a segmented control no longer fits (six segments once
+  Road adds "All"), so this is the shared styled picker CLAUDE.md mandates for
+  every select, listed hardest → easiest to match GALA_ORDER and every other
+  surface. State is owned LOCALLY by each caller (the progression projection and
+  the road page) — there is no global/persisted target gala.
 
-  Labels use the swim-desk short forms (L2 / L3 / SANJ) that match TierBadge, so
-  the same vocabulary appears on the toggle, the bars, and the legend.
+  Labels use the medium forms ("SA Senior", "Level 3") because a bare code is too
+  terse in a menu; the badges elsewhere keep the short codes.
 */
 
-const TIER_OPTIONS: { value: Tier; label: string }[] = [
-  { value: "LEVEL_2", label: "L2" },
-  { value: "LEVEL_3", label: "L3" },
-  { value: "SANJ", label: "SANJ" },
-];
+const GALA_OPTIONS = GALA_ORDER.map((code) => ({
+  value: code as string,
+  label: GALA_MEDIUM[code],
+}));
 
 export function TargetTierToggle({
   value,
   onChange,
+  className,
 }: {
-  value: Tier;
-  onChange: (tier: Tier) => void;
+  value: GalaCode;
+  onChange: (gala: GalaCode) => void;
+  className?: string;
 }) {
   return (
-    <Segmented
-      ariaLabel="Target qualifying tier"
+    <Select
+      aria-label="Target gala"
       value={value}
-      onChange={onChange}
-      options={TIER_OPTIONS}
+      onValueChange={(next) => onChange(next as GalaCode)}
+      options={GALA_OPTIONS}
+      className={className}
     />
   );
 }

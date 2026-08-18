@@ -75,12 +75,24 @@ async function setup() {
       enteredBy: coach,
       createdAt: 0,
     });
+    // The SANJ gala row the cuts hang off. maxAge 16 matches the real tables.
+    const sanj = await ctx.db.insert("galas", {
+      code: "SANJ",
+      displayName: "SA National Junior Championships",
+      shortLabel: "SANJ",
+      ageScope: "AGE_GRADED",
+      maxAge: 16,
+      coveredEvents: [{ distance: 100, stroke: "FREE" }],
+      sortHint: 2,
+      season: "2027",
+    });
     for (const [age, timeMs] of [
       [14, CUT_14],
       [15, CUT_15],
     ] as const) {
       await ctx.db.insert("standards", {
-        tier: "SANJ",
+        galaId: sanj,
+        course: "LCM",
         gender: "M",
         distance: 100,
         stroke: "FREE",
@@ -91,7 +103,7 @@ async function setup() {
       });
     }
 
-    return { club, swimmer, coachUser };
+    return { club, swimmer, coachUser, sanj };
   });
 
   return { t, ids, asCoach: t.withIdentity({ subject: `${ids.coachUser}|s` }) };
@@ -102,7 +114,7 @@ describe("qualification is judged at current age, not age-at-swim (§4.9)", () =
     const { asCoach, ids } = await setup();
     const road = await asCoach.query(api.analysis.getRoadToQualify, {
       swimmerId: ids.swimmer,
-      tier: "SANJ",
+      gala: "SANJ",
     });
     const evt = road?.events.find((e) => e.distance === 100 && e.stroke === "FREE");
     expect(evt).toBeDefined();
@@ -113,30 +125,27 @@ describe("qualification is judged at current age, not age-at-swim (§4.9)", () =
   test("Tour qualification does NOT list the swimmer under SANJ", async () => {
     const { asCoach, ids } = await setup();
     const qual = await asCoach.query(api.tours.getTourQualification, {});
-    const sanj = qual.tiers.find((x) => x.tier === "SANJ")!;
+    const sanj = qual.galas.find((x) => x.gala === "SANJ")!;
     expect(sanj.swimmers.map((s) => s.swimmerId)).not.toContain(ids.swimmer);
   });
 
-  test("Status matrix cell shows NO tier met for the event", async () => {
+  test("Status matrix cell shows NO gala met for the event", async () => {
     const { asCoach, ids } = await setup();
     const matrix = await asCoach.query(api.analysis.getQualificationMatrix, {});
     const row = matrix.rows.find((r) => r.swimmerId === ids.swimmer)!;
     const cell = row.cells.find((c) => c.distance === 100 && c.stroke === "FREE")!;
-    expect(cell.tier).toBeNull(); // not SANJ, not anything — 57.50 misses the 15 cut
+    expect(cell.gala).toBeNull(); // not SANJ, not anything — 57.50 misses the 15 cut
   });
 
   test("BUT a tour date at age 14 DOES qualify (age on tour day is what counts)", async () => {
     const { asCoach, ids, t } = await setup();
     // A SANJ tour dated in the year the swimmer was 14 → judged at 14 → qualifies.
     await t.run(async (ctx) => {
-      await ctx.db.insert("tours", {
-        tier: "SANJ",
-        date: `${CURRENT_YEAR - 1}-06-15`,
-      });
+      await ctx.db.patch(ids.sanj, { tourDate: `${CURRENT_YEAR - 1}-06-15` });
     });
     const road = await asCoach.query(api.analysis.getRoadToQualify, {
       swimmerId: ids.swimmer,
-      tier: "SANJ",
+      gala: "SANJ",
     });
     const evt = road?.events.find((e) => e.distance === 100 && e.stroke === "FREE");
     expect(evt!.cutMs).toBe(CUT_14); // resolved at the tour-day age, 14

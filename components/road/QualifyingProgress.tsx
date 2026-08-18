@@ -5,11 +5,10 @@ import { Check } from "lucide-react";
 import {
   computeMatrixCell,
   formatTime,
-  STROKE_RADIUS_MAX,
-  STROKE_RING_POS,
-  TIER_FULL,
-  type Tier,
+  type GalaCode,
+  type RingScale,
 } from "@/lib/swim";
+import { GALA_MEDIUM, GALA_ORDER, GALA_SHORT, GALA_TOKEN } from "@/lib/galas";
 import { formatSeconds } from "@/lib/format";
 import { TierBadge } from "@/components/ui/TierBadge";
 import {
@@ -26,8 +25,9 @@ import { cn } from "@/lib/utils";
   Qualifying progress (Step R3, BRD §5.11) — the per-event readiness view that
   replaces the old "% of cut" chart. Two shapes driven by the target toggle:
 
-    • SINGLE TIER (L2 / L3 / SANJ) — one horizontal bar per event filling toward
-      that tier's cut. Qualified events read as a full green bar + a check; the
+    • SINGLE GALA — one horizontal bar per event filling toward that gala's cut,
+      in the course the swimmer is nearest in. Qualified events read as a full
+      green bar + a check; the
       rest fill part-way in the brand accent with the exact gap ("2.1s to go").
       Ordered 50→ by distance, then IM, Free, Back, Breast, Fly.
 
@@ -41,12 +41,8 @@ import { cn } from "@/lib/utils";
   (aria-hidden) — every number is carried in the row's text for assistive tech.
 */
 
-// Short target label matching the TierBadge vocabulary.
-const NEXT_LABEL: Record<Tier, string> = {
-  SANJ: "SANJ",
-  LEVEL_3: "L3",
-  LEVEL_2: "L2",
-};
+// Short target label matching the TierBadge vocabulary — one copy, from lib/galas.
+const NEXT_LABEL = GALA_SHORT;
 
 // Fixed reading order for the qualifying-progress lists: by distance ascending
 // (50, 100, 200, …), then stroke IM → Free → Back → Breast → Fly. Every bar's
@@ -210,53 +206,70 @@ export type AllBar = {
   key: string;
   label: string;
   pbMs: number | null;
-  l2Ms: number | null;
-  l3Ms: number | null;
-  sanjMs: number | null;
-  calibratedRadius: number | null; // PB on the shared L2→L3→SANJ ring scale
+  /** This event's cuts, inner ring → outer ring. Sparse: a 50 has fewer. */
+  cuts: Array<{ gala: GalaCode; timeMs: number }>;
+  calibratedRadius: number | null; // PB on the shared ring scale
 };
 
-// Fixed positions on the shared scale (ring units → % of track). L2/L3/SANJ sit
-// at ring 1/2/3; the track runs to STROKE_RADIUS_MAX so there is headroom past
-// SANJ. Because these are FIXED, every event's bar is directly comparable.
-const RING_POS: Record<Tier, number> = STROKE_RING_POS;
-const posPct = (ringUnits: number) =>
-  (Math.max(0, Math.min(STROKE_RADIUS_MAX, ringUnits)) / STROKE_RADIUS_MAX) * 100;
+// Positions on the shared scale (ring units → % of track). The ring count comes
+// from the galas the swimmer can ENTER, so it is 2-4: a 13-year-old gets
+// L2/L3/SANJ, a 15-16-year-old adds SANS, a 17+ swimmer gets SANS/SANY only.
+// Within one swimmer's view the positions are FIXED, which is what makes every
+// event's bar directly comparable to the others on the same track.
+const posPct = (ringUnits: number, scale: RingScale) =>
+  scale.max <= 0
+    ? 0
+    : (Math.max(0, Math.min(scale.max, ringUnits)) / scale.max) * 100;
 
-const TIER_FILL: Record<Tier, string> = {
-  SANJ: "var(--color-tier-sanj)",
-  LEVEL_3: "var(--color-tier-l3)",
-  LEVEL_2: "var(--color-tier-l2)",
-};
-const TIER_TINT: Record<Tier, string> = {
-  SANJ: "var(--color-tier-sanj-bg)",
-  LEVEL_3: "var(--color-tier-l3-bg)",
-  LEVEL_2: "var(--color-tier-l2-bg)",
-};
+const TIER_FILL: Record<GalaCode, string> = GALA_ORDER.reduce(
+  (acc, gala) => {
+    acc[gala] = `var(--color-tier-${GALA_TOKEN[gala]})`;
+    return acc;
+  },
+  {} as Record<GalaCode, string>,
+);
+const TIER_TINT: Record<GalaCode, string> = GALA_ORDER.reduce(
+  (acc, gala) => {
+    acc[gala] = `var(--color-tier-${GALA_TOKEN[gala]}-bg)`;
+    return acc;
+  },
+  {} as Record<GalaCode, string>,
+);
 const NONE_FILL = "var(--color-tier-none)";
 
-// Easiest → hardest, matching left → right on the track.
-const ASC_TIERS: ReadonlyArray<Tier> = ["LEVEL_2", "LEVEL_3", "SANJ"];
-
 type AllRow = AllBar & {
-  cutsByTier: { LEVEL_2: number | null; LEVEL_3: number | null; SANJ: number | null };
-  present: Tier[]; // tiers this event actually has a cut for (§4.9 coverage)
-  tier: Tier | null; // highest tier met
-  nextTier: Tier | null;
+  cutsByTier: Partial<Record<GalaCode, number>>;
+  present: GalaCode[]; // galas this event actually has a cut for (§4.9 coverage)
+  gala: GalaCode | null; // highest gala met
+  nextGala: GalaCode | null;
   gapMs: number | null;
 };
 
-export function AllTierProgress({ bars }: { bars: AllBar[] }) {
+export function AllTierProgress({
+  bars,
+  scale,
+}: {
+  bars: AllBar[];
+  /** The ring layout from `getStrokeProfile` — how many zones this track has. */
+  scale: RingScale;
+}) {
   const rows: AllRow[] = bars.map((b) => {
-    const cutsByTier = { LEVEL_2: b.l2Ms, LEVEL_3: b.l3Ms, SANJ: b.sanjMs };
-    const cell = computeMatrixCell(b.pbMs, cutsByTier);
-    const present = ASC_TIERS.filter((t) => cutsByTier[t] !== null);
+    const cutsByTier: Partial<Record<GalaCode, number>> = {};
+    for (const c of b.cuts) cutsByTier[c.gala] = c.timeMs;
+    // The stroke-profile data is long course, so judge it as long course — a
+    // borrowed cut would be exactly the bug this change removes.
+    const cell = computeMatrixCell(
+      { LCM: b.pbMs },
+      { LCM: cutsByTier, SCM: {} },
+      "LCM",
+    );
+    const present = scale.order.filter((t) => cutsByTier[t] !== undefined);
     return {
       ...b,
       cutsByTier,
       present,
-      tier: cell.tier,
-      nextTier: cell.nextTier,
+      gala: cell.gala,
+      nextGala: cell.nextGala,
       gapMs: cell.gapMs,
     };
   });
@@ -272,18 +285,18 @@ export function AllTierProgress({ bars }: { bars: AllBar[] }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Shared scale header — the three tier positions are fixed, so one axis
-          labels them for every bar below. */}
+      {/* Shared scale header — the ring positions are fixed for this swimmer, so
+          one axis labels them for every bar below. */}
       <div className="flex items-center gap-3 sm:gap-4">
         <div className="w-20 shrink-0 sm:w-28" />
         <div className="relative h-4 min-w-16 flex-1" aria-hidden>
-          {ASC_TIERS.map((t) => (
+          {scale.order.map((t) => (
             <span
               key={t}
               className="absolute -translate-x-1/2 text-2xs font-medium text-ink-faint"
-              style={{ left: `${posPct(RING_POS[t])}%` }}
+              style={{ left: `${posPct(scale.pos[t] ?? 0, scale)}%` }}
             >
-              {NEXT_LABEL[t]}
+              {GALA_SHORT[t]}
             </span>
           ))}
         </div>
@@ -293,7 +306,7 @@ export function AllTierProgress({ bars }: { bars: AllBar[] }) {
       <TooltipProvider delayDuration={150}>
         <ul className="flex flex-col divide-y divide-gray-100">
           {rows.map((r) => (
-            <AllRowView key={r.key} row={r} />
+            <AllRowView key={r.key} row={r} scale={scale} />
           ))}
         </ul>
       </TooltipProvider>
@@ -301,17 +314,17 @@ export function AllTierProgress({ bars }: { bars: AllBar[] }) {
   );
 }
 
-// The hover/focus tooltip for a bar: the qualifying time for the NEXT tier the
+// The hover/focus tooltip for a bar: the qualifying time for the NEXT gala the
 // swimmer is chasing (or the first target when they have no time yet), or —
-// once the hardest available tier is met — that they've topped out. Returns the
+// once the hardest available gala is met — that they've topped out. Returns the
 // rendered node plus a matching aria-label so keyboard and screen-reader users
 // get the same information the pointer tooltip carries.
 function barHint(row: AllRow): { node: React.ReactNode; label: string } {
   const nextCut =
-    row.nextTier !== null ? row.cutsByTier[row.nextTier] : null;
+    row.nextGala !== null ? (row.cutsByTier[row.nextGala] ?? null) : null;
 
-  if (row.nextTier !== null && nextCut !== null) {
-    const tierName = TIER_FULL[row.nextTier];
+  if (row.nextGala !== null && nextCut !== null) {
+    const tierName = GALA_MEDIUM[row.nextGala];
     const cutText = formatTime(nextCut);
     const gapText =
       row.gapMs !== null ? `${formatSeconds(row.gapMs)}s to go` : null;
@@ -341,25 +354,25 @@ function barHint(row: AllRow): { node: React.ReactNode; label: string } {
   };
 }
 
-function AllRowView({ row }: { row: AllRow }) {
+function AllRowView({ row, scale }: { row: AllRow; scale: RingScale }) {
   const hasPb = row.pbMs !== null;
-  const fillPct = hasPb ? posPct(row.calibratedRadius ?? 0) : 0;
-  const fillColor = row.tier ? TIER_FILL[row.tier] : NONE_FILL;
+  const fillPct = hasPb ? posPct(row.calibratedRadius ?? 0, scale) : 0;
+  const fillColor = row.gala ? TIER_FILL[row.gala] : NONE_FILL;
   const [trackRef, trackWidth] = useContainerWidth(320);
   const grown = useGrowIn();
   // On-fill text colour tuned per fill for contrast: white on the deep L3/L2
-  // fills, near-black on the light gold (SANJ) and grey (no-tier) fills.
+  // fills, near-black on the light gold (SANJ) and grey (no-gala) fills.
   const insideClass =
-    row.tier === "LEVEL_3" || row.tier === "LEVEL_2"
+    row.gala === "LEVEL_3" || row.gala === "LEVEL_2"
       ? "text-white"
       : "text-gray-900";
 
-  // Faint zone tints: each present tier tints the band leading up to its marker;
+  // Faint zone tints: each present gala tints the band leading up to its marker;
   // the region past the hardest present tier is neutral headroom.
   const bands: { from: number; to: number; color: string }[] = [];
   let prev = 0;
   for (const t of row.present) {
-    const p = posPct(RING_POS[t]);
+    const p = posPct(scale.pos[t] ?? 0, scale);
     bands.push({ from: prev, to: p, color: TIER_TINT[t] });
     prev = p;
   }
@@ -371,7 +384,7 @@ function AllRowView({ row }: { row: AllRow }) {
     <li className="flex items-center gap-3 py-3 sm:gap-4">
       <div className="flex w-20 shrink-0 flex-col gap-1 sm:w-28">
         <span className="font-medium text-ink">{row.label}</span>
-        <TierBadge tier={row.tier ?? "NONE"} />
+        <TierBadge gala={row.gala ?? "NONE"} />
         {hasPb && (
           <span className="sr-only">PB {formatTime(row.pbMs as number)}</span>
         )}
@@ -416,13 +429,13 @@ function AllRowView({ row }: { row: AllRow }) {
                 insideClass={insideClass}
               />
             )}
-            {/* tier markers (only where a cut exists) */}
+            {/* gala markers (only where a cut exists) */}
             {row.present.map((t) => (
               <div
                 key={t}
                 aria-hidden
                 className="absolute inset-y-0 w-px bg-ink/25"
-                style={{ left: `${posPct(RING_POS[t])}%` }}
+                style={{ left: `${posPct(scale.pos[t] ?? 0, scale)}%` }}
               />
             ))}
           </div>
@@ -433,14 +446,14 @@ function AllRowView({ row }: { row: AllRow }) {
       <div className="w-20 shrink-0 text-right text-xs sm:w-28">
         {!hasPb ? (
           <span className="text-ink-faint">No time</span>
-        ) : row.nextTier && row.gapMs !== null ? (
+        ) : row.nextGala && row.gapMs !== null ? (
           <span className="font-medium tabular-nums text-ink">
-            {formatSeconds(row.gapMs)}s to {NEXT_LABEL[row.nextTier]}
+            {formatSeconds(row.gapMs)}s to {NEXT_LABEL[row.nextGala]}
           </span>
         ) : (
           <span className="inline-flex items-center justify-end gap-1 text-success-ink">
             <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
-            <span>Top tier</span>
+            <span>Top gala</span>
           </span>
         )}
       </div>
@@ -478,12 +491,12 @@ export function SingleTierLegend({ tierLabel }: { tierLabel: string }) {
   );
 }
 
-export function AllTierLegend() {
+export function AllTierLegend({ scale }: { scale: RingScale }) {
   return (
     <div className="flex flex-col gap-2 border-t border-border pt-3 text-xs text-ink-muted">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="font-medium text-ink-muted">Highest tier met</span>
-        {ASC_TIERS.slice()
+        <span className="font-medium text-ink-muted">Highest gala met</span>
+        {[...scale.order]
           .reverse()
           .map((t) => (
             <span key={t} className="inline-flex items-center gap-1.5">

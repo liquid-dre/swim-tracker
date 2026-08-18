@@ -54,17 +54,26 @@ don't strip the system to chase points.
 }
 ```
 
-## 3. App-semantic tokens (qualifying tiers)
-Mapped onto the reference palette so they harmonise. **Tiers are never colour-only — every tier
-badge carries a text label** (`SANJ` / `L3` / `L2`), per the domain rules.
-**One distinctive hue per tier**, forming an ascending prestige ramp
-(sapphire → purple → gold) so each colour reads as the same tier everywhere it
-appears — badges, cut lines, progress bars, the matrix. Deliberately clear of
-the reserved signals (green = qualified, red = error, brand indigo = action) so
-a tier is never mistaken for a state.
+## 3. App-semantic tokens (qualifying galas)
+Mapped onto the reference palette so they harmonise. **Galas are never colour-only — every gala
+badge carries a text label** (`SANS` / `SANY` / `SANJ` / `L3` / `L2`), per the domain rules.
+
+With five galas these hues are a **categorical identity set, not an ordered ramp**: difficulty
+order is carried by `GALA_ORDER` (in `lib/galas.ts`) and by the label, *never* by colour. They
+split into two families that match the two kinds of gala:
+
+- **age-graded ladder** — sapphire (L2, entry) → purple (L3, mid) → gold (SANJ, top of the ladder)
+- **open senior pair** — pink (SANY) and rose (SANS): one cut for every age, entry by age window
+
+Grouping the two open galas chromatically is deliberate — they are the same *kind* of gala, and
+their labels do the discriminating. Each hue is that gala's ONE colour everywhere it appears
+(badges, cut lines, progress bars, the matrix). All are deliberately clear of the reserved signals
+(green = qualified, red = error, brand indigo = action) so a gala is never mistaken for a state.
 ```css
 :root {
-  --tier-sanj:  #f79009;  /* gold — top (hardest) */
+  --tier-sans:  #e31b54;  /* rose — SA Senior Nationals (open, 15+) */
+  --tier-sany:  #c11574;  /* deep pink — SA National Youth (open, 17–25) */
+  --tier-sanj:  #f79009;  /* gold — top of the age-graded ladder */
   --tier-l3:    #9333ea;  /* vivid purple — mid */
   --tier-l2:    #0086c9;  /* sapphire / deep sky — entry */
   --tier-none:  #98a2b3;  /* gray-400 — no standard met */
@@ -157,6 +166,32 @@ their defaults. Map, don't fight.
 - **Focus ring** everywhere: `--shadow-focus-ring` (brand tint), not a hard outline.
 - **Scrollbar:** thin custom scrollbar (6px, `gray-200` thumb; dark `white/10`).
 
+## 5b. Chart layer (bklit UI, vendored)
+Charts are **bklit UI** — a shadcn registry built on Visx — vendored into `components/charts/`.
+Treat that directory as **third-party**: a future `npx shadcn@latest add @bklit/...` will overwrite
+it, and it is excluded from eslint for that reason. Our own chart parts live in
+`components/charts/swim/`, which is linted and tested normally; its `index.ts` lists what each one
+exists for and why bklit has no equivalent.
+
+**Four deliberate edits do live in the vendored tree**, each marked `LOCAL EDIT` in a comment
+naming the upstream behaviour it overrides: `yDomain` and `xLabelFormat` on the time-series shell,
+`valueDomain` on the bar chart, `maxLabelWidth` on the bar category axis. Every one exists because
+the upstream default is right for counting web analytics and wrong for swim times — above all the
+zero baseline, which flattens a whole season's trajectory into the top of the plot.
+
+**Theming:** bklit ships its own greyscale `--chart-*` palette; every value is repointed at the
+ramp in §2/§3 (`app/globals.css`), in both themes. A chart never introduces a colour the rest of
+the app does not have. `--chart-1..5` are bklit's default series palette and mirror `SERIES_COLORS`.
+
+**`motion` and `@number-flow/react` arrive as bklit dependencies. They are NOT licence for
+decorative animation** — §6 and the `prefers-reduced-motion` rule still hold in full. Charts opt out
+of the enter reveal via bklit's own `StaticChartPreviewProvider` when motion is reduced.
+
+**Two visualisations are deliberately NOT bklit** and must stay hand-built: the stroke-profile wheel
+(every spoke has its own calibrated scale, which a shared radial scale would destroy — a test locks
+it) and the dashboard sparkline (×20 rows, no axes). Both follow the app-wide orientation: faster =
+lower / further out.
+
 ## 6. Spacing & motion
 - 8px spacing grid. Section gaps `gap-5`/`gap-6`. Page content max width ~`1440px`, generous gutters.
 - Motion is minimal and functional: sidebar collapse, sub-menu expand, toast in/out, chart load.
@@ -169,3 +204,9 @@ Light is the default. The `.dark` tokens above are provided so a theme toggle ca
 ## 8. Bans (impeccable "anti-references")
 No card-in-card. No purple→blue gradients. No glassmorphism. No rounded-square icon tile above every
 heading. No grey-text-on-coloured-bg. No pure black/white. No colour-only meaning (always a label).
+Two of these bite the vendored chart layer specifically: bklit's tooltip panel ships with
+`backdrop-blur-md`, switched off via `SWIM_TOOLTIP_PANEL`, and its `content` render prop draws
+inside that panel — so a tooltip must never add a card of its own.
+**No chart may smooth a line through data points** (bklit's `Line` defaults to `curveNatural`; use
+`curveLinear`). A spline between two swims draws times the swimmer never swam, which is
+colour-only-meaning's cousin: a visual claim the data does not support.

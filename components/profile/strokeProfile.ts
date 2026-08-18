@@ -4,14 +4,18 @@
 // (`computeCalibratedRadius`) so it is unit-tested and identical on the server.
 // This module is only PIXELS: it turns the query's ring-unit values and the
 // event ordering into SVG coordinates. No colour beyond the five stroke hues +
-// neutral chrome; the three reference rings are neutral grey (DESIGN.md §3b).
+// neutral chrome; the reference rings are neutral grey (DESIGN.md §3b).
+//
+// The RING COUNT is not fixed. It comes from the galas the swimmer can enter, so
+// it is 2-4 (never 5): SANS opens at 15 and SANY at 17 while L2/L3/SANJ close at
+// 16, so no swimmer is ever eligible for all five at once.
 
+import { GALA_SHORT } from "@/lib/galas";
 import {
   STROKE_LABEL,
-  STROKE_RADIUS_MAX,
-  STROKE_RING_POS,
+  type GalaCode,
+  type RingScale,
   type Stroke,
-  type Tier,
 } from "@/lib/swim";
 
 // One event as returned by api.analysis.getStrokeProfile.
@@ -20,13 +24,17 @@ export type ProfileEvent = {
   stroke: Stroke;
   label: string;
   pbMs: number | null;
-  l2Ms: number | null;
-  l3Ms: number | null;
-  sanjMs: number | null;
+  /** This event's cuts, inner ring → outer ring. Sparse: a 50 has fewer. */
+  cuts: Array<{ gala: GalaCode; timeMs: number }>;
   calibratedRadius: number | null;
-  highestTier: Tier | null;
+  highestGala: GalaCode | null;
   fullCoverage: boolean;
 };
+
+/** Look up one event's cut for a gala, or null when it has none. */
+export function cutFor(event: ProfileEvent, gala: GalaCode): number | null {
+  return event.cuts.find((c) => c.gala === gala)?.timeMs ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Stroke identity — the five categorical hues (DESIGN.md §3b)
@@ -49,12 +57,18 @@ export const WHEEL_STROKE_ORDER: ReadonlyArray<Stroke> = [
   "IM",
 ];
 
-// The three reference rings, outermost (hardest) first for legends.
-export const RING_TIERS: ReadonlyArray<{ tier: Tier; label: string }> = [
-  { tier: "SANJ", label: "SANJ" },
-  { tier: "LEVEL_3", label: "L3" },
-  { tier: "LEVEL_2", label: "L2" },
-];
+/**
+ * The wheel's reference rings, OUTERMOST (hardest) first — the order legends and
+ * cut lists read in. Derived from the scale the query returned, so it is however
+ * many rings this swimmer actually has.
+ */
+export function ringTiers(
+  scale: RingScale,
+): ReadonlyArray<{ tier: GalaCode; label: string }> {
+  return [...scale.order]
+    .reverse()
+    .map((tier) => ({ tier, label: GALA_SHORT[tier] }));
+}
 
 // ---------------------------------------------------------------------------
 // Geometry
@@ -93,7 +107,7 @@ export type WheelBar = {
   angle: number; // slot centre, degrees (0 = top, clockwise)
   slotStart: number;
   slotEnd: number;
-  hasCut: (tier: Tier) => boolean;
+  hasCut: (tier: GalaCode) => boolean;
   /** Bar tip radius in px (null when there is no PB — an empty spoke). */
   tipR: number | null;
 };
@@ -108,27 +122,32 @@ export type StrokeArc = {
   count: number;
 };
 
-const RING_POS_BY_TIER: Record<Tier, number> = STROKE_RING_POS;
-
 /**
  * Turn an ordered event list + a pixel size into everything the wheel draws:
  * the centre, the px radius of any ring-unit value, the per-event bars, and the
  * per-stroke outer arcs. Presentational only — feed it the query's events in
- * the order the server returned them (already grouped by stroke).
+ * the order the server returned them (already grouped by stroke), plus the ring
+ * scale it returned alongside them.
  */
-export function buildWheelLayout(events: ProfileEvent[], size: number) {
+export function buildWheelLayout(
+  events: ProfileEvent[],
+  size: number,
+  scale: RingScale,
+) {
   const cx = size / 2;
   const cy = size / 2;
 
-  // Radial scale: norm 0 = hub (centre disc), norm 3 = SANJ (outer ring). A bar
-  // faster than SANJ extrapolates to STROKE_RADIUS_MAX; keep it inside the label
-  // band. `pad` reserves room for the stroke labels + distance ticks outside.
+  // Radial scale: norm 0 = hub (centre disc), norm = ring count is the outermost
+  // ring. A bar faster than the hardest cut extrapolates to `scale.max`; keep it
+  // inside the label band. `pad` reserves room for the stroke labels + distance
+  // ticks outside. With fewer rings each ring-unit is simply wider.
   const pad = Math.max(38, size * 0.13);
   const hub = Math.max(20, size * 0.08);
-  const outer = size / 2 - pad; // SANJ ring (norm 3)
-  const gap = (outer - hub) / STROKE_RING_POS.SANJ; // px per ring unit
+  const outer = size / 2 - pad; // the outermost ring
+  const rings = Math.max(1, scale.order.length);
+  const gap = (outer - hub) / rings; // px per ring unit
   const ringR = (norm: number) => hub + norm * gap;
-  const maxBarR = ringR(STROKE_RADIUS_MAX);
+  const maxBarR = ringR(scale.max);
 
   const n = events.length;
   const anglePer = n > 0 ? 360 / n : 360;
@@ -146,10 +165,10 @@ export function buildWheelLayout(events: ProfileEvent[], size: number) {
       tipR = event.calibratedRadius <= 0 ? hub + MIN_STUB : Math.max(raw, hub + MIN_STUB);
     }
 
-    const hasCut = (t: Tier) =>
-      (t === "LEVEL_2" && event.l2Ms !== null) ||
-      (t === "LEVEL_3" && event.l3Ms !== null) ||
-      (t === "SANJ" && event.sanjMs !== null);
+    // A ring is drawn on this spoke only where the event actually has that
+    // gala's cut — a 50 Free has no Level 3 or SANJ cut, so those arcs are
+    // simply absent rather than faked.
+    const hasCut = (t: GalaCode) => cutFor(event, t) !== null;
 
     return { event, index, angle, slotStart, slotEnd, hasCut, tipR };
   });
@@ -185,7 +204,7 @@ export function buildWheelLayout(events: ProfileEvent[], size: number) {
     anglePer,
     ringR,
     maxBarR,
-    ringPos: RING_POS_BY_TIER,
+    ringPos: scale.pos,
     bars,
     arcs,
   };

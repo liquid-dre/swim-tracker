@@ -8,12 +8,13 @@ import {
   computePersonalBests,
   computeAge,
   eventLabel,
-  pickApplicableStandardsPerTier,
-  tierResolutionAges,
+  galaResolutionAges,
+  pickApplicableStandardsPerGala,
+  type Course,
+  type GalaCode,
   type ResultForPB,
-  type Tier,
 } from "../lib/swim";
-import { loadTourDates } from "./tours";
+import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
 
 // Personal bests + swimmer profile (BRD §4.6, §5.4, Step 6). PBs are DERIVED —
 // there is NO personalBests table. Every read recomputes from `results` over the
@@ -317,11 +318,8 @@ export const getViewerHighlights = query({
         v.null(),
         v.object({
           label: v.string(),
-          tier: v.union(
-            v.literal("LEVEL_2"),
-            v.literal("LEVEL_3"),
-            v.literal("SANJ"),
-          ),
+          gala: galaCodeValidator,
+          course, // the course this gap is measured in — cuts are course-specific
           gapMs: v.number(),
         }),
       ),
@@ -331,7 +329,9 @@ export const getViewerHighlights = query({
     const { swimmerIds } = await accessibleSwimmerIds(ctx);
     if (swimmerIds === "ALL") return [];
 
-    const tourDates = await loadTourDates(ctx);
+    const galas = await loadGalas(ctx);
+    const galaRefs = toGalaRefs(galas);
+    const codeById = new Map(galas.map((g) => [g._id, g.code as GalaCode]));
     const today = new Date().toISOString().slice(0, 10);
     const out = [];
 
@@ -371,25 +371,47 @@ export const getViewerHighlights = query({
         .withIndex("by_lookup", (q) => q.eq("gender", swimmer.gender))
         .take(2000);
       const age = computeAge(swimmer.dob, today);
-      let closestCut: { label: string; tier: Tier; gapMs: number } | null = null;
+      const ages = galaResolutionAges(swimmer.dob, age, galaRefs);
+      let closestCut: {
+        label: string;
+        gala: GalaCode;
+        course: Course;
+        gapMs: number;
+      } | null = null;
+      // Every course counts (§4.2), and each PB is judged against its OWN
+      // course's cut — so the nearest cut may be a short-course one.
       for (const pb of pbs) {
-        if (pb.course !== "LCM" || !pb.headline) continue;
-        const cuts = pickApplicableStandardsPerTier(
-          cutRows.filter(
-            (r) => r.distance === pb.distance && r.stroke === pb.stroke,
-          ),
+        if (!pb.headline) continue;
+        const course = pb.course as Course;
+        const cuts = pickApplicableStandardsPerGala(
+          cutRows.flatMap((r) => {
+            if (r.distance !== pb.distance || r.stroke !== pb.stroke) return [];
+            if (r.galaId === undefined || r.course !== course) return [];
+            const gala = codeById.get(r.galaId);
+            return gala === undefined
+              ? []
+              : [{ ...r, gala, age: r.age ?? null }];
+          }),
+          galaRefs,
           // Tour-day age when a date is set, else current age — never the age
           // the PB was swum, matching every qualification surface.
-          tierResolutionAges(swimmer.dob, age, tourDates),
+          ages,
         );
-        const cell = computeMatrixCell(pb.headline.timeMs, cuts);
-        if (cell.gapMs === null || cell.gapMs <= 0 || cell.nextTier === null) {
+        const cell = computeMatrixCell(
+          { [course]: pb.headline.timeMs },
+          course === "LCM"
+            ? { LCM: cuts, SCM: {} }
+            : { LCM: {}, SCM: cuts },
+          course,
+        );
+        if (cell.gapMs === null || cell.gapMs <= 0 || cell.nextGala === null) {
           continue;
         }
         if (closestCut === null || cell.gapMs < closestCut.gapMs) {
           closestCut = {
             label: eventLabel(pb.distance, pb.stroke),
-            tier: cell.nextTier,
+            gala: cell.nextGala,
+            course,
             gapMs: cell.gapMs,
           };
         }

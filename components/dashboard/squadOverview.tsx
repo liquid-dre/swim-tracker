@@ -16,7 +16,7 @@ import type { LucideIcon } from "lucide-react";
 import type { api } from "@/convex/_generated/api";
 import { buttonClasses } from "@/components/ui/Button";
 import { TierBadge } from "@/components/ui/TierBadge";
-import { formatTime } from "@/lib/swim";
+import { formatTime, GALA_SHORT } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
@@ -32,11 +32,8 @@ import { cn } from "@/lib/utils";
 
 export type DashboardData = FunctionReturnType<typeof api.dashboard.getCoachDashboard>;
 
-const NEXT_TIER_SHORT: Record<"LEVEL_2" | "LEVEL_3" | "SANJ", string> = {
-  LEVEL_2: "L2",
-  LEVEL_3: "L3",
-  SANJ: "SANJ",
-};
+// One label map, shared with every other gala surface (lib/galas.ts).
+const NEXT_TIER_SHORT = GALA_SHORT;
 
 // ---------------------------------------------------------------------------
 // Stat cards
@@ -383,7 +380,7 @@ export function RosterOverview({ data }: { data: DashboardData | undefined }) {
 function RosterRow({ row }: { row: DashboardData["roster"][number] }) {
   const { top } = row;
   const isClose =
-    top?.gapMs != null && top.gapMs > 0 && top.gapMs <= 1000 && top.nextTier != null;
+    top?.gapMs != null && top.gapMs > 0 && top.gapMs <= 1000 && top.nextGala != null;
 
   return (
     <tr className="border-b border-gray-100 transition-colors [transition-duration:var(--dur-1)] last:border-0 hover:bg-aqua-50/60">
@@ -399,7 +396,7 @@ function RosterRow({ row }: { row: DashboardData["roster"][number] }) {
         </Link>
       </td>
       <td className="px-4 py-2.5 text-ink-muted">
-        {top ? `${top.label} LCM` : <span className="text-ink-faint">—</span>}
+        {top ? `${top.label} ${top.course}` : <span className="text-ink-faint">—</span>}
       </td>
       <td className="px-4 py-2.5 text-right">
         {top ? (
@@ -417,10 +414,10 @@ function RosterRow({ row }: { row: DashboardData["roster"][number] }) {
       </td>
       <td className="px-4 py-2.5">
         <div className="flex flex-col items-start gap-0.5">
-          <TierBadge tier={top?.tier ?? "NONE"} />
+          <TierBadge gala={top?.gala ?? "NONE"} course={top?.course ?? null} />
           {isClose && (
             <span className="text-2xs font-medium tabular-nums text-warning-ink">
-              {formatSeconds(top!.gapMs as number)}s to {NEXT_TIER_SHORT[top!.nextTier!]}
+              {formatSeconds(top!.gapMs as number)}s to {NEXT_TIER_SHORT[top!.nextGala!]}
             </span>
           )}
         </div>
@@ -452,10 +449,13 @@ function Avatar({ name }: { name: string }) {
 }
 
 /*
-  Trend of recent MEET times. Faster (lower ms) sits HIGHER, so an improving
-  swimmer's line rises to the right; the stroke is green when the latest time is
-  at or under the earliest (improving), grey otherwise. Colour here means TREND
-  only — never a tier. A single point renders as a dot.
+  Trend of recent MEET times. Faster (lower ms) sits LOWER, so an improving
+  swimmer's line FALLS to the right — the same orientation as the progression
+  chart, whose y axis is time and is not reversed. One direction for time
+  app-wide: a line going down always means getting faster, on every surface.
+  The stroke is green when the latest time is at or under the earliest
+  (improving), grey otherwise. Colour here means TREND only — never a gala.
+  A single point renders as a dot.
 */
 function Sparkline({ points }: { points: number[] }) {
   if (points.length === 0) {
@@ -486,7 +486,9 @@ function Sparkline({ points }: { points: number[] }) {
   const coords = points
     .map((t, i) => {
       const x = pad + i * step;
-      const y = pad + ((t - min) / range) * (h - pad * 2);
+      // SVG y grows downward, so the FASTEST time (min) must map to the largest
+      // y to sit at the bottom — hence the inversion.
+      const y = pad + (1 - (t - min) / range) * (h - pad * 2);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
