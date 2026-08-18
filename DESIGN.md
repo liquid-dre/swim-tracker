@@ -183,6 +183,21 @@ zero baseline, which flattens a whole season's trajectory into the top of the pl
 ramp in §2/§3 (`app/globals.css`), in both themes. A chart never introduces a colour the rest of
 the app does not have. `--chart-1..5` are bklit's default series palette and mirror `SERIES_COLORS`.
 
+**Re-pulling from the registry — three things it does every time, all of which must be undone:**
+1. **Never pass `--overwrite`.** It silently reverts the `LOCAL EDIT`s above *and* the two of our
+   own component names registered in `chart-child-passthrough.ts`'s underlay set (`GalaCutOverlay`,
+   `ValueThresholds`) — which, unfixed, draws qualifying-cut lines on top of the data instead of
+   under it. `shadcn add` prompts per existing file; answer **no** to all of them
+   (`yes N | npx shadcn@latest add @bklit/...`).
+2. It re-appends its greyscale `--chart-1..5` into the **dark** block of `app/globals.css`,
+   overriding the series hues that block deliberately does not flip. Delete those five lines.
+3. It emits three malformed self-referential lines — `--chart-line-primary: var(----chart-line-primary)`
+   and friends, with four hyphens. They duplicate tokens already defined above. Delete them.
+
+Vendored **subdirectories** need their own eslint ignore entry (`components/charts/tooltip/**`,
+`components/charts/heatmap/**`); the top-level ignore is one level deep only. `components/charts/swim/**`
+stays linted.
+
 **`motion` and `@number-flow/react` arrive as bklit dependencies. They are NOT licence for
 decorative animation** — §6 and the `prefers-reduced-motion` rule still hold in full. Charts opt out
 of the enter reveal via bklit's own `StaticChartPreviewProvider` when motion is reduced.
