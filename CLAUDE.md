@@ -22,6 +22,18 @@ built on Visx) vendored into `components/charts/`. Times stored as integer milli
 `stitch-design-taste`, `design-taste-frontend`, `high-end-visual-design`. They conflict with the
 minimalist product direction or bloat context.
 
+## Code-quality & architecture skills (also in `.claude/skills/`)
+Slash-invoked only (`disable-model-invocation`) — reach for them deliberately, they do not auto-trigger.
+- **`/grill-with-docs`** — relentless interview on a plan or design that writes the docs (ADRs, glossary)
+  as it goes. Chains `grilling` + `domain-modeling`.
+- **`/improve-codebase-architecture`** — scans for deepening opportunities (shallow → deep modules),
+  renders them as an HTML report, then grills through the one you pick. Chains `codebase-design`.
+- **`/thermo-nuclear-code-quality-review`** — very strict maintainability audit of the current branch:
+  abstraction quality, giant files, spaghetti conditionals, ambitious behavior-preserving restructures.
+- Supporting vocabulary skills, invoked by the above: **`codebase-design`** (module / interface / depth /
+  seam / adapter) and **`domain-modeling`** (`CONTEXT.md` glossary + `docs/adr/`). Neither file exists yet;
+  the skills create them lazily. Domain terms there must not contradict the invariants in this file.
+
 ## Design system (product mode)
 Authoritative tokens live in `DESIGN.md` (TailAdmin-derived). **Outfit** typeface; soft off-white
 canvas (`gray-50`); white cards at `rounded-2xl` with a `gray-200` border and a soft layered shadow;
