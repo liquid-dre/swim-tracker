@@ -140,7 +140,7 @@ export type NoteMarker = {
 
 type ChartPoint = ProgressionPoint & { t: number };
 
-function msToShort(ms: number): string {
+export function msToShort(ms: number): string {
   const iso = new Date(ms).toISOString().slice(0, 10);
   return formatShortDate(iso);
 }
@@ -713,7 +713,7 @@ function todayIso(): string {
 }
 
 /*
-  Exported so the GROUP scatter can draw the same overlay from the same rule —
+  Exported so the GROUP chart can draw the same overlay from the same rule —
   in particular the `single: false` path, which suppresses the cut lines unless
   every selected swimmer resolves to the same exact-age cut (§4.9). Two copies
   of that rule is exactly how a chart ends up drawing a cut that applies to only
@@ -942,7 +942,7 @@ type TooltipProps = {
   arbitrary swimmer — every swimmer who actually swam on that date can be listed.
   The card itself is bklit's TooltipBox; only the stack inside it is ours.
 */
-function ProgressionTooltip({ row, keys, single }: TooltipProps) {
+export function ProgressionTooltip({ row, keys, single }: TooltipProps) {
   const present = keys.filter((k) => typeof row[k.value] === "number");
   if (present.length === 0) return null;
 
@@ -982,7 +982,7 @@ function ProgressionTooltip({ row, keys, single }: TooltipProps) {
 // Legend — marks (single) or swimmer swatches (group)
 // ---------------------------------------------------------------------------
 
-function Legend({
+export function Legend({
   series,
   single,
 }: {
@@ -1014,24 +1014,51 @@ function Legend({
     );
   }
 
+  /*
+    Two rows, because the group chart uses two independent channels and the
+    legend has to keep them apart: COLOUR is the swimmer, SHAPE is the kind of
+    swim. Drawing the mark swatches in brand blue (as the single-swimmer legend
+    does) would be read as "the blue swimmer", so here they are neutral ink.
+
+    School gala keeps its warning tone in both rows — that colour IS its
+    meaning, and the chart never draws a school gala in a series colour.
+  */
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-1 text-xs text-ink-muted">
-      {series.map((s) => (
-        <LegendMark key={s.name}>
-          <span
-            className="size-2.5 rounded-full"
-            style={{ background: s.color }}
-          />
-          <span className="text-ink">{s.name}</span>
+    <div className="flex flex-col gap-2 px-1 text-xs text-ink-muted">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {series.map((s) => (
+          <LegendMark key={s.name}>
+            <span
+              className="size-2.5 rounded-full"
+              style={{ background: s.color }}
+            />
+            <span className="text-ink">{s.name}</span>
+          </LegendMark>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <LegendMark>
+          <span className="size-2.5 rounded-full bg-gray-500" /> Meet
         </LegendMark>
-      ))}
-      <LegendMark>
-        <GalaDiamond />
-        <span className="text-warning-ink">school gala · unofficial</span>
-      </LegendMark>
-      <span className="text-ink-faint">
-        Filled = meet · hollow = trial/practice · ring = PB
-      </span>
+        <LegendMark>
+          <span className="size-2.5 rounded-full border-[1.5px] border-gray-500 bg-gray-25" />{" "}
+          Trial / practice
+        </LegendMark>
+        <LegendMark>
+          <span className="relative flex size-3.5 items-center justify-center">
+            <span className="absolute inset-0 rounded-full border-[1.5px] border-gray-500 opacity-40" />
+            <span className="size-2 rounded-full bg-gray-500" />
+          </span>
+          Personal best
+        </LegendMark>
+        <LegendMark>
+          <GalaDiamond />
+          <span className="text-warning-ink">School gala · unofficial</span>
+        </LegendMark>
+        <span className="text-ink-faint">
+          Shape = kind of swim · colour = swimmer
+        </span>
+      </div>
     </div>
   );
 }

@@ -13,8 +13,6 @@ import {
   TooltipTitle,
   TooltipValue,
   ValueAxis,
-  TierPatterns,
-  useTierPatternIds,
   ValueThresholds,
   type SwimBar,
   type Threshold,
@@ -63,16 +61,9 @@ export type ComparisonCut = { tier: GalaCode; timeMs: number };
 // --tier-none the system reserves for it, never the brand accent (which would
 // read as an action, not a standard). SCM has no standards at all, so its bars
 // keep the plain brand accent.
-function barColor(
-  tier: GalaCode | null,
-  overlay: boolean,
-  idFor: (gala: GalaCode) => string,
-): string {
+function barColor(tier: GalaCode | null, overlay: boolean): string {
   if (!overlay) return CHART.accent;
-  // A gala bar takes its TEXTURED fill (see TierPatterns): hue plus a pattern,
-  // so the gala is not carried by colour alone. "No tier" stays flat grey —
-  // it is the absence of a gala, so giving it a texture would imply one.
-  return tier ? `url(#${idFor(tier)})` : "var(--color-tier-none)";
+  return tier ? TIER_STYLE[tier].color : "var(--color-tier-none)";
 }
 
 /** Renders children at rest (no enter animation) when motion is reduced. */
@@ -108,7 +99,6 @@ export function ComparisonBarChart({
   // Phone-width: shrink the label gutters so the bars keep most of the plot.
   // Decorative-only trade-off — the leaderboard table carries the full names.
   const narrow = useMediaQuery("(max-width: 639px)");
-  const idFor = useTierPatternIds();
 
   // Fastest first in the leaderboard = top of the chart. Recharts plots the
   // first category at the bottom by default, so reverse the axis to match.
@@ -133,22 +123,11 @@ export function ComparisonBarChart({
     key: r.swimmerId,
     category: r.name,
     value: r.timeMs,
-    fill: barColor(r.highestGala, overlay, idFor),
+    fill: barColor(r.highestGala, overlay),
     // The exact time at the end of every bar, so the chart never asks the eye to
     // estimate a swim time off a bar length.
     label: formatTime(r.timeMs),
   }));
-
-  // Only define patterns for galas actually painted, so the defs stay minimal.
-  const patternTiers = overlay
-    ? Array.from(
-        new Set(
-          data
-            .map((r) => r.highestGala)
-            .filter((t): t is GalaCode => t !== null),
-        ),
-      )
-    : [];
 
   const thresholds: Threshold[] = cuts.map((c) => {
     const st = TIER_STYLE[c.tier];
@@ -194,7 +173,6 @@ export function ComparisonBarChart({
           valueDomain={[0, (Math.max(maxTime, maxCut) || 1) * 1.08]}
           xDataKey="name"
         >
-          <TierPatterns idFor={idFor} tiers={patternTiers} />
           <Grid
             horizontal={false}
             stroke={CHART.grid}

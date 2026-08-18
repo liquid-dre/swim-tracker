@@ -18,6 +18,9 @@ import { weekdayDateFmt } from "../chart-formatters";
 import type { IndicatorFadeEdges } from "../indicator-fade";
 import { DateTicker } from "./date-ticker";
 import { TooltipBox } from "./tooltip-box";
+// LOCAL EDIT: bar-chart tooltip anchoring lives in our own tree so it is
+// linted and tested; see components/charts/swim/barTooltipAnchor.ts.
+import { barBandCenterY } from "../swim/barTooltipAnchor";
 import { TooltipContent, type TooltipRow } from "./tooltip-content";
 import { TooltipDot } from "./tooltip-dot";
 import { TooltipIndicator } from "./tooltip-indicator";
@@ -133,8 +136,10 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
     dateLabels,
     containerRef,
     orientation,
+    barScale,
     barXAccessor,
     bandWidth,
+    data,
     squareSnap,
   } = useChart();
   const { tooltipSpring } = useChartConfig();
@@ -190,7 +195,27 @@ const ChartTooltipInner = memo(function ChartTooltipInner({
   const firstLineY = firstLineDataKey
     ? (tooltipData?.yPositions[firstLineDataKey] ?? 0)
     : 0;
-  const yWithMargin = firstLineY + margin.top;
+
+  /*
+    LOCAL EDIT (ours). Upstream anchors the panel to `lines[0]` and falls back to
+    0 with no line configs, which pins the tooltip to the top of the plot — see
+    components/charts/swim/barTooltipAnchor.ts for why that fires on every one
+    of our bar charts, and what it falls back to instead.
+  */
+  const bandCenterY = useMemo(
+    () =>
+      barBandCenterY({
+        hasLines: lines.length > 0,
+        index: tooltipData?.index,
+        data,
+        barScale,
+        bandWidth,
+        barXAccessor,
+      }),
+    [lines.length, tooltipData?.index, data, barScale, bandWidth, barXAccessor],
+  );
+
+  const yWithMargin = (bandCenterY ?? firstLineY) + margin.top;
 
   const tooltipRows = useMemo(() => {
     if (!tooltipData) {
