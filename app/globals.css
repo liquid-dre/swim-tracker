@@ -507,6 +507,16 @@
   .dark .custom-scrollbar::-webkit-scrollbar-thumb {
     background-color: rgba(255, 255, 255, 0.1);
   }
+
+  /* A strip that scrolls without showing it does — for the tab rail, where a
+     6px bar under the labels would read as a second, broken underline. The
+     overflow itself is signalled visually instead (a fade at the live edge). */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @keyframes collapsible-down {

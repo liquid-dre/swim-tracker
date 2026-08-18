@@ -4,6 +4,8 @@ import {
   isLeafActive,
   isRouteAllowed,
   navForRole,
+  titleForHref,
+  trailForHref,
   type NavLeaf,
   type Role,
 } from "./nav";
@@ -47,6 +49,28 @@ describe("navForRole — role decides which nav renders", () => {
     expect(coach).toContain("/dashboard");
     expect(coach).toContain("/road");
     for (const href of coach) expect(href.startsWith("/me")).toBe(false);
+  });
+
+  it("puts Deleted times in the coach-only Audit group", () => {
+    const coach = hrefsFor("COACH");
+    expect(coach).toContain("/audit/deletions");
+    // A super-user sees every coach node too (allowed() treats it as a superset).
+    expect(hrefsFor("SUPER_USER")).toContain("/audit/deletions");
+    expect(hrefsFor("VIEWER")).not.toContain("/audit/deletions");
+
+    // Deny-by-default on the route itself, not just the nav.
+    expect(isRouteAllowed("COACH", "/audit/deletions")).toBe(true);
+    expect(isRouteAllowed("SUPER_USER", "/audit/deletions")).toBe(true);
+    expect(isRouteAllowed("VIEWER", "/audit/deletions")).toBe(false);
+  });
+
+  it("names the Deleted times trail Audit / Deleted times", () => {
+    expect(trailForHref("/audit/deletions").map((c) => c.label)).toEqual([
+      "Dashboard",
+      "Audit",
+      "Deleted times",
+    ]);
+    expect(titleForHref("/audit/deletions")).toBe("Deleted times");
   });
 
   it("gives both roles Points, under Performance", () => {

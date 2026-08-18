@@ -7,17 +7,25 @@ import { requireCoach } from "./authz";
 import { eventLabel } from "../lib/swim";
 
 /*
-  Coach-visible AUDIT TRAILS (§R17). Two coach-only logs — who did what, when, and
-  by which account:
+  Coach-visible AUDIT TRAILS (§R17). Three coach-only logs — who did what, when,
+  and by which account:
 
-    A. Access log      (listAccessLog)    — every viewer-access event over the R5
-                                             invite flow, from the append-only
-                                             `accessEvents` table.
-    B. Time-entry log  (listTimeEntryLog) — every result's entry + last-edit
-                                             provenance, derived from `results`.
+    A. Access log       (listAccessLog)     — every viewer-access event over the
+                                               R5 invite flow, from the
+                                               append-only `accessEvents` table.
+    B. Time-entry log   (listTimeEntryLog)  — every result's entry + last-edit
+                                               provenance, derived from `results`.
+    C. Deleted times    (listDeletedTimeLog)— every removed result, from the
+                                               append-only `resultDeletions` table.
 
-  Both gate on requireCoach, so a viewer can never reach either (server-enforced).
-  `recordAccessEvent` is the shared write seam the access mutations call. Reads are
+  C exists BECAUSE of how B works. B is derived from the live rows, so a deleted
+  result drops out of it entirely: the swim, who logged it and who removed it all
+  vanish together. A and C therefore share the same shape — snapshot the facts at
+  event time, into a table nothing ever mutates — while B needs no table at all.
+
+  All three gate on requireCoach, so a viewer can never reach any of them
+  (server-enforced). `recordAccessEvent` and `recordResultDeletion` are the shared
+  write seams the mutations call; no mutation builds a log row itself. Reads are
   bounded (club scale, BRD §11.1).
 */
 
@@ -32,6 +40,10 @@ type AccessEventType =
   | "REQUESTED"
   | "APPROVED"
   | "DENIED";
+
+// What the logs call an account that has since been deleted. The entry still
+// happened, so the row stays and names the gap rather than disappearing.
+const REMOVED_ACCOUNT = "(removed account)";
 
 // An unclaimed invite lapses after this long (§R17 EXPIRED). The daily cron
 // (convex/crons.ts) sweeps pendings past it, logging one EXPIRED event each.
@@ -65,6 +77,70 @@ export async function recordAccessEvent(
     actorRole: e.actor?.role,
     approverProfileId: e.approver?.profileId,
     approverName: e.approver?.name,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// recordResultDeletion — the append-only writer for Part C (deleted times)
+// ---------------------------------------------------------------------------
+
+// A reason is free text a coach types under pressure; cap it so one paste can't
+// bloat every page of the log. Long enough for a real sentence.
+export const DELETE_REASON_MAX = 200;
+
+/**
+ * Tombstone a result on its way out.
+ *
+ * Call this BEFORE `ctx.db.delete` — it reads the row's own provenance, and once
+ * the row is gone there is nothing left to read. The snapshot is deliberately
+ * total: this row is the only surviving copy of the swim.
+ */
+export async function recordResultDeletion(
+  ctx: MutationCtx,
+  e: {
+    result: Doc<"results">;
+    swimmer: Doc<"swimmers">;
+    actor: Doc<"profiles">;
+    reason?: string;
+  },
+): Promise<void> {
+  const { result, swimmer, actor } = e;
+
+  // A profile can be removed while its entries live on, so the log names the
+  // gap rather than dropping the row — the swim was still logged by someone.
+  const enteredBy = await ctx.db.get(result.enteredBy);
+  const lastEditedBy = result.lastEditedBy
+    ? await ctx.db.get(result.lastEditedBy)
+    : null;
+
+  const reason = e.reason?.trim().slice(0, DELETE_REASON_MAX);
+
+  await ctx.db.insert("resultDeletions", {
+    at: Date.now(),
+    actorProfileId: actor._id,
+    actorName: actor.name,
+    actorRole: actor.role,
+    // Blank and absent are the same fact — "no reason given" — so an empty
+    // string never reaches the table to be rendered as one.
+    reason: reason ? reason : undefined,
+    swimmerId: swimmer._id,
+    swimmerName: swimmer.name,
+    distance: result.distance,
+    stroke: result.stroke,
+    course: result.course,
+    timeMs: result.timeMs,
+    swimType: result.swimType,
+    swimDate: result.swimDate,
+    ageAtSwim: result.ageAtSwim,
+    meetName: result.meetName,
+    venue: result.venue,
+    notes: result.notes,
+    enteredByProfileId: result.enteredBy,
+    enteredByName: enteredBy?.name ?? REMOVED_ACCOUNT,
+    enteredByRole: enteredBy?.role ?? "VIEWER",
+    originalCreatedAt: result.createdAt,
+    lastEditedByName: lastEditedBy?.name,
+    originalUpdatedAt: result.updatedAt,
   });
 }
 
@@ -341,7 +417,7 @@ export const listTimeEntryLog = query({
     ): Promise<{ name: string; role: Role } | null> => {
       if (!id) return null;
       const p = await getProfile(id);
-      if (!p) return { name: "(removed account)", role: "VIEWER" };
+      if (!p) return { name: REMOVED_ACCOUNT, role: "VIEWER" };
       return { name: p.name, role: p.role };
     };
 
@@ -396,5 +472,76 @@ export const listEnterers = query({
     return profiles
       .map((p) => ({ _id: p._id, name: p.name, role: p.role }))
       .sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+// ---------------------------------------------------------------------------
+// listDeletedTimeLog — Part C: removed results (coach-only)
+// ---------------------------------------------------------------------------
+
+export const listDeletedTimeLog = query({
+  // Cursor-paginated (newest-deleted first), like the other two trails, so the
+  // history is never silently truncated. Every filter applies SERVER-SIDE, so a
+  // filtered read searches the whole log rather than the loaded window.
+  args: {
+    paginationOpts: paginationOptsValidator,
+    swimmerId: v.optional(v.id("swimmers")),
+    deletedBy: v.optional(v.id("profiles")),
+    swimType: v.optional(swimTypeValidator),
+    // Deletion-time window in epoch ms (the client converts its local-day pickers).
+    deletedFrom: v.optional(v.number()),
+    deletedTo: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireCoach(ctx);
+
+    // Both indexes end on `at`, so newest-first is an ordered index scan either
+    // way — unlike Part B, which has no createdAt index to lean on.
+    const base =
+      args.swimmerId !== undefined
+        ? ctx.db
+            .query("resultDeletions")
+            .withIndex("by_swimmer", (q) => q.eq("swimmerId", args.swimmerId!))
+        : ctx.db.query("resultDeletions").withIndex("by_at");
+    const paged = await base
+      .order("desc")
+      .filter((q) =>
+        q.and(
+          args.deletedBy !== undefined
+            ? q.eq(q.field("actorProfileId"), args.deletedBy)
+            : true,
+          args.swimType !== undefined
+            ? q.eq(q.field("swimType"), args.swimType)
+            : true,
+          args.deletedFrom !== undefined
+            ? q.gte(q.field("at"), args.deletedFrom)
+            : true,
+          args.deletedTo !== undefined ? q.lte(q.field("at"), args.deletedTo) : true,
+        ),
+      )
+      .paginate(args.paginationOpts);
+
+    // Every name and role was snapshotted at deletion time, so there is nothing
+    // to join and — unlike Part B's role filter — nothing that has to be dropped
+    // after the page loads. A full page here is always a full page.
+    const page = paged.page.map((d) => ({
+      _id: d._id,
+      at: d.at,
+      actorName: d.actorName,
+      actorRole: d.actorRole as Role,
+      reason: d.reason ?? null,
+      swimmerId: d.swimmerId,
+      swimmerName: d.swimmerName,
+      label: eventLabel(d.distance, d.stroke),
+      course: d.course,
+      timeMs: d.timeMs,
+      swimType: d.swimType,
+      swimDate: d.swimDate,
+      enteredByName: d.enteredByName,
+      enteredByRole: d.enteredByRole as Role,
+      originalCreatedAt: d.originalCreatedAt,
+    }));
+
+    return { ...paged, page };
   },
 });

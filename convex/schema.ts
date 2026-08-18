@@ -21,6 +21,13 @@ const distance = v.union(
   v.literal(800),
   v.literal(1500),
 );
+// Account role (docs/access-control.md). Declared here with the other domain
+// enumerations so profiles and every log that snapshots a role stay in lock-step.
+const role = v.union(
+  v.literal("SUPER_USER"),
+  v.literal("COACH"),
+  v.literal("VIEWER"),
+);
 const swimType = v.union(
   v.literal("MEET"),
   v.literal("TIME_TRIAL"),
@@ -69,11 +76,7 @@ export default defineSchema({
     // SUPER_USER: global reference data (standards, season dates, clubs) + sees
     // everything. COACH: edits their own club's swimmers, reads all as public.
     // VIEWER: read-only; sensitive view only for their linked swimmer(s).
-    role: v.union(
-      v.literal("SUPER_USER"),
-      v.literal("COACH"),
-      v.literal("VIEWER"),
-    ),
+    role,
     // The club a COACH manages (their edit scope). Unset for SUPER_USER/VIEWER.
     clubId: v.optional(v.id("clubs")),
     // Last dashboard visit (epoch ms) — anchors the "since you were last
@@ -243,13 +246,7 @@ export default defineSchema({
     // APPROVED/DENIED; the viewer for CLAIMED/REQUESTED; system for EXPIRED).
     actorProfileId: v.optional(v.id("profiles")),
     actorName: v.optional(v.string()),
-    actorRole: v.optional(
-      v.union(
-        v.literal("SUPER_USER"),
-        v.literal("COACH"),
-        v.literal("VIEWER"),
-      ),
-    ),
+    actorRole: v.optional(role),
     // The inviting/responsible coach ("by which coach"): the approver on CLAIMED,
     // and the issuer on EXPIRED — where the actor is the viewer / system.
     approverProfileId: v.optional(v.id("profiles")),
@@ -258,6 +255,54 @@ export default defineSchema({
     .index("by_swimmer", ["swimmerId"])
     .index("by_viewerEmail", ["viewerEmail"])
     .index("by_at", ["at"]),
+
+  // §R17 Part C — DELETED-time tombstones. Deleting a result is a hard delete,
+  // and Part B's time-entry log is DERIVED from the live `results` rows, so
+  // without this table a deletion erases its own evidence: no record that the
+  // swim existed, who logged it, or who removed it. A tombstone is therefore the
+  // ONLY surviving copy, which is why it snapshots the whole row rather than
+  // pointing at one — and why it snapshots names (as accessEvents does), so the
+  // log still reads true after a rename or after the swimmer is removed.
+  //
+  // Hard delete + tombstone, deliberately NOT a `deletedAt` flag on `results`:
+  // ~15 read paths recompute PBs, points and qualification straight from that
+  // table, and a single missed filter would silently resurrect a deleted swim
+  // into a personal best. Append-only; nothing ever patches or deletes a row here.
+  resultDeletions: defineTable({
+    at: v.number(),
+    // Who removed it.
+    actorProfileId: v.id("profiles"),
+    actorName: v.string(),
+    actorRole: role,
+    // Why, in the deleter's own words. Optional: a coach correcting a typo they
+    // made seconds ago has nothing to add, and a forced field just yields noise.
+    reason: v.optional(v.string()),
+    // Snapshot of the deleted result.
+    swimmerId: v.id("swimmers"),
+    swimmerName: v.string(),
+    distance,
+    stroke,
+    course,
+    timeMs: v.number(),
+    swimType,
+    swimDate: v.string(),
+    ageAtSwim: v.number(),
+    meetName: v.optional(v.string()),
+    venue: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    // The deleted row's own entry provenance, carried over so the tombstone
+    // answers "who logged this?" as well as "who removed it?".
+    enteredByProfileId: v.id("profiles"),
+    enteredByName: v.string(),
+    enteredByRole: role,
+    originalCreatedAt: v.number(),
+    lastEditedByName: v.optional(v.string()),
+    originalUpdatedAt: v.optional(v.number()),
+  })
+    // Both indexes end on `at`, so a newest-first page is an index scan whether
+    // or not the log is filtered to one swimmer.
+    .index("by_at", ["at"])
+    .index("by_swimmer", ["swimmerId", "at"]),
 
   // Editable event whitelist (seeded from §4.3).
   events: defineTable({

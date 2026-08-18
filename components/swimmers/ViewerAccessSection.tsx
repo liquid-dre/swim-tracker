@@ -269,15 +269,14 @@ export function ViewerAccessSection({
   );
 }
 
+// No heading — this renders inside its own "Access" tab, which already names
+// and labels the panel. The hint stays: it says what linking a viewer means.
 function SectionHeading({ swimmerName }: { swimmerName: string }) {
   return (
-    <div>
-      <h2 className="text-lg font-semibold tracking-tight text-ink">Viewer access</h2>
-      <p className="text-sm text-ink-muted">
-        People who can see {swimmerName}&rsquo;s times, read-only. They see only the
-        swimmer(s) you link them to, nothing else in the club.
-      </p>
-    </div>
+    <p className="text-sm text-ink-muted">
+      People who can see {swimmerName}&rsquo;s times, read-only. They see only the
+      swimmer(s) you link them to, nothing else in the club.
+    </p>
   );
 }
 
