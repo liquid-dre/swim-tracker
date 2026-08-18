@@ -39,6 +39,17 @@ export interface ScatterChartProps {
   className?: string;
   /** Child components (Scatter, Grid, ChartTooltip, XAxis, etc.) */
   children: ReactNode;
+  /**
+   * LOCAL EDIT (ours). Explicit `[min, max]` y-domain. Without it the shell
+   * pins all-positive data to a zero baseline, which flattens a swim-time
+   * chart — see the note on the prop in scatter-chart-shell.tsx.
+   */
+  yDomain?: [number, number];
+  /**
+   * LOCAL EDIT (ours). Formats the x tick labels. Upstream hard-codes a
+   * month/day format that drops the year.
+   */
+  xLabelFormat?: (date: Date) => string;
   onPhaseChange?: (phase: ChartPhase) => void;
 }
 
@@ -97,6 +108,10 @@ interface ChartInnerProps {
   revealSignature?: string;
   children: ReactNode;
   containerRef: React.RefObject<HTMLDivElement | null>;
+  /** LOCAL EDIT (ours) — passed straight to the shell. */
+  yDomain?: [number, number];
+  /** LOCAL EDIT (ours) — passed straight to the shell. */
+  xLabelFormat?: (date: Date) => string;
   onPhaseChange?: (phase: ChartPhase) => void;
 }
 
@@ -112,6 +127,8 @@ function ChartInner({
   revealSignature,
   children,
   containerRef,
+  yDomain,
+  xLabelFormat,
   onPhaseChange,
 }: ChartInnerProps) {
   const lines = useMemo(() => extractScatterConfigs(children), [children]);
@@ -130,6 +147,8 @@ function ChartInner({
       revealSignature={revealSignature}
       width={width}
       xDataKey={xDataKey}
+      xLabelFormat={xLabelFormat}
+      yDomain={yDomain}
     >
       {children}
     </ScatterChartInner>
@@ -147,6 +166,8 @@ export function ScatterChart({
   aspectRatio = "2 / 1",
   className = "",
   children,
+  yDomain,
+  xLabelFormat,
   onPhaseChange,
 }: ScatterChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -180,6 +201,8 @@ export function ScatterChart({
           revealSignature={revealSignature}
           width={width}
           xDataKey={xDataKey}
+          xLabelFormat={xLabelFormat}
+          yDomain={yDomain}
         >
           {children}
         </ChartInner>

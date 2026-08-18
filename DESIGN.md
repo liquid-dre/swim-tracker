@@ -173,16 +173,23 @@ it, and it is excluded from eslint for that reason. Our own chart parts live in
 `components/charts/swim/`, which is linted and tested normally; its `index.ts` lists what each one
 exists for and why bklit has no equivalent.
 
-**Five deliberate edits do live in the vendored tree**, each marked `LOCAL EDIT` in a comment
-naming the upstream behaviour it overrides: `yDomain` and `xLabelFormat` on the time-series shell,
-`valueDomain` on the bar chart, `maxLabelWidth` on the bar category axis, and **null metric values**
-on the radar (`radar-area.tsx`, `radar-context.tsx`). The first four exist because the upstream
-default is right for counting web analytics and wrong for swim times — above all the zero baseline,
-which flattens a whole season's trajectory into the top of the plot. The fifth is the same class of
-bug in a different shape: upstream coerces a missing metric to `0`, which draws "never raced this
-stroke" identically to "slowest possible at this stroke". A null now breaks the polygon instead. The
-path building for that lives in `components/charts/swim/radarPaths.ts` — ours, linted and tested —
-so the vendored diff is an import rather than an algorithm.
+**Seven deliberate edits do live in the vendored tree**, each marked `LOCAL EDIT` in a comment
+naming the upstream behaviour it overrides:
+
+| Edit | Where | Why |
+|---|---|---|
+| `yDomain` | time-series shell, `line-chart.tsx` | Upstream pins all-positive data to a **zero baseline**, which flattens a whole season's trajectory into the top of the plot. |
+| `xLabelFormat` | time-series shell, `line-chart.tsx` | Upstream hard-codes a month/day format that drops the year — unreadable across seasons. |
+| `valueDomain` | `bar-chart.tsx` | Our bars come from `SwimBars`, so bklit finds no `dataKey` to scan and falls back to `[0, 110]`. |
+| `maxLabelWidth` | `bar-y-axis.tsx` | The category gutter has to size to the longest swimmer name without clipping or over-reserving. |
+| **null metric values** | `radar-area.tsx`, `radar-context.tsx` | Upstream coerces a missing metric to `0`, drawing "never raced this stroke" identically to "slowest possible at it". A null now breaks the polygon. |
+| `yDomain` | `scatter-chart.tsx`, `scatter-chart-shell.tsx` | The same zero-baseline bug as the line shell, in the shell the group progression scatter uses. |
+| `xLabelFormat` | `scatter-chart.tsx`, `scatter-chart-shell.tsx` | The same year-dropping default, same shell. |
+
+Most of these are one shape of the same problem: the upstream default is right for counting web
+analytics and wrong for swim times. The radar edit's path building lives in
+`components/charts/swim/radarPaths.ts` — ours, linted and tested — so that vendored diff is an
+import rather than an algorithm; prefer that shape for any future edit big enough to need one.
 
 **Theming:** bklit ships its own greyscale `--chart-*` palette; every value is repointed at the
 ramp in §2/§3 (`app/globals.css`), in both themes. A chart never introduces a colour the rest of

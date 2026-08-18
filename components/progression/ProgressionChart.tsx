@@ -712,7 +712,14 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function buildTierOverlay(
+/*
+  Exported so the GROUP scatter can draw the same overlay from the same rule —
+  in particular the `single: false` path, which suppresses the cut lines unless
+  every selected swimmer resolves to the same exact-age cut (§4.9). Two copies
+  of that rule is exactly how a chart ends up drawing a cut that applies to only
+  half the swimmers on it.
+*/
+export function buildTierOverlay(
   series: ProgressionSeries[],
   standards: StandardRow[],
   single: boolean,

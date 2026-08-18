@@ -45,6 +45,19 @@ export interface ScatterChartInnerProps {
   children: ReactNode;
   containerRef: React.RefObject<HTMLDivElement | null>;
   lines: LineConfig[];
+  /**
+   * LOCAL EDIT (ours). Explicit `[min, max]` y-domain. Without it this shell
+   * pins all-positive data to a ZERO baseline, exactly as the time-series shell
+   * did before its own edit. On a swim chart that is ruinous: every time in a
+   * season sits in the top few percent of a 0-to-slowest axis, so a year of
+   * hard-won improvement flattens into a band a few pixels tall.
+   */
+  yDomain?: [number, number];
+  /**
+   * LOCAL EDIT (ours). Formats the x tick labels. Upstream hard-codes a
+   * month/day format that drops the year — unreadable across seasons.
+   */
+  xLabelFormat?: (date: Date) => string;
   onPhaseChange?: (phase: ChartPhase) => void;
 }
 
@@ -61,6 +74,8 @@ export function ScatterChartInner({
   children,
   containerRef,
   lines,
+  yDomain,
+  xLabelFormat,
   onPhaseChange,
 }: ScatterChartInnerProps) {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -117,6 +132,10 @@ export function ScatterChartInner({
         data,
         innerHeight,
         resolveDomain: (dataKeys) => {
+          // LOCAL EDIT: an explicit domain wins outright. See the prop's note.
+          if (yDomain) {
+            return yDomain;
+          }
           let maxValue = 0;
           for (const d of data) {
             for (const key of dataKeys) {
@@ -130,17 +149,27 @@ export function ScatterChartInner({
           return [0, top];
         },
       }),
-    [innerHeight, data, lines]
+    [innerHeight, data, lines, yDomain]
   );
 
   const yScale = getPrimaryYScale(
     yScales,
-    scaleLinear<number>().range([innerHeight, 0]).domain([0, 100])
+    scaleLinear<number>()
+      .range([innerHeight, 0])
+      // LOCAL EDIT: the fallback scale honours an explicit domain too, or a
+      // chart with no <Scatter> children yet would flash a 0-100 axis.
+      .domain(yDomain ?? [0, 100])
   );
 
   const dateLabels = useMemo(
-    () => data.map((d) => shortDateFmt.format(xAccessor(d))),
-    [data, xAccessor]
+    // LOCAL EDIT: `xLabelFormat` overrides the year-dropping default.
+    () =>
+      data.map((d) =>
+        xLabelFormat
+          ? xLabelFormat(xAccessor(d))
+          : shortDateFmt.format(xAccessor(d))
+      ),
+    [data, xAccessor, xLabelFormat]
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: revealSignature
