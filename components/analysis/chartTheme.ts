@@ -30,20 +30,7 @@ export type OverlayTier = GalaCode;
 
 export const TIER_STYLE: Record<
   OverlayTier,
-  {
-    color: string;
-    ink: string;
-    label: string;
-    glyph: string;
-    dash: string;
-    /**
-     * Texture for a FILLED shape (a bar), the way `dash` is the texture for a
-     * stroked one. Same principle: a third channel beyond hue and glyph, so a
-     * bar's gala survives greyscale and colour-blindness. Gets denser as the
-     * gala gets harder, matching the dash scale.
-     */
-    pattern: "horizontal" | "diagonal" | "cross" | "dots" | "circles";
-  }
+  { color: string; ink: string; label: string; glyph: string; dash: string }
 > = {
   // `color` paints STROKES and swatches; `ink` is the darker variant for TEXT.
   // They are not interchangeable: the gala hues are picked to be legible as 1.5px
@@ -59,7 +46,6 @@ export const TIER_STYLE: Record<
     label: "SANS",
     glyph: "★",
     dash: "11 4",
-    pattern: "circles",
   },
   SANY: {
     color: "var(--color-tier-sany)",
@@ -67,7 +53,6 @@ export const TIER_STYLE: Record<
     label: "SANY",
     glyph: "✦",
     dash: "9 4",
-    pattern: "dots",
   },
   SANJ: {
     color: "var(--color-tier-sanj)",
@@ -75,7 +60,6 @@ export const TIER_STYLE: Record<
     label: "SANJ",
     glyph: "◆",
     dash: "7 4",
-    pattern: "cross",
   },
   LEVEL_3: {
     color: "var(--color-tier-l3)",
@@ -83,7 +67,6 @@ export const TIER_STYLE: Record<
     label: "L3",
     glyph: "●",
     dash: "4 3",
-    pattern: "diagonal",
   },
   LEVEL_2: {
     color: "var(--color-tier-l2)",
@@ -91,7 +74,6 @@ export const TIER_STYLE: Record<
     label: "L2",
     glyph: "○",
     dash: "1 3",
-    pattern: "horizontal",
   },
 };
 

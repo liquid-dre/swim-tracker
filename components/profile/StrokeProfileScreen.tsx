@@ -125,6 +125,11 @@ export function StrokeProfileScreen() {
   // wheel scales to fit whether it's a 1×2 row, a 2×2 grid, or a mobile stack.
   const [panelsRef, panelsWidth] = useContainerWidth(1024);
   const singleSize = Math.max(240, Math.min(380, Math.floor(panelsWidth) - 40));
+  // The radar is ONE chart in a full-width card, not a wheel in a 2x2 grid, so
+  // it does not share the wheel's 380 cap — at that size RadarChart's 60px
+  // margin left a ~260px polygon adrift in a ~1000px card. Still capped: past
+  // ~640 a radar gains no information, the spoke labels just drift apart.
+  const radarSize = Math.max(280, Math.min(640, Math.floor(panelsWidth) - 80));
 
   return (
     <div className="flex flex-col gap-6">
@@ -210,7 +215,7 @@ export function StrokeProfileScreen() {
                 <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
                   <StrokeRadar
                     course={radarCourse}
-                    size={singleSize}
+                    size={radarSize}
                     swimmers={radar.swimmers}
                   />
                 </div>

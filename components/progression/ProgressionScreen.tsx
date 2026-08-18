@@ -24,7 +24,7 @@ import { EventFilter } from "@/components/analysis/EventFilter";
 import { type EventValue } from "@/components/analysis/EventPicker";
 import { LineChartLoading } from "@/components/charts/line-chart-loading";
 import { ProgressionChart } from "./ProgressionChart";
-import { ProgressionScatter } from "./ProgressionScatter";
+import { ProgressionGroupChart } from "./ProgressionGroupChart";
 
 /*
   Progression view (Step 7, BRD §5.6). One swimmer OR a group (squad or ad-hoc
@@ -332,11 +332,10 @@ export function ProgressionScreen() {
             </div>
           )}
 
-          {/* One swimmer keeps the LINE chart: a segment between two of the
-              same swimmer's races is a fair reading of trajectory, and the
-              projection and training-note overlays live there. A GROUP gets
-              points instead — see ProgressionScatter for why bridging lines
-              across dates a swimmer never raced was misleading. */}
+          {/* Both modes are line charts. They are separate components because
+              only the single-swimmer one carries the projection and the
+              training-note flags, and only the group one suppresses the cut
+              overlay across mixed ages. */}
           {single ? (
             <ProgressionChart
               series={withData}
@@ -356,7 +355,7 @@ export function ProgressionScreen() {
               tourDates={data.tourDates}
             />
           ) : (
-            <ProgressionScatter
+            <ProgressionGroupChart
               series={withData}
               distance={data.event.distance}
               stroke={data.event.stroke}
