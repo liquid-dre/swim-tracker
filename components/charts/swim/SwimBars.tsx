@@ -40,6 +40,9 @@ export interface SwimBarsProps {
   yAxisId?: string | number;
 }
 
+/** Smallest bar that still reads as a bar rather than as nothing. */
+const MIN_VISIBLE_LENGTH = 2;
+
 export function SwimBars({
   bars,
   maxBarSize = 26,
@@ -65,7 +68,16 @@ export function SwimBars({
         const end = yScale(bar.value);
 
         if (horizontal) {
-          const width = Math.max(0, end - zero);
+          /*
+            A sliver floor. Without it a bar that is very nearly zero — an event
+            0.02% over the cut — draws no pixels, which is indistinguishable
+            from a genuine zero. On /road those two states sit next to each
+            other and mean opposite things ("still chasing" vs "qualified"), so
+            a real value always gets a visible mark and only a true zero draws
+            nothing.
+          */
+          const raw = Math.max(0, end - zero);
+          const width = raw > 0 ? Math.max(raw, MIN_VISIBLE_LENGTH) : 0;
           return (
             <g key={bar.key}>
               <rect

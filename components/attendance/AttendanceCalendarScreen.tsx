@@ -294,6 +294,7 @@ export function AttendanceCalendarScreen({
           to={heatmap.to}
           variant={heatmap.variant}
           swimmerName={swimmerName || undefined}
+          onSelectMonth={(year, month) => setView({ year, month })}
         />
       )}
 

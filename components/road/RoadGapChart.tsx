@@ -87,9 +87,10 @@ export function RoadGapChart({ bars }: { bars: GapBar[] }) {
     // Two states, and they are a real distinction: still chasing, or done.
     fill: b.qualified ? "var(--color-qualified)" : CHART.accent,
     // A qualified event draws no bar, because zero seconds remain — so the
-    // label is what carries the row. Saying "+0.0s" would read as a rounding
-    // artefact rather than as an achievement.
-    label: b.qualified ? "Qualified" : `+${formatSeconds(b.gapMs)}s`,
+    // label carries the row, with a check so it never rests on length or
+    // colour alone. A still-chasing event always draws at least a sliver
+    // (see SwimBars), so "no bar" means qualified and nothing else.
+    label: b.qualified ? "✓ Qualified" : `+${formatSeconds(b.gapMs)}s`,
   }));
 
   return (

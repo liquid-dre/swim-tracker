@@ -142,7 +142,9 @@ export function ComparisonBarChart({
       color: st.color,
       ink: st.ink,
       dash: st.dash,
-      // Glyph + label: a gala is never colour-only (DESIGN.md §3).
+      // Glyph + label: a gala is never colour-only (DESIGN.md §3). The glyph is
+      // separate so the label can fall back to it when the cuts crowd together.
+      glyph: st.glyph,
       label: `${st.glyph} ${st.label}`,
     };
   });

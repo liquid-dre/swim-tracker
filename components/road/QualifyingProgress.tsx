@@ -43,28 +43,26 @@ import {
 } from "./roadBars";
 
 /*
-  Qualifying progress (Step R3, BRD §5.11) — the per-event readiness view. Two
-  shapes driven by the target toggle, both now bklit bar charts over the same
-  stack /compare uses, each with the figures listed beneath it:
+  All-gala qualifying progress (Step R3, BRD §5.11) — one bar per event on the
+  shared calibrated ring scale, with each gala's cut as a threshold line.
+  Because `computeCalibratedRadius` puts every event on ONE scale in ring units,
+  a single set of lines labels every bar, which is exactly what ValueThresholds
+  is for. The fill runs to the swimmer's calibrated PB and is coloured by the
+  HIGHEST gala met.
 
-    • SINGLE GALA — one bar per event filling toward that gala's cut, in the
-      course the swimmer is nearest in. The cut is a threshold line at 100%, so
-      a bar reaching it has qualified; those bars turn green and carry a check
-      in the list. Ordered 50→ by distance, then IM, Free, Back, Breast, Fly.
+  The tinted ZONES are per event, not chart-wide (ValueZones): coverage is per
+  event (§4.9), so an event with no L3 cut gets neutral track over that range
+  rather than a borrowed tint. Drawing the band anyway would invent a standard
+  the event does not have.
 
-    • ALL — one bar per event on the shared calibrated ring scale, with each
-      gala's cut as a threshold line. Because `computeCalibratedRadius` puts
-      every event on ONE scale in ring units, a single set of lines labels every
-      bar — which is exactly what ValueThresholds is for. The fill runs to the
-      swimmer's calibrated PB and is coloured by the HIGHEST gala met.
+  The single-gala view has no chart of its own. It used to, and it encoded the
+  same events as RoadGapChart with the opposite length semantics; worse, its
+  value (cut/pb, clamped) put every bar within a few percent of the same length,
+  so it could not discriminate 0.2s-to-go from 4s-to-go. RoadGapChart answers
+  that question, and qualified events fold into it at zero.
 
-      The tinted ZONES are per event, not chart-wide (ValueZones): coverage is
-      per event (§4.9), so an event with no L3 cut gets neutral track over that
-      range rather than a borrowed tint. Drawing the band anyway would invent a
-      standard the event does not have.
-
-  Both: headline MEET PBs, tabular figures. The charts are decorative and hidden
-  from assistive tech — every number in them is carried in the list below, which
+  Headline MEET PBs, tabular figures. The chart is decorative and hidden
+  from assistive tech — every number in it is carried in the list below, which
   is also where the tier badges and the gap-to-next-gala text live.
 */
 
@@ -219,6 +217,7 @@ function AllTierChart({ rows, scale }: { rows: AllRow[]; scale: RingScale }) {
       color: st.color,
       ink: st.ink,
       dash: st.dash,
+      glyph: st.glyph,
       label: `${st.glyph} ${st.label}`,
     };
   });

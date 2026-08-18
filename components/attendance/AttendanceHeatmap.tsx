@@ -40,8 +40,10 @@ import type { CalendarVariant } from "./types";
   that span months (a bad January, a squad that fades before a gala) become
   visible without paging through twelve screens.
 
-  Clicking a cell jumps the grid below to that month, which is what makes the
-  strip a navigation aid rather than a decoration.
+  A month-jump row beneath it moves the grid, so the strip is a navigation aid
+  rather than a decoration. That used to be a click on a cell, which was a
+  pointer-only affordance over an aria-hidden SVG — unreachable by keyboard and
+  unannounced. Buttons carry the same shortcut and can be tabbed to.
 */
 
 export type { HeatmapDay };
@@ -63,17 +65,44 @@ function Legend({ variant }: { variant: CalendarVariant }) {
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
       {labels.map((label, i) => (
         <span key={label} className="flex items-center gap-1.5 text-xs text-ink-muted">
-          <HeatmapLegendSwatch
-            cellSize={10}
-            cornerRadius={2}
-            level={i}
-            style={styles[i]}
-          />
+          {/* Ringed: the vendored swatch borders level 0 in its own colour,
+              so "No session" (gray-100 on gray-100 on a white card) had no
+              visible edge at all. */}
+          <span className="flex rounded-sm ring-1 ring-black/10">
+            <HeatmapLegendSwatch
+              cellSize={10}
+              cornerRadius={2}
+              level={i}
+              style={styles[i]}
+            />
+          </span>
           {label}
         </span>
       ))}
     </div>
   );
+}
+
+/**
+ * Months spanned by the strip, for the jump row. Derived from the range rather
+ * than the data so a quiet month is still reachable.
+ */
+function monthsBetween(from: string, to: string): Array<{ year: number; month: number; label: string }> {
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+  const out: Array<{ year: number; month: number; label: string }> = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  const fmt = new Intl.DateTimeFormat(undefined, { month: "short" });
+  while (cursor <= end && out.length < 24) {
+    out.push({
+      year: cursor.getFullYear(),
+      month: cursor.getMonth(),
+      label: fmt.format(cursor),
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return out;
 }
 
 export function AttendanceHeatmap({
@@ -82,6 +111,7 @@ export function AttendanceHeatmap({
   to,
   variant,
   swimmerName,
+  onSelectMonth,
 }: {
   days: HeatmapDay[];
   from: string;
@@ -89,6 +119,8 @@ export function AttendanceHeatmap({
   variant: CalendarVariant;
   /** Named when the strip is showing one swimmer, for the caption and summary. */
   swimmerName?: string;
+  /** Moves the month grid below. Rendered as buttons, not a cell click. */
+  onSelectMonth?: (year: number, month: number) => void;
 }) {
   const reduced = usePrefersReducedMotion();
   const perSwimmer = variant === "swimmer";
@@ -101,6 +133,7 @@ export function AttendanceHeatmap({
   const labels = perSwimmer ? STATUS_LEVEL_LABELS : RATE_LEVEL_LABELS;
   const marked = days.filter((d) => d.marked > 0).length;
   const summary = seasonSummary(days, perSwimmer);
+  const months = onSelectMonth ? monthsBetween(from, to) : [];
 
   // ~10px cells plus the 2px gap. Below this the squares are smaller than the
   // gaps between them and the strip is texture, not data — so the card scrolls
@@ -111,11 +144,13 @@ export function AttendanceHeatmap({
 
   return (
     /*
-      Desktop only. On a phone a 52-week season lands at roughly 4px a cell,
-      which is unreadable, and the parent looking at one child's month is
-      already served by the agenda below. Hiding it beats shipping a smear.
+      Shown at every width. The `minWidth` below keeps cells at a readable ~10px
+      and lets the card scroll instead, which is what stops a 52-week season
+      collapsing to 4px on a phone — so hiding it there would only take the
+      season view away from the audience PRODUCT.md says is "on phones as often
+      as laptops", while the scroll already solved the legibility problem.
     */
-    <section className="hidden flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:flex md:p-6">
+    <section className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm md:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-ink">
           {perSwimmer
@@ -162,6 +197,22 @@ export function AttendanceHeatmap({
       </HeatmapInteractionProvider>
 
       <Legend variant={variant} />
+
+      {months.length > 0 && (
+        <nav aria-label="Jump to month" className="flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-xs text-ink-faint">Jump to</span>
+          {months.map((m) => (
+            <button
+              className="rounded-md px-2 py-1 text-xs font-medium text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-50 hover:text-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
+              key={`${m.year}-${m.month}`}
+              onClick={() => onSelectMonth?.(m.year, m.month)}
+              type="button"
+            >
+              {m.label}
+            </button>
+          ))}
+        </nav>
+      )}
     </section>
   );
 }

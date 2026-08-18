@@ -1,6 +1,7 @@
 "use client";
 
 import { useChart, useYScale } from "../chart-context";
+import { assignLabelRows, LABEL_MIN_GAP } from "./thresholdLabelRows";
 
 /*
   Threshold lines at fixed values on a BAR chart's value axis.
@@ -32,8 +33,15 @@ export type Threshold = {
    */
   ink: string;
   dash: string;
-  /** Rendered beside the line, e.g. "◆ SANJ". Never omit — colour alone is not a label. */
+  /** Rendered beside the line, e.g. "SANJ". Never omit — colour alone is not a label. */
   label: string;
+  /**
+   * The gala's SHAPE channel, e.g. "◆". Drawn alone when the lines are too
+   * close together for full labels — three cuts for one event at one age sit
+   * within a few dozen pixels, and a glyph is ~14px against a label's ~64px.
+   * The legend decodes it, so a glyph is still a non-colour label.
+   */
+  glyph?: string;
 };
 
 export interface ValueThresholdsProps {
@@ -69,10 +77,30 @@ export function ValueThresholds({
     .filter(({ at }) => Number.isFinite(at))
     .sort((a, b) => a.at - b.at);
 
+  const rowOf = horizontal
+    ? assignLabelRows(ordered.map((o) => o.at))
+    : ordered.map(() => 0);
+
+  /*
+    When even two staggered rows cannot separate the full labels, every label
+    drops to its glyph — all of them, not just the crowded ones, because a mix
+    of "◆" and "● L3" reads as two different kinds of thing. The legend maps
+    glyph to gala, so this stays a labelled line, never a colour-only one.
+  */
+  const tightest = ordered.reduce(
+    (min, cur, i) => (i === 0 ? min : Math.min(min, cur.at - ordered[i - 1].at)),
+    Number.POSITIVE_INFINITY,
+  );
+  const glyphOnly =
+    horizontal &&
+    ordered.length > 2 &&
+    tightest < LABEL_MIN_GAP &&
+    ordered.every(({ t }) => t.glyph);
+
   return (
     <g className="chart-value-thresholds">
       {ordered.map(({ t, at }, i) => {
-        const labelY = horizontal && i % 2 === 1 ? -21 : -8;
+        const labelY = rowOf[i] === 1 ? -21 : -8;
         return horizontal ? (
           <g key={t.key}>
             <line
@@ -93,7 +121,7 @@ export function ValueThresholds({
               x={at}
               y={labelY}
             >
-              {t.label}
+              {glyphOnly ? t.glyph : t.label}
             </text>
           </g>
         ) : (

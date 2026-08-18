@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatTime } from "@/lib/swim";
-import { cutSegment, pickValueTicks } from "./geometry";
+import { cutSegment, pickValueTicks, thinTicks, tickLabelWidth } from "./geometry";
 import type { CutLine } from "./GalaCutOverlay";
 
 /*
@@ -126,5 +126,60 @@ describe("pickValueTicks", () => {
 
   it("returns nothing for an empty scale rather than a stray zero", () => {
     expect(pickValueTicks([], formatTime)).toEqual([]);
+  });
+});
+
+describe("thinTicks", () => {
+  /** Evenly spaced ticks, `gap` px apart, labelled by `format`. */
+  const axis = (values: number[], gap: number, format: (v: number) => string) =>
+    values.map((value, i) => ({ label: format(value), pos: i * gap }));
+
+  it("keeps every tick when the labels already clear each other", () => {
+    const ticks = axis([0, 2, 4, 6], 120, (v) => `${v}%`);
+    expect(thinTicks(ticks)).toHaveLength(4);
+  });
+
+  it("thins by a stride, so the survivors stay evenly spaced", () => {
+    // The /season case: 0..10 in 2s, ~30px apart, labels ~40px wide. Dropping
+    // crowded ticks one at a time left 0 / 4 / 10 — two different intervals on
+    // a linear axis, which reads as a scale that speeds up.
+    const kept = thinTicks(axis([0, 2, 4, 6, 8, 10], 30, (v) => `${v.toFixed(1)}%`));
+    const gaps = kept.slice(1).map((t, i) => t.pos - kept[i].pos);
+    expect(new Set(gaps).size).toBe(1);
+  });
+
+  it("always keeps the axis maximum", () => {
+    const ticks = axis([0, 20, 40, 60, 80], 40, (v) => `0:${v}:00`);
+    const kept = thinTicks(ticks);
+    expect(kept[kept.length - 1].label).toBe("0:80:00");
+  });
+
+  it("leaves no pair of labels overprinting", () => {
+    const ticks = axis([0, 20, 40, 60, 80], 34, (v) => `0:${v}:00`);
+    const kept = thinTicks(ticks);
+    for (let i = 1; i < kept.length; i++) {
+      const need = (tickLabelWidth(kept[i - 1].label) + tickLabelWidth(kept[i].label)) / 2;
+      expect(kept[i].pos - kept[i - 1].pos).toBeGreaterThanOrEqual(need);
+    }
+  });
+
+  it("falls back to a single label when even the two ends collide", () => {
+    const kept = thinTicks(axis([0, 1000], 4, (v) => `${v} milliseconds`));
+    expect(kept).toHaveLength(1);
+    expect(kept[0].label).toBe("1000 milliseconds");
+  });
+
+  it("sorts by position before thinning", () => {
+    const shuffled = [
+      { label: "0:40:00", pos: 160 },
+      { label: "0:00:00", pos: 0 },
+      { label: "0:20:00", pos: 80 },
+    ];
+    expect(thinTicks(shuffled).map((t) => t.pos)).toEqual([0, 80, 160]);
+  });
+
+  it("handles the empty and single cases", () => {
+    expect(thinTicks([])).toEqual([]);
+    expect(thinTicks([{ label: "0:58:00", pos: 12 }])).toHaveLength(1);
   });
 });

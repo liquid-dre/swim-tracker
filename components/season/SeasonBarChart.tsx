@@ -92,7 +92,11 @@ export function SeasonBarChart({ bars }: { bars: SeasonBar[] }) {
     // One accent: season improvement carries no tier meaning, so colour here
     // would be decoration inventing a category that does not exist.
     fill: CHART.accent,
-    label: `−${b.pct.toFixed(1)}%`,
+    // Unsigned: the card above the chart says "Ranked by time dropped ·
+    // Longer bar = more time dropped", so every value here is already a drop
+    // and a minus sign on top of that reads as a second negation. The ranked
+    // list keeps the signed −X.X%, where it is a delta rather than a length.
+    label: `${b.pct.toFixed(1)}%`,
   }));
 
   // Neutral grey, never a gala hue — the median is a property of THIS squad in
@@ -107,7 +111,7 @@ export function SeasonBarChart({ bars }: { bars: SeasonBar[] }) {
             color: "var(--color-gray-400)",
             ink: "var(--color-gray-600)",
             dash: "4 3",
-            label: `Squad median −${median.toFixed(1)}%`,
+            label: `Squad median ${median.toFixed(1)}%`,
           },
         ];
 

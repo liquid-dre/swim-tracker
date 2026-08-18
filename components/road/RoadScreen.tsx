@@ -24,16 +24,14 @@ import { RoadGapChart, type GapBar } from "./RoadGapChart";
 
 /*
   Road to qualify (Step 12 / R3, BRD §5.10–5.11). For one swimmer at one target,
-  two linked reads of readiness. The target is any of the five galas, or All:
+  the readiness read for one gala. The target is any of the five galas, or All:
 
     • Gap to cut — the anchor. One horizontal bar per applicable event, closest
       to the cut first, so the low-hanging events surface immediately. Qualified
       events (PB ≤ cut) are flagged in the success green and grouped; events with
       no meet time are listed separately, never drawn as a huge gap.
-    • Qualifying progress — single-gala: one bar per event filling toward that
-      gala's cut, most-complete first. All: one bar per event with the age-graded
-      cuts as fixed calibrated zones, filled to the swimmer's PB and coloured by
-      the highest gala met.
+    • All galas — one bar per event with the age-graded cuts as fixed calibrated
+      zones, filled to the swimmer's PB and coloured by the highest gala met.
 
   Both courses qualify (§4.2), so each row is measured in whichever course the
   swimmer is CLOSEST in and says which one that was; the course selector pins it
