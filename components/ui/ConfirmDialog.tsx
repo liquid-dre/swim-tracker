@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Dialog } from "radix-ui";
 
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { errorMessage } from "@/lib/notify";
 
 /*
@@ -11,6 +12,12 @@ import { errorMessage } from "@/lib/notify";
   app prefers non-modal patterns, but destructive confirmation is the textbook
   exception — a brief interruption that prevents an unrecoverable mistake.
   Handles the async action's pending + error state so callers just pass onConfirm.
+
+  Some destructive actions are recorded rather than merely done (deleting a time
+  writes an audit tombstone, §R17 Part C). Those pass `note` to collect one line
+  of "why" here, where the reader is already looking at what they're about to
+  remove. It is always optional: the confirmation is the safeguard, and a forced
+  field on a typo the coach made seconds ago just yields "x".
 */
 export function ConfirmDialog({
   open,
@@ -19,6 +26,7 @@ export function ConfirmDialog({
   description,
   confirmLabel = "Delete",
   confirmVariant = "danger",
+  note,
   onConfirm,
 }: {
   open: boolean;
@@ -29,18 +37,31 @@ export function ConfirmDialog({
   // Destructive by default (the common case); pass "primary" for a non-
   // destructive confirmation like "Add anyway".
   confirmVariant?: "danger" | "primary";
-  onConfirm: () => Promise<void>;
+  // Omit for a plain confirmation. When present, an optional single-line note is
+  // collected and handed to onConfirm — trimmed, or undefined when left blank.
+  note?: { label: string; placeholder?: string; maxLength?: number };
+  onConfirm: (note?: string) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [noteValue, setNoteValue] = useState("");
+
+  // The one way out. Every dismissal — Cancel, Escape, the overlay, a completed
+  // confirm — goes through here, so the next thing deleted can never inherit the
+  // last one's note or a stale error.
+  function close() {
+    setNoteValue("");
+    setError(null);
+    onOpenChange(false);
+  }
 
   async function run() {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      await onConfirm();
-      onOpenChange(false);
+      await onConfirm(noteValue.trim() || undefined);
+      close();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -51,8 +72,10 @@ export function ConfirmDialog({
   return (
     <Dialog.Root
       open={open}
+      // Controlled + no trigger inside, so Radix only ever reports a close here
+      // (Escape / overlay). Blocked while the action is in flight, as before.
       onOpenChange={(o) => {
-        if (!busy) onOpenChange(o);
+        if (!busy && !o) close();
       }}
     >
       <Dialog.Portal>
@@ -65,6 +88,19 @@ export function ConfirmDialog({
             {description}
           </Dialog.Description>
 
+          {note && (
+            <div className="mt-4">
+              <Input
+                label={note.label}
+                placeholder={note.placeholder}
+                maxLength={note.maxLength ?? 200}
+                value={noteValue}
+                onChange={(e) => setNoteValue(e.target.value)}
+                disabled={busy}
+              />
+            </div>
+          )}
+
           {error && (
             <p role="alert" className="mt-3 text-sm text-danger-ink">
               {error}
@@ -75,7 +111,7 @@ export function ConfirmDialog({
             <Button
               type="button"
               variant="ghost"
-              onClick={() => onOpenChange(false)}
+              onClick={close}
               disabled={busy}
             >
               Cancel

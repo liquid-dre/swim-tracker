@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Target,
   Timer,
+  Trash2,
   TrendingUp,
   UserCheck,
   Users,
@@ -164,8 +165,11 @@ export const NAV: NavNode[] = [
     ],
   },
   // Coach-only audit trails (§R17). Read-only history of who did what: viewer
-  // access grants/revocations, and time entry/edit provenance. Server-enforced
-  // coach-only (requireCoach); viewers never see these (route + query gated).
+  // access grants/revocations, time entry/edit provenance, and deleted times.
+  // Deletions get their own leaf because the time-entry log is derived from the
+  // LIVE result rows, so a removed swim is exactly what it cannot show.
+  // Server-enforced coach-only (requireCoach); viewers never see these (route +
+  // query gated).
   {
     kind: "group",
     label: "Audit",
@@ -174,6 +178,7 @@ export const NAV: NavNode[] = [
     items: [
       { label: "Access log", href: "/audit/access", icon: ShieldCheck },
       { label: "Time-entry log", href: "/audit/times", icon: ClipboardList },
+      { label: "Deleted times", href: "/audit/deletions", icon: Trash2 },
     ],
   },
   // Super-user only (access-control Phase 4). Reserved under /admin, which

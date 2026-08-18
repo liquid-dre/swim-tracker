@@ -3,6 +3,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { assertMayWriteResult, requireSignedIn } from "./authz";
+import { recordResultDeletion } from "./audit";
 import {
   computeAge,
   galaResolutionAges,
@@ -330,7 +331,12 @@ export const updateResult = mutation({
 // ---------------------------------------------------------------------------
 
 export const deleteResult = mutation({
-  args: { resultId: v.id("results") },
+  args: {
+    resultId: v.id("results"),
+    // Why it's going, in the deleter's own words (§R17 Part C). Optional — see
+    // recordResultDeletion for why it isn't forced.
+    reason: v.optional(v.string()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const profile = await requireSignedIn(ctx);
@@ -347,6 +353,16 @@ export const deleteResult = mutation({
       existing.swimType,
       existing.swimType,
     );
+    // Tombstone FIRST: the audit trail reads this row's provenance, and after
+    // the delete there is nothing left to read. Every deletion is logged, a
+    // parent removing their own school-gala time included — that entry point is
+    // exactly the one a coach can't otherwise see.
+    await recordResultDeletion(ctx, {
+      result: existing,
+      swimmer,
+      actor: profile,
+      reason: args.reason,
+    });
     await ctx.db.delete(args.resultId);
     return null;
   },

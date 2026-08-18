@@ -195,9 +195,11 @@ export function LogScreen({
   }
 
   // Deleting a result is irreversible, so it confirms like every other delete
-  // in the app; ConfirmDialog owns the pending/error state.
-  async function onDeleteRecent(entry: SavedEntry) {
-    await deleteResult({ resultId: entry.id });
+  // in the app; ConfirmDialog owns the pending/error state. The reason is
+  // optional and usually skipped here — these rows are seconds old — but it
+  // rides the same audit trail (§R17 Part C) as a delete from the profile.
+  async function onDeleteRecent(entry: SavedEntry, reason?: string) {
+    await deleteResult({ resultId: entry.id, reason });
     setRecent((prev) => prev.filter((r) => r.id !== entry.id));
     notify.success("Entry removed");
   }
@@ -370,8 +372,12 @@ export function LogScreen({
             ? `${confirmDelete.swimmer} — ${confirmDelete.event} (${confirmDelete.course}), ${confirmDelete.time}. This can't be undone.`
             : ""
         }
-        onConfirm={async () => {
-          if (confirmDelete) await onDeleteRecent(confirmDelete);
+        note={{
+          label: "Reason (optional)",
+          placeholder: "e.g. mistyped the seconds",
+        }}
+        onConfirm={async (reason) => {
+          if (confirmDelete) await onDeleteRecent(confirmDelete, reason);
         }}
       />
     </div>

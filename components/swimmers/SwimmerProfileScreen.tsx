@@ -288,9 +288,13 @@ export function SwimmerProfileScreen({
           )
         }
         confirmLabel="Delete result"
-        onConfirm={async () => {
+        note={{
+          label: "Reason (optional)",
+          placeholder: "e.g. logged against the wrong swimmer",
+        }}
+        onConfirm={async (reason) => {
           if (!deleting) return;
-          await deleteResult({ resultId: deleting._id });
+          await deleteResult({ resultId: deleting._id, reason });
           notify.success("Result deleted");
         }}
       />
