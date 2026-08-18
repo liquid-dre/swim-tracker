@@ -179,7 +179,9 @@ function GalaEditor({
   }
 
   return (
-    <section className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm">
+    // min-w-0: a grid item defaults to min-width:auto, so without it a wide
+    // child stretches the card past its track instead of being contained by it.
+    <section className="flex min-w-0 flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm">
       <header className="flex flex-wrap items-center justify-between gap-2">
         <TierBadge gala={code} />
         <span className="text-xs text-ink-faint">
@@ -210,7 +212,10 @@ function GalaEditor({
                 ({windowLabel(gala?.minAge ?? null, gala?.maxAge ?? null)})
               </span>
             </legend>
-            <div className="flex items-start gap-3">
+            {/* Two equal columns rather than a flex row: the bounds are a pair
+                and should stay the same width as each other, and grid tracks
+                divide the card instead of adding up to more than it. */}
+            <div className="grid grid-cols-2 items-start gap-3">
               <Input
                 label="Youngest"
                 inputMode="numeric"
@@ -234,9 +239,12 @@ function GalaEditor({
               Leave a field blank for no limit. Swimmers outside the range are
               never shown as qualified for this gala.
             </p>
+            {/* self-start, or the flex-col stretches it edge to edge while the
+                Save / Clear pair below sits at its natural width. */}
             <Button
               variant="secondary"
               size="sm"
+              className="self-start"
               onClick={saveWindow}
               disabled={!windowDirty || savingWindow}
               loading={savingWindow}

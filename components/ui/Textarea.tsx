@@ -19,7 +19,10 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         : undefined;
 
     return (
-      <div className="flex flex-col gap-1.5">
+      // min-w-0 + w-full for the same reason as <Input>: a form control must
+      // fill the space it is given and be able to shrink below its intrinsic
+      // width, or it spills out of a narrow flex row or grid track.
+      <div className="flex min-w-0 flex-col gap-1.5">
         <label htmlFor={fieldId} className="text-sm font-medium text-gray-700">
           {label}
         </label>
@@ -29,7 +32,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
           className={
-            "min-h-20 rounded-lg border bg-white px-3 py-2 text-base text-gray-800 placeholder:text-gray-500 " +
+            "min-h-20 w-full rounded-lg border bg-white px-3 py-2 text-base text-gray-800 placeholder:text-gray-500 " +
             "transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] outline-none resize-y " +
             "focus:border-brand-300 focus:shadow-focus-ring " +
             (error
