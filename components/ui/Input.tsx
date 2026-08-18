@@ -15,7 +15,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   const describedBy = error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined;
 
   return (
-    <div className="flex flex-col gap-1.5">
+    // min-w-0 so the field can shrink inside a flex row or grid track. Without
+    // it a flex/grid item keeps `min-width: auto`, which is the input's own
+    // intrinsic width (roughly 20 characters) — two of these side by side then
+    // refuse to fit a narrow card and spill out of it. w-full on the input so it
+    // fills whatever width the wrapper is given.
+    <div className="flex min-w-0 flex-col gap-1.5">
       <label htmlFor={inputId} className="text-sm font-medium text-gray-700">
         {label}
       </label>
@@ -25,7 +30,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}
         className={
-          "h-11 lg:h-9 rounded-lg border bg-white px-3 text-base text-gray-800 placeholder:text-gray-500 " +
+          "h-11 lg:h-9 w-full rounded-lg border bg-white px-3 text-base text-gray-800 placeholder:text-gray-500 " +
           "transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] outline-none " +
           "focus:border-brand-300 focus:shadow-focus-ring " +
           (error

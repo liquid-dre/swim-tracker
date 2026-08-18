@@ -1,6 +1,6 @@
 import { QualificationScreen } from "@/components/qualification/QualificationScreen";
 
-// Tour qualification (coach-only): who is going to which tour, each swimmer
+// Gala qualification (coach-only): which gala each swimmer is going to, each
 // under the highest tier they qualify for. Server-gated via requireCoach.
 export default function QualificationPage() {
   return <QualificationScreen />;

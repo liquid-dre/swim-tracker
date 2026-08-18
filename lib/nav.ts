@@ -99,7 +99,7 @@ export const NAV: NavNode[] = [
     items: [
       { label: "Status matrix", href: "/me/status", icon: Grid3x3 },
       { label: "Road to qualify", href: "/me/road", icon: Target },
-      { label: "Tour qualification", href: "/me/qualification", icon: Plane },
+      { label: "Gala qualification", href: "/me/qualification", icon: Plane },
       { label: "Standards", href: "/me/standards", icon: Ruler },
     ],
   },
@@ -142,7 +142,7 @@ export const NAV: NavNode[] = [
     items: [
       { label: "Status matrix", href: "/status", icon: Grid3x3 },
       { label: "Road to qualify", href: "/road", icon: Target },
-      { label: "Tour qualification", href: "/qualification", icon: Plane },
+      { label: "Gala qualification", href: "/qualification", icon: Plane },
       { label: "Standards", href: "/standards", icon: Ruler },
     ],
   },
@@ -182,7 +182,7 @@ export const NAV: NavNode[] = [
     roles: ["SUPER_USER"],
     items: [
       { label: "Clubs & coaches", href: "/admin/clubs", icon: Building2 },
-      { label: "Tour dates", href: "/admin/tours", icon: CalendarDays },
+      { label: "Galas", href: "/admin/galas", icon: CalendarDays },
     ],
   },
 ];

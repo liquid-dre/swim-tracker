@@ -263,7 +263,9 @@ export function DateField({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    // min-w-0 for the same reason as <Input>: the field must be able to shrink
+    // inside a flex row or grid track instead of forcing its intrinsic width.
+    <div className="flex min-w-0 flex-col gap-1.5">
       <label htmlFor={inputId} className="text-sm font-medium text-gray-700">
         {label}
         {required && <span className="ml-0.5 text-danger-ink">*</span>}

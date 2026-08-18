@@ -184,7 +184,7 @@ export function ProgressionChart({
   projectionTier?: GalaCode | null;
   // Training-note markers (§R16) — single-swimmer only; undefined/empty hides them.
   noteMarkers?: NoteMarker[];
-  // Tour dates by tier — the projection targets the age-on-tour-day cut.
+  // Tour dates by gala — the projection targets the age-on-tour-day cut.
   tourDates?: TourDateByGala;
 }) {
   const reduced = usePrefersReducedMotion();
