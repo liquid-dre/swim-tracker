@@ -331,6 +331,28 @@ export function eventFitsCourse(
 }
 
 /**
+ * Lines that resolve to a real event which this meet's pool cannot run.
+ *
+ * Deliberately NOT a save-blocker: `cleanEvents` does not check it, and a rule
+ * the server does not enforce would make a legacy programme unsaveable for any
+ * edit at all. It is a warning, and it has to be one a coach actually meets —
+ * so it is counted for the top of the editor as well as marked on each line.
+ */
+export function courseMismatches(
+  lines: ReadonlyArray<MeetEvent>,
+  course: Course | null,
+): number[] {
+  if (course === null) return [];
+  return lines.flatMap((line, i) =>
+    line.distance !== undefined &&
+    line.stroke !== undefined &&
+    !eventFitsCourse(line.distance, line.stroke, course)
+      ? [i]
+      : [],
+  );
+}
+
+/**
  * Every reason this programme could not be saved, in line order.
  *
  * Mirrors `cleanEvents` in convex/meets.ts — and only `cleanEvents`. A rule the

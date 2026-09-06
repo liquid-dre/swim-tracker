@@ -5,6 +5,7 @@ import {
   addCustomLine,
   addWhitelistLine,
   canMoveLine,
+  courseMismatches,
   eventFitsCourse,
   eventOptions,
   moveLine,
@@ -268,6 +269,17 @@ describe("validateLines", () => {
     ).toEqual([
       { message: expect.stringMatching(/both numbered 4/), index: 1 },
     ]);
+  });
+
+  test("counts the lines this meet's pool cannot run, without blocking", () => {
+    // A warning the coach meets, rather than a rule that holds a name
+    // correction hostage — and a count, because the per-line note is on a tab
+    // they may not be looking at.
+    const lines = addWhitelistLine([], { distance: 100, stroke: "IM" }, minter());
+    expect(courseMismatches(lines, "LCM")).toEqual([0]);
+    expect(courseMismatches(lines, "SCM")).toEqual([]);
+    // Nothing to say while the pool is still unknown.
+    expect(courseMismatches(lines, null)).toEqual([]);
   });
 
   test("does not block a save on a rule the server does not enforce", () => {

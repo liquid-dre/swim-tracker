@@ -36,6 +36,7 @@ import {
   addCustomLine,
   addWhitelistLine,
   canMoveLine,
+  courseMismatches,
   eventFitsCourse,
   eventOptions,
   reorderBlockedReason,
@@ -135,6 +136,10 @@ export function ProgrammeEditor({
   }, [problems]);
 
   const reorderBlocked = reorderBlockedReason(lines);
+  // Not a save-blocker (the server does not check it), but a coach on the
+  // Details tab would otherwise never learn that two of their events cannot be
+  // swum in the pool they just chose.
+  const mismatched = courseMismatches(lines, course);
 
   const on = useMemo<LineHandlers>(
     () => ({
@@ -163,6 +168,16 @@ export function ProgrammeEditor({
       <p role="status" className="sr-only">
         {announcement}
       </p>
+
+      {mismatched.length > 0 && (
+        <p role="status" className="text-xs text-warning-ink">
+          {mismatched.length === 1
+            ? "One event here can't be swum in this meet's course."
+            : `${mismatched.length} events here can't be swum in this meet's course.`}{" "}
+          They will save, but no time can be recorded against them until the
+          event or the meet&rsquo;s course changes.
+        </p>
+      )}
 
       {lines.length === 0 ? (
         <p className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-ink-muted">
