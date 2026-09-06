@@ -313,6 +313,70 @@ export function computeAgeGroup(
 // ---------------------------------------------------------------------------
 
 /**
+ * The COMPLETE event whitelist (BRD §4.3) — the ONE copy. `convex/events.ts`
+ * seeds the `events` table from this, and the meet-programme parser tests a
+ * parsed "(distance, stroke)" against it, so a third transcription of the rules
+ * can never drift from the first two.
+ *
+ * `allowedCourses` encodes the course notes: 25 m is SCM-only (one length of a
+ * 25 m pool), 100 IM is SCM-only, everything else runs in both.
+ */
+export const EVENT_WHITELIST: ReadonlyArray<{
+  distance: Distance;
+  stroke: Stroke;
+  allowedCourses: ReadonlyArray<Course>;
+}> = [
+  // 25 — FREE/BACK/BREAST/FLY, SCM only. No 25 IM. No qualifying cut exists.
+  { distance: 25, stroke: "FREE", allowedCourses: ["SCM"] },
+  { distance: 25, stroke: "BACK", allowedCourses: ["SCM"] },
+  { distance: 25, stroke: "BREAST", allowedCourses: ["SCM"] },
+  { distance: 25, stroke: "FLY", allowedCourses: ["SCM"] },
+
+  // 50 — FREE/BACK/BREAST/FLY, both courses. No 50 IM.
+  { distance: 50, stroke: "FREE", allowedCourses: ["SCM", "LCM"] },
+  { distance: 50, stroke: "BACK", allowedCourses: ["SCM", "LCM"] },
+  { distance: 50, stroke: "BREAST", allowedCourses: ["SCM", "LCM"] },
+  { distance: 50, stroke: "FLY", allowedCourses: ["SCM", "LCM"] },
+
+  // 100 — FREE/BACK/BREAST/FLY both courses; 100 IM is SCM-only.
+  { distance: 100, stroke: "FREE", allowedCourses: ["SCM", "LCM"] },
+  { distance: 100, stroke: "BACK", allowedCourses: ["SCM", "LCM"] },
+  { distance: 100, stroke: "BREAST", allowedCourses: ["SCM", "LCM"] },
+  { distance: 100, stroke: "FLY", allowedCourses: ["SCM", "LCM"] },
+  { distance: 100, stroke: "IM", allowedCourses: ["SCM"] },
+
+  // 200 — every stroke, both courses.
+  { distance: 200, stroke: "FREE", allowedCourses: ["SCM", "LCM"] },
+  { distance: 200, stroke: "BACK", allowedCourses: ["SCM", "LCM"] },
+  { distance: 200, stroke: "BREAST", allowedCourses: ["SCM", "LCM"] },
+  { distance: 200, stroke: "FLY", allowedCourses: ["SCM", "LCM"] },
+  { distance: 200, stroke: "IM", allowedCourses: ["SCM", "LCM"] },
+
+  // 400 — FREE and IM only.
+  { distance: 400, stroke: "FREE", allowedCourses: ["SCM", "LCM"] },
+  { distance: 400, stroke: "IM", allowedCourses: ["SCM", "LCM"] },
+
+  // 800 and 1500 — FREE only.
+  { distance: 800, stroke: "FREE", allowedCourses: ["SCM", "LCM"] },
+  { distance: 1500, stroke: "FREE", allowedCourses: ["SCM", "LCM"] },
+];
+
+/**
+ * Is this a real event at all, ignoring course? The course-independent half of
+ * `isValidEvent`, for callers that legitimately do not know the course — a meet
+ * programme carries no course, so "50 IM" must still be rejected as an event
+ * while "100 IM" stays acceptable pending a course.
+ */
+export function isWhitelistedEvent(
+  distance: Distance | number,
+  stroke: Stroke | string,
+): boolean {
+  return EVENT_WHITELIST.some(
+    (e) => e.distance === distance && e.stroke === stroke,
+  );
+}
+
+/**
  * True only if `(distance, stroke)` exists in the `events` whitelist, that event
  * is `active`, and `course` is one of its `allowedCourses`. Everything off the
  * whitelist (e.g. "50 IM") or on the wrong course (e.g. "100 IM" LCM) is false.

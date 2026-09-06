@@ -1,0 +1,823 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import { useMutation } from "convex/react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Upload } from "lucide-react";
+
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { DateField } from "@/components/ui/DateField";
+import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { errorMessage, notify } from "@/lib/notify";
+import { formatMeetDates, meetEventLabel } from "@/lib/meets";
+import { parseMeetProgramme, type MeetDraft } from "@/lib/meetImport";
+import type { Course } from "@/lib/swim";
+import { COURSE_LABEL } from "./meetShared";
+
+/*
+  Import a meet programme (super-user only; `importMeet` enforces that).
+
+  Three inputs, ONE parser. A HY-TEK PDF is turned into text by `lib/pdfText.ts`
+  and then goes down the same path as a CSV or a paste, so there is a single set
+  of rules to reason about and to test (`lib/meetImport.test.ts`).
+
+  The step this sheet exists for is the CONFIRMATION. The parser reads a name, a
+  date, a venue and a programme; the super-user checks them and says whether this
+  is a NEW meet or a correction to an existing one. Nothing is auto-matched: the
+  seeded "1st seeded" row sits on 12 Sep while the HAS programme says the 11th,
+  so a date- or name-based rule would quietly create a near-duplicate rather than
+  fix the row.
+
+  WHERE THE SHEET WAS OPENED FROM DECIDES THE TARGET. From a meet's own page the
+  target IS that meet, fixed — the page header already says which meet you are
+  on, and a nearest-date suggestion that quietly aimed a wholesale replace at a
+  DIFFERENT meet would be the worst bug this feature could have. Only from the
+  meets list, where there is no such context, does the suggestion apply, and even
+  there it is a pre-selection the super-user can change.
+
+  Replacing a programme is the one irreversible act here, so it is gated like
+  one: a danger-variant confirmation naming the target and showing what changes,
+  field by field. Adding a new meet destroys nothing and is not gated.
+*/
+
+/** How close a meet's date must be to the parsed one to be worth suggesting. */
+const SUGGEST_WITHIN_DAYS = 5;
+
+type MeetOption = {
+  _id: Id<"meets">;
+  name: string;
+  startDate: string;
+  endDate: string | null;
+  venue: string | null;
+  course: Course | null;
+  eventCount: number;
+};
+
+/** One field the import would change on the meet it targets. */
+type Change = { label: string; from: string; to: string };
+
+export function ImportMeetSheet({
+  open,
+  onOpenChange,
+  meets,
+  lockedMeet,
+  onImported,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Existing meets, for the "Save as" picker and its suggestion. */
+  meets: MeetOption[];
+  /**
+   * Opened from a meet's own page: the import targets THAT meet and nothing
+   * else. No picker, no suggestion, no way to hit a neighbour by accident.
+   *
+   * The whole ROW, not an id: the caller already has it, so the sheet never
+   * waits on a second subscription to learn the name it is about to overwrite.
+   */
+  lockedMeet?: MeetOption;
+  onImported?: (meetId: Id<"meets">) => void;
+}) {
+  const importMeet = useMutation(api.meets.importMeet);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const [text, setText] = useState("");
+  /** Set when a PDF was longer than the reader's page cap. */
+  const [truncated, setTruncated] = useState<{ read: number; total: number } | null>(
+    null,
+  );
+  const [reading, setReading] = useState(false);
+  const [readError, setReadError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [done, setDone] = useState<{ created: boolean; eventCount: number } | null>(
+    null,
+  );
+
+  // The parse is pure and cheap, so it re-runs from the text rather than being
+  // stored — one source of truth for what the file says.
+  const draft: MeetDraft | null = useMemo(
+    () => (text.trim() === "" ? null : parseMeetProgramme(text)),
+    [text],
+  );
+
+  // Confirmable fields, seeded from the parse. `null` means "not overridden";
+  // the parsed value shows until the super-user types over it.
+  const [nameEdit, setNameEdit] = useState<string | null>(null);
+  const [dateEdit, setDateEdit] = useState<string | null>(null);
+  const [venueEdit, setVenueEdit] = useState<string | null>(null);
+  const [course, setCourse] = useState("");
+  const [target, setTarget] = useState<string>(""); // "" = create a new meet
+  const [targetTouched, setTargetTouched] = useState(false);
+
+  const name = nameEdit ?? draft?.name ?? "";
+  const startDate = dateEdit ?? draft?.startDate ?? "";
+  const venue = venueEdit ?? draft?.venue ?? "";
+
+  // The nearest existing meet by date — only ever offered from the meets LIST.
+  // On a meet's own page `lockedMeet` settles it and this never runs.
+  const suggestion = useMemo(() => {
+    if (lockedMeet || !startDate) return null;
+    let best: { meet: MeetOption; distance: number } | null = null;
+    for (const meet of meets) {
+      const distance = Math.abs(daysBetween(meet.startDate, startDate));
+      if (distance > SUGGEST_WITHIN_DAYS) continue;
+      if (best === null || distance < best.distance) best = { meet, distance };
+    }
+    return best?.meet ?? null;
+  }, [meets, startDate, lockedMeet]);
+
+  const effectiveTarget =
+    lockedMeet?._id ?? (targetTouched ? target : (suggestion?._id ?? ""));
+  // `isReplace` is derived from the id this sheet will actually SEND, never from
+  // a lookup into `meets`. That list is a separate subscription: while it is
+  // still resolving (or has dropped on a reconnect) the lookup returns null
+  // even though a locked target is set, and gating on it would render a plain
+  // "Add meet" button that quietly replaced a programme. Everything
+  // user-visible — the button, the confirmation, the summary — reads this.
+  const isReplace = effectiveTarget !== "";
+  // The locked row comes from the caller, so a locked target is ALWAYS
+  // resolved — there is no loading state to explain and no second subscription
+  // to wait on.
+  const targetMeet =
+    lockedMeet ?? meets.find((m) => m._id === effectiveTarget) ?? null;
+  // A replace we cannot describe is a replace we must not offer: without the
+  // target's row there is no name and no diff to confirm against.
+  const targetUnresolved = isReplace && targetMeet === null;
+
+  // A chosen target that has left the calendar (deleted in another tab) is
+  // dropped rather than displayed as a selection the sheet cannot honour —
+  // otherwise the picker would read "A new meet" while the button still said
+  // "Replace programme".
+  if (targetTouched && targetUnresolved && meets.length > 0) {
+    setTarget("");
+  }
+
+  // Mirrors the guard in `importMeet`: a start date past the target's stored end
+  // would leave the meet dated backwards, and `isUpcoming` reads the END date,
+  // so a meet still to come would start reading as Past. Caught here so the
+  // super-user learns it BEFORE confirming a destructive dialog, not after.
+  const datesConflict =
+    targetMeet?.endDate != null &&
+    startDate !== "" &&
+    startDate > targetMeet.endDate;
+
+  /** Exactly what changes on the target meet, so nothing is renamed silently. */
+  const changes: Change[] = useMemo(() => {
+    if (!targetMeet) return [];
+    const out: Change[] = [];
+    const nextName = name.trim();
+    if (nextName !== "" && targetMeet.name !== nextName) {
+      out.push({ label: "Name", from: targetMeet.name, to: nextName });
+    }
+    // A conflicting date is reported as a blocker below, not as a change.
+    if (!datesConflict && startDate !== "" && targetMeet.startDate !== startDate) {
+      out.push({
+        label: "Date",
+        from: formatMeetDates(targetMeet),
+        // The import never touches `endDate`, so a multi-day meet keeps its
+        // span — showing a bare single date here would claim a change the
+        // write will not make.
+        to: formatMeetDates({ startDate, endDate: targetMeet.endDate }),
+      });
+    }
+    const nextVenue = venue.trim();
+    if (nextVenue !== "" && targetMeet.venue !== nextVenue) {
+      out.push({
+        label: "Venue",
+        from: targetMeet.venue ?? "Not set",
+        to: nextVenue,
+      });
+    }
+    if (course !== "" && targetMeet.course !== course) {
+      out.push({
+        label: "Course",
+        from: targetMeet.course ? COURSE_LABEL[targetMeet.course] : "Not set",
+        to: COURSE_LABEL[course as Course],
+      });
+    }
+    if (draft && targetMeet.eventCount !== draft.events.length) {
+      out.push({
+        label: "Events",
+        from: targetMeet.eventCount === 0 ? "None" : String(targetMeet.eventCount),
+        to: String(draft.events.length),
+      });
+    }
+    return out;
+  }, [targetMeet, name, startDate, venue, course, draft, datesConflict]);
+
+  function clearInput() {
+    setText("");
+    setTruncated(null);
+    setReadError(null);
+    setDone(null);
+    setNameEdit(null);
+    setDateEdit(null);
+    setVenueEdit(null);
+    setCourse("");
+    setTarget("");
+    setTargetTouched(false);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    clearInput();
+    setReading(true);
+    try {
+      if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+        // pdf.js is ~350 KB — loaded only now, by someone who chose a PDF.
+        const { extractPdfText } = await import("@/lib/pdfText");
+        const read = await extractPdfText(file);
+        setText(read.text);
+        // A programme cut short by the page cap must SAY so — a short event
+        // list presented as a complete one is the failure this whole sheet is
+        // built to prevent.
+        if (read.pagesRead < read.totalPages) {
+          setTruncated({ read: read.pagesRead, total: read.totalPages });
+        }
+      } else {
+        setText(await file.text());
+      }
+    } catch (err) {
+      setReadError(errorMessage(err, "That file could not be read."));
+    } finally {
+      setReading(false);
+    }
+  }
+
+  const canImport =
+    draft !== null &&
+    !datesConflict &&
+    name.trim() !== "" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(startDate) &&
+    draft.events.length > 0 &&
+    !targetUnresolved;
+
+  /**
+   * Commit. `rethrow` is set when the caller is the confirmation dialog, which
+   * has its own error slot and must stay open on failure — closing a modal on a
+   * failed write loses the context the decision was made in.
+   */
+  async function runImport(rethrow = false) {
+    if (!canImport || importing || draft === null) return;
+    setImporting(true);
+    try {
+      const res = await importMeet({
+        meetId: effectiveTarget ? (effectiveTarget as Id<"meets">) : undefined,
+        name: name.trim(),
+        startDate,
+        venue: venue.trim() || undefined,
+        course: (course || undefined) as Course | undefined,
+        // No end date and no gala tag: a programme states neither, and the
+        // mutation leaves both alone when they are absent, so importing over an
+        // existing meet never silently unsets details someone entered by hand.
+        events: draft.events,
+      });
+      setDone({ created: res.created, eventCount: res.eventCount });
+      notify.success(
+        res.created
+          ? `Meet added with ${res.eventCount} events`
+          : `Programme replaced — ${res.eventCount} events`,
+      );
+      onImported?.(res.meetId);
+    } catch (err) {
+      // The confirmation dialog renders the failure inline, where the decision
+      // was made — a toast as well would report the same thing twice.
+      if (rethrow) throw err;
+      notify.error(errorMessage(err));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  /**
+   * Why the commit button is disabled, in the words of the thing to fix. A dead
+   * control with no stated reason is the reader's problem to solve twice: work
+   * out that it is disabled, then work out why.
+   */
+  const blockedReason: string | null =
+    draft === null
+      ? "Choose a file or paste a programme."
+      : draft.events.length === 0
+        ? "No events were found in this file."
+        : datesConflict
+          ? "Fix the date conflict above, or save this as a new meet."
+          : name.trim() === ""
+            ? "Enter a meet name."
+            : !/^\d{4}-\d{2}-\d{2}$/.test(startDate)
+              ? "Set the meet's date."
+              : targetUnresolved
+                ? "Choose a meet to replace, or save this as a new meet."
+                : null;
+
+  // Replacing is irreversible, so it goes through the app's destructive
+  // confirmation. Adding a new meet destroys nothing and commits straight away.
+  function onSubmit() {
+    if (isReplace) setConfirming(true);
+    else void runImport();
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="flex w-full flex-col sm:max-w-xl" side="right">
+        <SheetHeader>
+          <SheetTitle>Import a meet programme</SheetTitle>
+          <SheetDescription>
+            {lockedMeet ? (
+              <>
+                Loads the programme for{" "}
+                <span className="font-medium text-ink">{lockedMeet.name}</span>.
+                Nothing is saved until you confirm what was read.
+              </>
+            ) : (
+              <>
+                A HY-TEK event list (PDF), a CSV, or pasted text. Nothing is saved
+                until you confirm what was read below.
+              </>
+            )}
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="custom-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-1">
+          {/* --- 1. the file ------------------------------------------------ */}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".pdf,application/pdf,.csv,text/csv,.txt,text/plain"
+              onChange={onFile}
+              className="sr-only"
+              id="meet-file"
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={reading}
+              onClick={() => fileRef.current?.click()}
+            >
+              <Upload className="size-4" aria-hidden /> Choose a file
+            </Button>
+            {text !== "" && (
+              <button
+                type="button"
+                onClick={clearInput}
+                className="rounded-md px-2 py-1 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {readError && (
+            <p
+              role="alert"
+              className="rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2 text-sm text-danger-ink"
+            >
+              {readError}
+            </p>
+          )}
+
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="meet-text" className="text-sm font-medium text-gray-700">
+              …or paste the programme
+            </label>
+            <textarea
+              id="meet-text"
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                setDone(null);
+                setReadError(null);
+                setTruncated(null);
+              }}
+              spellCheck={false}
+              placeholder={"HAS 1st Seeded Gala 2026 - 11/9/2026\n101  Mixed 100 Freestyle\n103  Mixed 100 Breaststroke"}
+              className="h-32 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-ink outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] placeholder:text-ink-faint hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
+            />
+            <p className="text-xs text-ink-muted">
+              One event per line, as the programme prints it. A leading event
+              number is optional, and a CSV of{" "}
+              <span className="font-medium text-ink">event number, event name</span>{" "}
+              works the same way.
+            </p>
+          </div>
+
+          {/* --- 2. what was read ------------------------------------------ */}
+          {/* The parse changes on every keystroke, so what gets ANNOUNCED is one
+              short summary, not the whole block re-read each time. It is its own
+              element rather than an aria-live wrapper around the sections: a
+              wrapper would have to be `display: contents` to keep the layout,
+              and that can drop the live region from the accessibility tree. */}
+          <p className="sr-only" role="status">
+            {draft ? parseSummary(draft, truncated) : "No programme loaded."}
+          </p>
+          <>
+            {draft && !done && (
+              <>
+                {truncated && (
+                  <p className="flex gap-2 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
+                    <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      Only the first {truncated.read} of {truncated.total} pages
+                      were read. Export just the event list, or paste the rest.
+                    </span>
+                  </p>
+                )}
+                {datesConflict && targetMeet && (
+                  <p
+                    role="alert"
+                    className="flex gap-2 rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2.5 text-sm text-danger-ink"
+                  >
+                    <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      This programme is dated after {targetMeet.name}&rsquo;s end
+                      date ({formatMeetDates(targetMeet)}). Fix that meet&rsquo;s
+                      dates first, or save this as a new meet.
+                    </span>
+                  </p>
+                )}
+                {draft.warnings.length > 0 && (
+                  <ul className="flex flex-col gap-1.5 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
+                    {draft.warnings.map((w, i) => (
+                      <li key={i} className="flex gap-2">
+                        <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                        <span>{w}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-2/60 p-3">
+                  <p className="text-sm font-medium text-ink">
+                    Check the details before saving
+                  </p>
+                  <Input
+                    id="import-name"
+                    label="Meet name"
+                    value={name}
+                    onChange={(e) => setNameEdit(e.target.value)}
+                    maxLength={120}
+                  />
+                  <DateField
+                    id="import-date"
+                    label="Date"
+                    value={startDate}
+                    onChange={setDateEdit}
+                  />
+                  <Input
+                    id="import-venue"
+                    label="Venue"
+                    value={venue}
+                    onChange={(e) => setVenueEdit(e.target.value)}
+                    maxLength={120}
+                  />
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <label
+                      htmlFor="import-course"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Course
+                    </label>
+                    <Select
+                      id="import-course"
+                      value={course}
+                      onValueChange={setCourse}
+                      size="md"
+                      options={[
+                        {
+                          // Absent means KEEP on a replace and "unknown" on a
+                          // new meet. One control, two truths, so it says which.
+                          value: "",
+                          label: targetMeet
+                            ? targetMeet.course
+                              ? `Keep ${COURSE_LABEL[targetMeet.course].toLowerCase()}`
+                              : "Keep unset"
+                            : "Not set",
+                        },
+                        { value: "LCM", label: "Long course (50 m)" },
+                        { value: "SCM", label: "Short course (25 m)" },
+                      ]}
+                    />
+                    <p className="text-xs text-ink-muted">
+                      A programme doesn&rsquo;t state the course.{" "}
+                      {targetMeet
+                        ? "Leaving this alone keeps what the meet already has."
+                        : "Leave it unset rather than guessing."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* --- 3. new meet, or a correction to an existing one ------ */}
+                {lockedMeet ? (
+                  targetMeet && (
+                    <ChangeSummary
+                      targetName={targetMeet.name}
+                      eventCount={targetMeet.eventCount}
+                      changes={changes}
+                    />
+                  )
+                ) : (
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <label
+                      htmlFor="import-target"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Save as
+                    </label>
+                    <Select
+                      id="import-target"
+                      value={effectiveTarget}
+                      onValueChange={(next) => {
+                        setTarget(next);
+                        setTargetTouched(true);
+                      }}
+                      size="md"
+                      options={[
+                        { value: "", label: "A new meet" },
+                        // Every other option destroys a programme, so each one
+                        // says "Replace" rather than reading as a plain filing
+                        // choice.
+                        ...meets.map((m) => ({
+                          value: m._id,
+                          label: `Replace — ${m.name} (${formatMeetDates(m)})`,
+                          textValue: m.name,
+                        })),
+                      ]}
+                    />
+                    {targetMeet ? (
+                      <>
+                        {!targetTouched && (
+                          <p className="text-xs text-ink-muted">
+                            Suggested because the dates are close. Choose{" "}
+                            <span className="font-medium text-ink">A new meet</span>{" "}
+                            to add a fixture instead.
+                          </p>
+                        )}
+                        <ChangeSummary
+                          targetName={targetMeet.name}
+                          eventCount={targetMeet.eventCount}
+                          changes={changes}
+                        />
+                      </>
+                    ) : (
+                      <p className="text-xs text-ink-muted">
+                        Adds a new fixture to the calendar.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* --- 4. the programme itself --------------------------- */}
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm font-medium text-ink">
+                    {draft.events.length} event
+                    {draft.events.length === 1 ? "" : "s"} read
+                  </p>
+                  <ul className="custom-scrollbar max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-white text-sm">
+                    {draft.events.map((event, i) => (
+                      <li key={i} className="flex items-baseline gap-2 px-3 py-1.5">
+                        <span className="w-10 shrink-0 tabular-nums text-ink-faint">
+                          {event.eventNumber ?? "—"}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-ink">
+                          {event.rawLabel}
+                        </span>
+                        {/* An unresolved line is the one a super-user needs to
+                            notice, so it is the LOUDER of the two, not quieter. */}
+                        <span
+                          className={
+                            event.distance === undefined
+                              ? "shrink-0 text-2xs font-medium text-warning-ink"
+                              : "shrink-0 text-2xs text-ink-muted"
+                          }
+                        >
+                          {event.distance === undefined
+                            ? "not tracked"
+                            : meetEventLabel(event)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {draft.skipped.length > 0 && (
+                  <details className="rounded-lg border border-border bg-white px-3 py-2 text-xs">
+                    <summary className="cursor-pointer text-ink-muted outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      {draft.skipped.length} line
+                      {draft.skipped.length === 1 ? "" : "s"} were not read as events
+                    </summary>
+                    <ul className="mt-2 flex flex-col gap-1">
+                      {draft.skipped.map((s, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span className="shrink-0 tabular-nums text-ink-faint">
+                            line {s.line}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-ink-muted">
+                            {s.text}
+                          </span>
+                          <span className="shrink-0 text-ink-faint">{s.reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </>
+            )}
+
+            {/* --- 5. the outcome ----------------------------------------- */}
+            {done && (
+              <div className="flex items-start gap-2 rounded-lg border border-border bg-white px-3 py-2.5 text-sm">
+                <CheckCircle2
+                  aria-hidden
+                  className="mt-0.5 size-4 shrink-0 text-success-600"
+                />
+                <p className="text-ink">
+                  {done.created ? "Meet added" : "Programme replaced"}:{" "}
+                  {done.eventCount} event{done.eventCount === 1 ? "" : "s"} loaded.
+                </p>
+              </div>
+            )}
+          </>
+        </div>
+
+        {targetUnresolved && (
+          <p className="px-4 pb-1 text-xs text-ink-muted" role="status">
+            That meet is no longer on the calendar. Choose another, or save this
+            as a new meet.
+          </p>
+        )}
+
+        <SheetFooter className="flex-row items-center justify-end gap-2 border-t border-border">
+          {blockedReason && !done && (
+            <p id="import-blocked" className="mr-auto text-xs text-ink-muted">
+              {blockedReason}
+            </p>
+          )}
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            {done ? "Done" : "Cancel"}
+          </Button>
+          {!done && (
+            // Replacing wears the destructive colour; adding a fixture does not.
+            <Button
+              variant={isReplace ? "danger" : "primary"}
+              loading={importing}
+              disabled={!canImport}
+              aria-describedby={blockedReason ? "import-blocked" : undefined}
+              onClick={onSubmit}
+            >
+              {isReplace ? "Replace programme" : "Add meet"}
+            </Button>
+          )}
+        </SheetFooter>
+
+        {isReplace && targetMeet && (
+          <ConfirmDialog
+            open={confirming}
+            onOpenChange={setConfirming}
+            title="Replace this programme?"
+            description={
+              <>
+                <span className="font-medium text-ink">{targetMeet.name}</span>
+                &rsquo;s{" "}
+                {targetMeet.eventCount === 0
+                  ? "empty programme"
+                  : `${targetMeet.eventCount}-event programme`}{" "}
+                will be replaced by the {draft?.events.length ?? 0} events read
+                from this file. This cannot be undone.
+                {changes.length > 0 && (
+                  <span className="mt-3 block">
+                    <span className="text-xs font-medium text-ink">
+                      It also changes:
+                    </span>
+                    <span className="mt-1 block">
+                      {changes.map((c) => (
+                        <ChangeRow key={c.label} change={c} />
+                      ))}
+                    </span>
+                  </span>
+                )}
+              </>
+            }
+            confirmLabel="Replace programme"
+            onConfirm={() => runImport(true)}
+          />
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/**
+ * What the import will change on the meet it targets, field by field.
+ *
+ * Shown inline before the button AND inside the confirmation, because "replaces
+ * its details" is the vaguest possible way to tell someone their meet is about
+ * to be renamed. A rename here is usually CORRECT — the seeded row says "1st
+ * seeded" and the real programme says "HAS 1ST SEEDED GALA 2026" — which is
+ * exactly why it should be visible rather than a discovery afterwards.
+ *
+ * Deliberately NOT the warning skin the parse warnings above it wear. Those say
+ * "the parser struggled with this"; this says "here is what the write will do to
+ * your data", and it gates a destructive button — so it takes that button's
+ * colour, not the one already on screen meaning something else.
+ */
+function ChangeSummary({
+  targetName,
+  eventCount,
+  changes,
+}: {
+  targetName: string;
+  eventCount: number;
+  changes: Change[];
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2.5">
+      <p className="text-sm text-danger-ink">
+        Replaces <span className="font-medium">{targetName}</span>&rsquo;s{" "}
+        {eventCount === 0 ? "empty programme" : `${eventCount}-event programme`}.
+      </p>
+      {changes.length === 0 ? (
+        <p className="text-xs text-ink-muted">
+          Its name, date, venue and course stay as they are.
+        </p>
+      ) : (
+        <dl className="flex flex-col gap-0.5 text-xs text-ink">
+          {changes.map((c) => (
+            <div key={c.label} className="flex flex-wrap items-baseline gap-1.5">
+              <dt className="w-14 shrink-0 font-medium text-ink-muted">{c.label}</dt>
+              <dd className="flex flex-wrap items-baseline gap-1.5">
+                {/* No opacity on the old value: it is struck through, which is
+                    the signal, and fading it as well drops it below AA. */}
+                <span className="text-ink-muted line-through">{c.from}</span>
+                <ArrowRight aria-hidden className="size-3 shrink-0 text-ink-faint" />
+                <span className="font-medium text-ink">{c.to}</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+/** One before → after line inside the confirmation dialog's prose. */
+function ChangeRow({ change }: { change: Change }) {
+  return (
+    <span className="flex flex-wrap items-baseline gap-1.5 py-0.5 text-xs">
+      <span className="w-14 shrink-0 font-medium text-ink-muted">
+        {change.label}
+      </span>
+      <span className="text-ink-muted line-through">{change.from}</span>
+      <ArrowRight aria-hidden className="size-3 shrink-0 text-ink-faint" />
+      <span className="font-medium text-ink">{change.to}</span>
+    </span>
+  );
+}
+
+/**
+ * One sentence of what the parse found, for the screen-reader status line.
+ *
+ * The truncation leads, because it is the one fact that makes the rest
+ * misleading: "8 events read" is a true sentence and a false impression when
+ * 14 of the file's pages were never opened.
+ */
+function parseSummary(
+  draft: MeetDraft,
+  truncated: { read: number; total: number } | null,
+): string {
+  const parts: string[] = [];
+  if (truncated) {
+    parts.push(
+      `Only the first ${truncated.read} of ${truncated.total} pages were read`,
+    );
+  }
+  parts.push(
+    `${draft.events.length} event${draft.events.length === 1 ? "" : "s"} read`,
+  );
+  // The warnings themselves, not a count: "1 warning" tells a listener nothing
+  // about an ambiguous date they are about to accept.
+  for (const warning of draft.warnings) parts.push(warning.replace(/\.$/, ""));
+  if (draft.skipped.length > 0) {
+    parts.push(
+      `${draft.skipped.length} line${draft.skipped.length === 1 ? "" : "s"} not read as events`,
+    );
+  }
+  return `${parts.join(". ")}.`;
+}
+
+/** Whole days from `a` to `b` (both ISO). Used only for the nearest-meet hint. */
+function daysBetween(a: string, b: string): number {
+  return (Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000;
+}

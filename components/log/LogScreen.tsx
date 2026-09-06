@@ -17,7 +17,6 @@ import { Select } from "@/components/ui/Select";
 import { errorMessage, notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
 import { computeAge, STROKE_LABEL, GALA_FULL, type Course, type Stroke } from "@/lib/swim";
-import { galaForDate } from "@/lib/galaCalendar";
 import { parseDigits, TimeField } from "./TimeField";
 import { EventSelectors, isValidEventTriple } from "./EventSelectors";
 
@@ -56,24 +55,35 @@ export function LogScreen({
   const [course, setCourse] = useState<Course | null>(null);
   const [swimType, setSwimType] = useState<SwimType>("MEET");
   const [swimDate, setSwimDate] = useState(today);
-  // The meet name defaults from the date via the fixed gala calendar; once the
-  // coach types their own name we stop auto-filling so a date change never
-  // clobbers it (clearing the field re-enables the default).
-  const [meetName, setMeetName] = useState(() => galaForDate(today) ?? "");
+  // The meet name defaults from the season CALENDAR (convex/meets.ts) for the
+  // chosen date; once the coach types their own name we stop auto-filling so a
+  // date change never clobbers it (clearing the field re-enables the default).
+  // This used to read a hardcoded map in lib/galaCalendar.ts — a second source
+  // of truth that had already drifted from the real fixture list. Now correcting
+  // a meet's date on the Meets screen corrects this pre-fill too.
+  const [meetName, setMeetName] = useState("");
   const [meetEdited, setMeetEdited] = useState(false);
+  const scheduledMeet = useQuery(api.meets.meetNameForDate, { date: swimDate });
   const [notes, setNotes] = useState("");
   const [digits, setDigits] = useState("");
 
-  // Change the date and, unless the coach has typed a custom meet name, pull the
-  // scheduled gala for that date into the meet field (blank when none is set).
-  function handleDateChange(iso: string) {
-    setSwimDate(iso);
-    if (!meetEdited) setMeetName(galaForDate(iso) ?? "");
+  // The pre-fill arrives asynchronously (and again whenever the date changes),
+  // so it is applied during render rather than in an effect: one paint, never a
+  // frame of the previous date's meet name. It never overwrites a name the coach
+  // typed, and `undefined` (still loading) leaves the field exactly as it is.
+  const [prefilledFor, setPrefilledFor] = useState<string | null>(null);
+  if (!meetEdited && scheduledMeet !== undefined && prefilledFor !== swimDate) {
+    setPrefilledFor(swimDate);
+    setMeetName(scheduledMeet ?? "");
   }
+
   function handleMeetChange(value: string) {
     setMeetName(value);
-    // An empty field means "no custom name" — let the date default apply again.
-    setMeetEdited(value.trim() !== "");
+    const edited = value.trim() !== "";
+    setMeetEdited(edited);
+    // An empty field means "no custom name" — re-arm the date default so the
+    // scheduled meet for the chosen date fills in again.
+    if (!edited) setPrefilledFor(null);
   }
 
   // Pick a distance and, when that distance only ever runs on ONE course, snap
@@ -318,7 +328,7 @@ export function LogScreen({
               id="swim-date"
               value={swimDate}
               max={today}
-              onChange={handleDateChange}
+              onChange={setSwimDate}
               error={
                 swimDate !== "" && !dateValid ? "Pick a date up to today." : undefined
               }

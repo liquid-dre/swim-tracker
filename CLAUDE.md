@@ -48,11 +48,14 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
 - **App shell:** every screen renders inside a collapsible sidebar + slim top bar (shadcn Sidebar,
   lucide icons, TailAdmin-style but on our tokens). Nav IA (coach view): **Dashboard**; **Swimmers**
   (Roster, Squads, Log a time); **Performance** (Comparison, Progression, Stroke profile, Points,
-  Season improvement); **Qualifying** (Status matrix, Road to qualify, Gala qualification, Standards).
+  Season improvement); **Qualifying** (Status matrix, Road to qualify, Gala qualification, Standards);
+  **Meets** (a bare top-level item — one screen, so no group of one).
   The viewer nav is a **mirror of that IA under `/me`** — the same groups and the same screens, minus
   anything that edits — not the older Overview / Progress / History shape earlier revisions of this
   file described. `lib/nav.ts` is the single source of truth; it is deny-by-default, so a new viewer
-  route must opt in via `roles`.
+  route must opt in via `roles`. The viewer boundary is the `/me` **segment**, never the prefix:
+  `/meets` is a staff route that merely starts with the same four characters, and `nav.test.ts` locks
+  that distinction.
 - **Breadcrumbs on every page** via the shared `<PageHeader>` / `<AppBreadcrumb>` — real hierarchy, last
   crumb `aria-current="page"`, dynamic segments resolve real names (e.g. *Swimmers / Jane Doe*).
 - **Feedback on every action** via `lib/notify` (Sonner) — `notify.promise` wraps async mutations
@@ -75,6 +78,13 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   SANJ ring" means exactly "beats the SANJ cut" (a radar chart's shared radial scale would silently
   destroy that, and a test locks it); and the dashboard sparkline, because it renders ×20 rows and needs
   no axes. Both follow the app-wide orientation: **faster = lower / further out**.
+- **One calendar.** `/attendance` draws the season's competitions alongside its training sessions —
+  `EXCUSED` is defined as "illness, gala, notified ahead", so the gala that caused it belongs in the
+  same grid. A meet pin is deliberately a different shape from a session chip (filled, trophy-marked,
+  spanning the cell) so a competition can never be misread as training; a `galas.tourDate` gets its
+  own tier-coloured pin, absorbed when a meet carries that gala's tag on the same day. Selecting a
+  pin opens the programme in a sheet, not a navigation — a coach checking a clash must not lose the
+  month they were reading.
 - **Dropdowns:** one shared styled menu component (white rounded panel, soft shadow, brand-indigo hover
   items, rotating chevron, subtle staggered entrance) for every select / picker / action menu.
 - **Collapsed sidebar:** the icon rail still reaches every subcategory — groups reveal a flyout of their
@@ -132,6 +142,23 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   world record where they are not. Those are different scales, so `radarMetric` returns the metric and
   its maximum with the data, and the ring labels, caption and accessible table all name which is
   active. Never let the two be compared spoke-for-spoke.
+- **A MEET IS NOT A GALA.** `galas` are the five qualifying standard SETS (cuts, coverage, entry
+  windows). `meets` (`lib/meets.ts`, `convex/meets.ts`) are the dated COMPETITIONS on the season
+  calendar — "HAS 1st Seeded Gala 2026", 11 Sep, Les Brown Pool — each with a programme of events.
+  The app already used that word: `results.meetName`, `swimType: "MEET"`, the log form's "Meet /
+  venue name". Never merge the two, and never let a meet become a second way to date a championship:
+  a meet's `galaCode` is a **display-only tag**, and `galas.tourDate` stays the sole authority for
+  the birthday rule (§4.9). Meets are global reference data — no `clubId`, super-user writes, every
+  role reads (viewer mirror at `/me/meets`).
+- **A meet programme is a fact about the MEET, not about our whitelist.** Every line keeps its
+  `rawLabel` verbatim and always renders; `distance`/`stroke` are set only when the line resolves to
+  a whitelisted event, and a relay never resolves (a relay time is a team's). Nothing is guessed: a
+  programme states no course, so `course` stays unset and the UI says "Not set"; an ambiguous printed
+  date (`11/9/2026`) is read day-first **and flagged** for the importer to confirm. The parser is
+  pure and lives in `lib/meetImport.ts` — PDF, CSV and paste all become text first (`lib/pdfText.ts`
+  reassembles a PDF's positioned fragments into lines) so there is one set of rules and one test.
+- **The event whitelist has ONE copy:** `EVENT_WHITELIST` in `lib/swim.ts`, shared by the `events`
+  seed and the programme parser. Do not transcribe §4.3 a third time.
 - **Roles:** coaches edit; viewers are read-only and see only their linked swimmer(s), enforced
   server-side in every query and mutation.
 

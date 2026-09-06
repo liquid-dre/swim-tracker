@@ -1,62 +1,21 @@
 import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
 import { requireSignedIn } from "./authz";
-import { eventLabel } from "../lib/swim";
+import { EVENT_WHITELIST, eventLabel } from "../lib/swim";
 
 // The strokes/distances/courses match the shared validators in schema.ts.
 type Stroke = "FREE" | "BACK" | "BREAST" | "FLY" | "IM";
 type Distance = 25 | 50 | 100 | 200 | 400 | 800 | 1500;
 type Course = "SCM" | "LCM";
 
-type SeedEvent = {
+// The COMPLETE event whitelist from BRD §4.3 — the one copy lives in
+// `lib/swim.ts` (`EVENT_WHITELIST`), shared with the meet-programme parser so
+// the rules cannot be transcribed twice and drift.
+const EVENTS: ReadonlyArray<{
   distance: Distance;
   stroke: Stroke;
-  allowedCourses: Course[];
-};
-
-const BOTH: Course[] = ["SCM", "LCM"];
-const SCM_ONLY: Course[] = ["SCM"];
-
-// The COMPLETE event whitelist from BRD §4.3. The (distance, stroke) pairs
-// here are the only real events; allowedCourses encodes the course notes.
-const EVENTS: SeedEvent[] = [
-  // 25 — FREE/BACK/BREAST/FLY, SCM only (one length of a 25 m pool; you can't
-  // swim 25 m long-course). No 25 IM. Development sprints — no qualifying cut.
-  { distance: 25, stroke: "FREE", allowedCourses: SCM_ONLY },
-  { distance: 25, stroke: "BACK", allowedCourses: SCM_ONLY },
-  { distance: 25, stroke: "BREAST", allowedCourses: SCM_ONLY },
-  { distance: 25, stroke: "FLY", allowedCourses: SCM_ONLY },
-
-  // 50 — FREE/BACK/BREAST/FLY, SCM + LCM. No 50 IM.
-  { distance: 50, stroke: "FREE", allowedCourses: BOTH },
-  { distance: 50, stroke: "BACK", allowedCourses: BOTH },
-  { distance: 50, stroke: "BREAST", allowedCourses: BOTH },
-  { distance: 50, stroke: "FLY", allowedCourses: BOTH },
-
-  // 100 — FREE/BACK/BREAST/FLY SCM + LCM; 100 IM is SCM-only.
-  { distance: 100, stroke: "FREE", allowedCourses: BOTH },
-  { distance: 100, stroke: "BACK", allowedCourses: BOTH },
-  { distance: 100, stroke: "BREAST", allowedCourses: BOTH },
-  { distance: 100, stroke: "FLY", allowedCourses: BOTH },
-  { distance: 100, stroke: "IM", allowedCourses: SCM_ONLY },
-
-  // 200 — FREE/BACK/BREAST/FLY/IM, SCM + LCM.
-  { distance: 200, stroke: "FREE", allowedCourses: BOTH },
-  { distance: 200, stroke: "BACK", allowedCourses: BOTH },
-  { distance: 200, stroke: "BREAST", allowedCourses: BOTH },
-  { distance: 200, stroke: "FLY", allowedCourses: BOTH },
-  { distance: 200, stroke: "IM", allowedCourses: BOTH },
-
-  // 400 — FREE and IM only, SCM + LCM.
-  { distance: 400, stroke: "FREE", allowedCourses: BOTH },
-  { distance: 400, stroke: "IM", allowedCourses: BOTH },
-
-  // 800 — FREE only, SCM + LCM.
-  { distance: 800, stroke: "FREE", allowedCourses: BOTH },
-
-  // 1500 — FREE only, SCM + LCM.
-  { distance: 1500, stroke: "FREE", allowedCourses: BOTH },
-];
+  allowedCourses: ReadonlyArray<Course>;
+}> = EVENT_WHITELIST;
 
 // Idempotent seed of the event whitelist (BRD §4.3). Run once from the Convex
 // dashboard; running it again is a no-op for events that already exist, so it
@@ -85,7 +44,7 @@ export const seedEvents = internalMutation({
       await ctx.db.insert("events", {
         distance: e.distance,
         stroke: e.stroke,
-        allowedCourses: e.allowedCourses,
+        allowedCourses: [...e.allowedCourses],
         label: eventLabel(e.distance, e.stroke),
         active: true,
       });
@@ -143,7 +102,7 @@ export const listActiveEvents = query({
         _id: e._id,
         distance: e.distance,
         stroke: e.stroke,
-        allowedCourses: e.allowedCourses,
+        allowedCourses: [...e.allowedCourses],
         label: e.label,
       }));
   },

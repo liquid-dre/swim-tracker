@@ -20,6 +20,13 @@ function hrefsFor(role: Role): string[] {
   return out;
 }
 
+// The viewer boundary is the /me SEGMENT, not the three-character prefix —
+// `/meets` is a staff route that merely starts with the same letters. This is
+// the same rule `isRouteAllowed` applies.
+function inViewerArea(href: string): boolean {
+  return href === "/me" || href.startsWith("/me/");
+}
+
 describe("navForRole — role decides which nav renders", () => {
   it("gives a viewer the coach-mirroring IA, scoped under /me", () => {
     expect(hrefsFor("VIEWER")).toEqual([
@@ -34,6 +41,7 @@ describe("navForRole — role decides which nav renders", () => {
       "/me/road",
       "/me/qualification",
       "/me/standards",
+      "/me/meets",
     ]);
   });
 
@@ -48,7 +56,35 @@ describe("navForRole — role decides which nav renders", () => {
     const coach = hrefsFor("COACH");
     expect(coach).toContain("/dashboard");
     expect(coach).toContain("/road");
-    for (const href of coach) expect(href.startsWith("/me")).toBe(false);
+    for (const href of coach) expect(inViewerArea(href)).toBe(false);
+  });
+
+  it("gives both roles Meets, mirrored under /me", () => {
+    expect(hrefsFor("COACH")).toContain("/meets");
+    expect(hrefsFor("VIEWER")).toContain("/me/meets");
+    // Deny-by-default: the viewer route only works because it opted in.
+    expect(isRouteAllowed("VIEWER", "/me/meets")).toBe(true);
+    expect(isRouteAllowed("COACH", "/meets")).toBe(true);
+    expect(isRouteAllowed("VIEWER", "/meets")).toBe(false);
+    expect(isRouteAllowed("COACH", "/me/meets")).toBe(false);
+  });
+
+  it("does not mistake /meets for the viewer's /me area", () => {
+    // "/meets" starts with the four characters "/me" — the boundary is the
+    // SEGMENT, not the prefix, so a staff route is never bounced to the viewer
+    // home and a viewer never reaches the coach meets screen.
+    expect(inViewerArea("/meets")).toBe(false);
+    expect(inViewerArea("/meets/abc123")).toBe(false);
+    expect(inViewerArea("/me/meets")).toBe(true);
+    expect(isRouteAllowed("SUPER_USER", "/meets")).toBe(true);
+    expect(trailForHref("/meets").map((c) => c.label)).toEqual([
+      "Dashboard",
+      "Meets",
+    ]);
+    expect(trailForHref("/me/meets").map((c) => c.label)).toEqual([
+      "My swimmers",
+      "Meets",
+    ]);
   });
 
   it("puts Deleted times in the coach-only Audit group", () => {
@@ -96,7 +132,7 @@ describe("navForRole — role decides which nav renders", () => {
     // Sees the coach tree…
     for (const href of hrefsFor("COACH")) expect(superUser).toContain(href);
     // …and never the viewer-only area.
-    for (const href of superUser) expect(href.startsWith("/me")).toBe(false);
+    for (const href of superUser) expect(inViewerArea(href)).toBe(false);
   });
 });
 
