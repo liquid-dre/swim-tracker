@@ -325,8 +325,15 @@ export function ImportMeetSheet({
           </div>
 
           {/* --- 2. what was read ------------------------------------------ */}
-          {/* The parse result changes as you paste or type, so it is announced. */}
-          <div aria-live="polite" className="contents">
+          {/* The parse changes on every keystroke, so what gets ANNOUNCED is one
+              short summary, not the whole block re-read each time. It is its own
+              element rather than an aria-live wrapper around the sections: a
+              wrapper would have to be `display: contents` to keep the layout,
+              and that can drop the live region from the accessibility tree. */}
+          <p className="sr-only" role="status">
+            {draft ? parseSummary(draft) : "No programme loaded."}
+          </p>
+          <>
             {draft && !done && (
               <>
                 {draft.warnings.length > 0 && (
@@ -519,7 +526,7 @@ export function ImportMeetSheet({
                 </p>
               </div>
             )}
-          </div>
+          </>
         </div>
 
         <SheetFooter className="flex-row justify-end gap-2 border-t border-border">
@@ -634,6 +641,24 @@ function ChangeRow({ change }: { change: Change }) {
       <span className="font-medium text-ink">{change.to}</span>
     </span>
   );
+}
+
+/** One sentence of what the parse found, for the screen-reader status line. */
+function parseSummary(draft: MeetDraft): string {
+  const parts = [
+    `${draft.events.length} event${draft.events.length === 1 ? "" : "s"} read`,
+  ];
+  if (draft.warnings.length > 0) {
+    parts.push(
+      `${draft.warnings.length} warning${draft.warnings.length === 1 ? "" : "s"}`,
+    );
+  }
+  if (draft.skipped.length > 0) {
+    parts.push(
+      `${draft.skipped.length} line${draft.skipped.length === 1 ? "" : "s"} not read as events`,
+    );
+  }
+  return `${parts.join(". ")}.`;
 }
 
 /** Whole days from `a` to `b` (both ISO). Used only for the nearest-meet hint. */
