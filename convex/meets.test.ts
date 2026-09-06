@@ -238,6 +238,22 @@ describe("programme validation", () => {
     expect(typeof meet?.events[0].id).toBe("string");
   });
 
+  test("refuses two events claiming one number", async () => {
+    // The number IS the running order, so a duplicate makes every read surface
+    // order the pair arbitrarily. Enforced here, not only in the form.
+    const { asSuper } = await setup();
+    await expect(
+      asSuper.mutation(api.meets.createMeet, {
+        name: "Clashing",
+        startDate: "2026-09-12",
+        events: [
+          { rawLabel: "Mixed 100 Free", eventNumber: 4 },
+          { rawLabel: "Mixed 50 Fly", eventNumber: 4 },
+        ],
+      }),
+    ).rejects.toThrow(/both numbered 4/i);
+  });
+
   test("refuses a line claiming an event that does not exist", async () => {
     // 50 IM is off the whitelist (§4.3). The programme may SAY "50 IM"; it may
     // not be stored as the event, because everything downstream would key on it.

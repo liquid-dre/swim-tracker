@@ -172,6 +172,21 @@ function cleanEvents(events: ReadonlyArray<MeetEvent>): MeetEvent[] {
       `That programme has ${events.length} events — more than the ${MAX_EVENTS} a meet can hold.`,
     );
   }
+  // An event number IS the running order — `compareMeetEvents` sorts by it, and
+  // a coach reads it off the poolside sheet. Two lines claiming one number
+  // therefore order arbitrarily wherever the programme is read, so the rule is
+  // enforced here and not only in the form that usually produces it.
+  const seen = new Set<number>();
+  for (const event of events) {
+    if (event.eventNumber === undefined) continue;
+    if (seen.has(event.eventNumber)) {
+      throw new ConvexError(
+        `Two events are both numbered ${event.eventNumber}. An event number is the running order, so it has to be unique.`,
+      );
+    }
+    seen.add(event.eventNumber);
+  }
+
   return events.map((event, i) => {
     const rawLabel = event.rawLabel.trim().replace(/\s+/g, " ");
     if (rawLabel === "") {

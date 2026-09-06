@@ -203,13 +203,10 @@ export function MeetForm({
 
   return (
     <Sheet open={open} onOpenChange={requestClose}>
-      <SheetContent
-        className="flex w-full flex-col sm:max-w-2xl"
-        side="right"
-        onPointerDownOutside={(e) => {
-          if (dirty) e.preventDefault();
-        }}
-      >
+      {/* No `onPointerDownOutside` guard: swallowing the click would make the
+          overlay silently inert. The dismissal is allowed to reach
+          `requestClose`, which asks before discarding anything. */}
+      <SheetContent className="flex w-full flex-col sm:max-w-2xl" side="right">
         <SheetHeader>
           <SheetTitle>{editing ? "Edit meet" : "Add a meet"}</SheetTitle>
           <SheetDescription>
@@ -308,11 +305,13 @@ export function MeetForm({
               },
               {
                 value: "events",
-                label: "Events",
-                // The count while the programme is fine; the problem count when
-                // it is not — the badge is the only channel that can say "the
-                // reason Save is grey is on the tab you are not looking at".
-                badge: programmeProblem === null ? events.length : 1,
+                // The badge counts events, always, because "1 problem" and "1
+                // event" are indistinguishable in a pill. That a problem exists
+                // is carried by the label instead, which is a channel a count
+                // cannot compete for.
+                label:
+                  programmeProblem === null ? "Events" : "Events · needs a fix",
+                badge: events.length,
                 content: (
                   <div className="pt-4">
                     <ProgrammeEditor
@@ -320,7 +319,7 @@ export function MeetForm({
                       course={(course || null) as Course | null}
                       onChange={setEvents}
                       entryCounts={entryCounts}
-                      problemIndex={programmeProblem?.index ?? null}
+                      problem={programmeProblem}
                       focusLine={focusLine}
                       onFocused={() => setFocusLine(null)}
                     />
@@ -332,14 +331,31 @@ export function MeetForm({
         </div>
 
         <SheetFooter className="flex-row items-center justify-end gap-2 border-t border-border">
-          {blockedReason && (
-            <p
-              id="meet-form-blocked"
-              className="mr-auto text-xs text-ink-muted"
-            >
-              {blockedReason}
-            </p>
-          )}
+          {/* A blocked save is an error, not a hint: it is announced, inked as
+              one, and where the problem is a specific programme line it is the
+              way TO that line. `aria-describedby` on the disabled button below
+              cannot carry it — a disabled button is not focusable — so the live
+              region is how a screen-reader user learns why Save is unavailable. */}
+          <p
+            id="meet-form-blocked"
+            role="status"
+            className="mr-auto min-w-0 text-xs text-danger-ink"
+          >
+            {blockedReason && programmeProblem?.index != null ? (
+              <button
+                type="button"
+                className="text-left underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                onClick={() => {
+                  setTab("events");
+                  setFocusLine(programmeProblem.index);
+                }}
+              >
+                {blockedReason} Go to it.
+              </button>
+            ) : (
+              blockedReason
+            )}
+          </p>
           <Button variant="ghost" onClick={() => requestClose(false)}>
             Cancel
           </Button>
@@ -359,9 +375,14 @@ export function MeetForm({
         onOpenChange={setConfirmDiscard}
         title="Discard these changes?"
         description={
-          events.length > 0
-            ? `This meet's ${events.length === 1 ? "1 event" : `${events.length} events`} and everything else you have changed will be lost.`
-            : "Everything you have changed here will be lost."
+          // On an EDIT the saved meet is untouched — only the edits go. Saying
+          // "this meet's 12 events will be lost" would read as though the
+          // stored programme were about to be deleted.
+          editing
+            ? "Your unsaved changes to this meet will be lost. Nothing already saved is affected."
+            : events.length > 0
+              ? `The ${events.length === 1 ? "event" : `${events.length} events`} you have listed, and everything else you have entered, will be lost.`
+              : "Everything you have entered here will be lost."
         }
         confirmLabel="Discard changes"
         onConfirm={async () => {

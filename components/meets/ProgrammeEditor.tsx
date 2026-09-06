@@ -1,6 +1,14 @@
 "use client";
 
-import { forwardRef, memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ArrowDown, ArrowUp, Plus, Split, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
@@ -25,6 +33,7 @@ import {
 import {
   addCustomLine,
   addWhitelistLine,
+  canMoveLine,
   eventFitsCourse,
   eventOptions,
   moveLine,
@@ -34,6 +43,7 @@ import {
   splitLine,
   unresolveLine,
   updateLine,
+  type ProgrammeProblem,
 } from "./programmeEditing";
 
 /*
@@ -58,7 +68,7 @@ export function ProgrammeEditor({
   course,
   onChange,
   entryCounts,
-  problemIndex = null,
+  problem = null,
   focusLine = null,
   onFocused,
 }: {
@@ -72,18 +82,24 @@ export function ProgrammeEditor({
    * see an empty warning slot and read it as permission to delete.
    */
   entryCounts?: Map<string, number>;
-  /** The line the save is blocked on, marked so it can be found. */
-  problemIndex?: number | null;
+  /** What is blocking the save, so the offending line can say so itself. */
+  problem?: ProgrammeProblem | null;
   /** A line to scroll to and focus, set when the footer says "go to it". */
   focusLine?: number | null;
   onFocused?: () => void;
 }) {
   const [announcement, setAnnouncement] = useState("");
 
-  function apply(next: MeetEvent[], said: string) {
-    onChange(next);
-    setAnnouncement(said);
-  }
+  // Stable, so `memo` on the row below is not defeated by a fresh callback on
+  // every keystroke — a sixty-line programme re-rendering per character is the
+  // difference between typing and waiting.
+  const apply = useCallback(
+    (next: MeetEvent[], said: string) => {
+      onChange(next);
+      setAnnouncement(said);
+    },
+    [onChange],
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -106,7 +122,10 @@ export function ProgrammeEditor({
           programme from the meet&rsquo;s own document.
         </p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        /* One card of divided rows, not sixty stacked cards: at a real
+           programme's length, sixty identical bordered panels give the one line
+           that needs attention the same weight as the fifty-nine that do not. */
+        <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xs">
           {lines.map((line, i) => (
             <ProgrammeLine
               key={line.id ?? `${i}-${line.rawLabel}`}
@@ -121,7 +140,7 @@ export function ProgrammeEditor({
                     ? 0
                     : (entryCounts.get(line.id) ?? 0)
               }
-              flagged={problemIndex === i}
+              problem={problem?.index === i ? problem.message : null}
               focusMe={focusLine === i}
               onFocused={onFocused}
               lines={lines}
@@ -151,13 +170,15 @@ function AddEvent({
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
+  const [activeRaw, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const activeRef = useRef<HTMLLIElement>(null);
   const listId = "programme-add-list";
 
   const options = useMemo(() => eventOptions(course, search), [course, search]);
-  const selectable = options.filter((o) => o.allowed);
+  // Clamped at render rather than reset in an effect: filtering shortens the
+  // list under the highlight, and a stored index would point past its end.
+  const active = Math.min(activeRaw, Math.max(0, options.length - 1));
 
   // The list scrolls, so the highlighted option has to be brought into view:
   // otherwise arrowing down moves `aria-activedescendant` to a row a sighted
@@ -168,8 +189,8 @@ function AddEvent({
 
   // Typing the name of a real event and pressing the free-text button beside it
   // would make a line that can never take a time. Say so instead.
-  const exactMatch = selectable.find(
-    (o) => o.label.toLowerCase() === search.trim().toLowerCase(),
+  const exactMatch = options.find(
+    (o) => o.allowed && o.label.toLowerCase() === search.trim().toLowerCase(),
   );
 
   function add(option: { distance: Distance; stroke: Stroke; label: string }) {
@@ -190,16 +211,21 @@ function AddEvent({
         setOpen(true);
         return;
       }
+      // Arrows traverse EVERY option, disabled ones included: the reason a row
+      // is disabled ("100 IM is short course only") is the whole point of
+      // showing it, and skipping past it puts that reason out of reach of
+      // anyone navigating by keyboard or screen reader.
       setActive((i) => {
         const next = e.key === "ArrowDown" ? i + 1 : i - 1;
-        return Math.max(0, Math.min(selectable.length - 1, next));
+        return Math.max(0, Math.min(options.length - 1, next));
       });
       return;
     }
     if (e.key === "Enter") {
       e.preventDefault();
       // Only while the list is showing: after Escape, Enter belongs to the form.
-      if (open && selectable[active]) add(selectable[active]);
+      const option = options[active];
+      if (open && option?.allowed) add(option);
       return;
     }
     if (e.key === "Escape") setOpen(false);
@@ -214,7 +240,7 @@ function AddEvent({
         >
           Add an event
         </label>
-        <div className="mt-1.5 flex gap-2">
+        <div className="mt-1.5 flex flex-wrap gap-2">
           <input
             ref={inputRef}
             id="programme-add"
@@ -223,7 +249,7 @@ function AddEvent({
             aria-controls={listId}
             aria-autocomplete="list"
             aria-activedescendant={
-              open && selectable[active] ? `programme-opt-${active}` : undefined
+              open && options[active] ? `programme-opt-${active}` : undefined
             }
             value={search}
             placeholder="100 free, 200 IM…"
@@ -235,18 +261,14 @@ function AddEvent({
             onFocus={() => setOpen(true)}
             onBlur={() => window.setTimeout(() => setOpen(false), 120)}
             onKeyDown={onKeyDown}
-            className="h-11 w-full rounded-lg border border-gray-300 bg-white px-3 text-base text-gray-800 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
+            className="h-11 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3 text-base text-gray-800 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
           />
           <Button
             variant="secondary"
             size="sm"
             className="shrink-0"
             disabled={search.trim() === "" || exactMatch !== undefined}
-            title={
-              exactMatch
-                ? `${exactMatch.label} is a real event — add it from the list so times can be recorded against it.`
-                : undefined
-            }
+            aria-describedby={exactMatch ? "programme-add-hint" : undefined}
             onClick={() => {
               onChange(addCustomLine(lines, search));
               onAdded(search.trim());
@@ -275,13 +297,12 @@ function AddEvent({
                 the programme anyway.
               </li>
             )}
-            {options.map((option) => {
-              const index = selectable.indexOf(option);
+            {options.map((option, index) => {
               return (
                 <li
                   key={option.label}
                   ref={index === active ? activeRef : undefined}
-                  id={index >= 0 ? `programme-opt-${index}` : undefined}
+                  id={`programme-opt-${index}`}
                   role="option"
                   aria-selected={index === active}
                   aria-disabled={!option.allowed}
@@ -294,7 +315,7 @@ function AddEvent({
                     e.preventDefault();
                     if (option.allowed) add(option);
                   }}
-                  onMouseEnter={() => index >= 0 && setActive(index)}
+                  onMouseEnter={() => setActive(index)}
                 >
                   <span>{option.label}</span>
                   {option.reason && (
@@ -306,9 +327,10 @@ function AddEvent({
           </ul>
         )}
       </div>
-      <p className="text-xs text-ink-muted">
-        Every event is Mixed unless you say otherwise. Split one into Boys and
-        Girls with the split button on its row.
+      <p id="programme-add-hint" className="text-xs text-ink-muted">
+        {exactMatch
+          ? `${exactMatch.label} is a real event, so add it from the list — a line typed by hand can never take a time.`
+          : "Every event is Mixed unless you say otherwise. Split one into Boys and Girls with the split button on its row."}
       </p>
     </div>
   );
@@ -320,7 +342,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
   total,
   course,
   entered,
-  flagged,
+  problem,
   focusMe,
   onFocused,
   lines,
@@ -332,8 +354,8 @@ const ProgrammeLine = memo(function ProgrammeLine({
   course: Course | null;
   /** undefined = sign-ups not loaded yet, which is not the same as none. */
   entered: number | undefined;
-  /** This is the line the save is blocked on. */
-  flagged: boolean;
+  /** Why the save is blocked on THIS line, or null. */
+  problem: string | null;
   focusMe: boolean;
   onFocused?: () => void;
   lines: MeetEvent[];
@@ -356,13 +378,16 @@ const ProgrammeLine = memo(function ProgrammeLine({
 
   const name =
     line.rawLabel.trim() === "" ? `event ${index + 1}` : line.rawLabel;
+  const problemId = `programme-line-${index}-problem`;
 
   return (
     <li
       ref={rowRef}
       className={
-        "rounded-2xl border bg-white p-3 shadow-theme-xs " +
-        (flagged ? "border-error-500" : "border-gray-200")
+        // Never colour alone: the tint draws the eye, the sentence below says
+        // what is wrong, and the field itself carries `aria-invalid` — which a
+        // list item cannot, and which is where a screen reader will meet it.
+        "p-3 " + (problem !== null ? "bg-error-50/50" : "")
       }
     >
       <div className="flex flex-wrap items-end gap-2">
@@ -371,16 +396,15 @@ const ProgrammeLine = memo(function ProgrammeLine({
           <input
             inputMode="numeric"
             value={line.eventNumber ?? ""}
-            aria-label={`Event number for ${name}`}
+            aria-label={`No. for ${name}`}
             onChange={(e) => {
+              // Anything that is not a number for an event is simply not typed,
+              // rather than clearing the number the coach already had.
               const raw = e.target.value.trim();
-              const n = Number(raw);
+              if (!/^\d{0,4}$/.test(raw)) return;
               onChange(
                 updateLine(lines, index, {
-                  eventNumber:
-                    raw === "" || !Number.isInteger(n) || n < 0 || n > 9999
-                      ? undefined
-                      : n,
+                  eventNumber: raw === "" ? undefined : Number(raw),
                 }),
                 "",
               );
@@ -397,7 +421,9 @@ const ProgrammeLine = memo(function ProgrammeLine({
             ref={labelRef}
             value={line.rawLabel}
             maxLength={120}
-            aria-label={`Name of event ${index + 1}`}
+            aria-label={`As the programme words it, event ${index + 1}`}
+            aria-invalid={problem !== null ? true : undefined}
+            aria-describedby={problem !== null ? problemId : undefined}
             onChange={(e) =>
               onChange(
                 updateLine(lines, index, { rawLabel: e.target.value }),
@@ -439,7 +465,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
           <IconButton
             ref={upRef}
             label={`Move ${name} earlier`}
-            disabled={index === 0}
+            disabled={!canMoveLine(lines, index, -1)}
             onClick={() => {
               // The button about to be pressed disables itself at the top of
               // the list, so move focus before it leaves the tab order.
@@ -452,7 +478,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
           <IconButton
             ref={downRef}
             label={`Move ${name} later`}
-            disabled={index === total - 1}
+            disabled={!canMoveLine(lines, index, 1)}
             onClick={() => {
               if (index + 1 === total - 1) upRef.current?.focus();
               onChange(moveLine(lines, index, 1), `${name} moved later.`);
@@ -486,6 +512,11 @@ const ProgrammeLine = memo(function ProgrammeLine({
         </div>
       </div>
 
+      {problem !== null && (
+        <p id={problemId} className="mt-2 text-xs font-medium text-danger-ink">
+          {problem}
+        </p>
+      )}
       {!resolved && (
         <p className="mt-2 text-xs text-ink-muted">
           Not an event this app tracks, so it appears on the programme but

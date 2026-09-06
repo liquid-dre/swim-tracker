@@ -211,6 +211,13 @@ export function moveLine(
   const out = [...lines];
   const a = out[index];
   const b = out[to];
+  // Only one of the pair numbered is a programme that has not decided what its
+  // order is. Moving within it would change the array while `compareMeetEvents`
+  // kept hoisting the numbered line above the unnumbered one, so the move would
+  // once again not stick. Refuse it, and let `numberAll` be the way through.
+  if ((a.eventNumber === undefined) !== (b.eventNumber === undefined)) {
+    return [...lines];
+  }
   if (a.eventNumber !== undefined && b.eventNumber !== undefined) {
     out[index] = { ...a, eventNumber: b.eventNumber };
     out[to] = { ...b, eventNumber: a.eventNumber };
@@ -256,6 +263,23 @@ export function splitLine(
         : l,
     );
   return [...lines.slice(0, index), boys, girls, ...after];
+}
+
+/**
+ * Can this line be moved? Only within a run that agrees about numbering: a
+ * numbered line and an unnumbered one cannot swap, because the number decides
+ * the order and one of them has not got one.
+ */
+export function canMoveLine(
+  lines: ReadonlyArray<MeetEvent>,
+  index: number,
+  delta: -1 | 1,
+): boolean {
+  const to = index + delta;
+  const a = lines[index];
+  const b = lines[to];
+  if (a === undefined || b === undefined) return false;
+  return (a.eventNumber === undefined) === (b.eventNumber === undefined);
 }
 
 /** A programme problem, and which line to send the coach to. */

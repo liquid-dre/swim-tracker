@@ -4,6 +4,7 @@ import type { MeetEvent } from "@/lib/meets";
 import {
   addCustomLine,
   addWhitelistLine,
+  canMoveLine,
   eventOptions,
   moveLine,
   nextEventNumber,
@@ -164,6 +165,22 @@ describe("reordering and removing", () => {
       undefined,
       undefined,
     ]);
+  });
+
+  test("refuses a move that could not stick", () => {
+    // A numbered line and an unnumbered one cannot swap: the number decides the
+    // order, one of them has not got one, and `compareMeetEvents` would hoist
+    // the numbered line back above regardless of the array.
+    const mixed = [
+      line({ id: "a", rawLabel: "a", eventNumber: 1 }),
+      line({ id: "b", rawLabel: "b" }),
+    ];
+    expect(canMoveLine(mixed, 0, 1)).toBe(false);
+    expect(moveLine(mixed, 0, 1).map((l) => l.id)).toEqual(["a", "b"]);
+
+    expect(canMoveLine(lines, 0, 1)).toBe(true);
+    expect(canMoveLine(lines, 0, -1)).toBe(false);
+    expect(canMoveLine(lines, 2, 1)).toBe(false);
   });
 
   test("a move off either end does nothing, rather than wrapping around", () => {
