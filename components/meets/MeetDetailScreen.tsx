@@ -1,22 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
-import { CalendarDays, MapPin, Pencil, Trash2, Upload, Waves } from "lucide-react";
+import {
+  CalendarDays,
+  MapPin,
+  Pencil,
+  Trash2,
+  Upload,
+  Waves,
+} from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { formatMeetDates } from "@/lib/meets";
+import { formatMeetDates, isUpcoming } from "@/lib/meets";
+import { type EntryTally } from "@/lib/meetEntries";
 import { notify } from "@/lib/notify";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { cn } from "@/lib/utils";
 import { COURSE_LABEL, GalaTag, MeetProgrammeTable } from "./meetShared";
 import { ImportMeetSheet } from "./ImportMeetSheet";
 import { MeetForm } from "./MeetForm";
+import { MeetEntriesSheet } from "./MeetEntriesSheet";
+import { ViewerMeetEntries } from "./ViewerMeetEntries";
 
 /*
   One meet and its programme (§R19). Shared by the coach route (/meets/[id]) and
@@ -43,13 +53,36 @@ export function MeetDetailScreen({
 
   const meet = useQuery(api.meets.getMeet, { meetId });
   const allMeets = useQuery(api.meets.listMeets, {});
+  // Staff only: a viewer's own events are a different question, answered by
+  // their own block above the programme rather than by the sign-up sheet.
+  const signups = useQuery(
+    api.meetEntries.getMeetSignups,
+    isViewer ? "skip" : { meetId },
+  );
   const deleteMeet = useMutation(api.meets.deleteMeet);
   const profile = useCurrentProfile();
   const canEdit = !isViewer && profile?.role === "SUPER_USER";
+  // Sign-ups across EVERY club, which is what `deleteMeet` refuses on. The
+  // sheet's own counts are this club's; showing those here would let the
+  // super-user read "nobody is entered" and then be refused anyway.
+  const lineCounts = useQuery(
+    api.meetEntries.getLineEntryCounts,
+    canEdit ? { meetId } : "skip",
+  );
+  const entryCount = (lineCounts ?? []).reduce((n, l) => n + l.entered, 0);
 
+  const [openLineId, setOpenLineId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const tallies = useMemo(() => {
+    const out = new Map<string, EntryTally>();
+    for (const line of signups?.lines ?? []) {
+      out.set(line.lineId, { entered: line.entered, timed: line.timed });
+    }
+    return out;
+  }, [signups]);
 
   const rootCrumb = isViewer
     ? { label: "My swimmers", href: "/me/swimmers" }
@@ -69,7 +102,11 @@ export function MeetDetailScreen({
       <div className="flex flex-col gap-5">
         <PageHeader
           title="Meet not found"
-          breadcrumb={[rootCrumb, { label: "Meets", href: base }, { label: "Not found" }]}
+          breadcrumb={[
+            rootCrumb,
+            { label: "Meets", href: base },
+            { label: "Not found" },
+          ]}
         />
         <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center shadow-theme-sm">
           <p className="text-sm text-ink-muted">
@@ -94,7 +131,11 @@ export function MeetDetailScreen({
     <div className="flex flex-col gap-5">
       <PageHeader
         title={meet.name}
-        breadcrumb={[rootCrumb, { label: "Meets", href: base }, { label: meet.name }]}
+        breadcrumb={[
+          rootCrumb,
+          { label: "Meets", href: base },
+          { label: meet.name },
+        ]}
         description={formatMeetDates(meet)}
         actions={
           canEdit ? (
@@ -106,7 +147,11 @@ export function MeetDetailScreen({
                 <Upload className="size-4" aria-hidden />
                 Import programme
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setEditOpen(true)}
+              >
                 <Pencil className="size-4" aria-hidden />
                 Edit
               </Button>
@@ -158,7 +203,26 @@ export function MeetDetailScreen({
         )}
       </dl>
 
-      <MeetProgrammeTable events={meet.events} />
+      {/* Their own events lead, then the full programme. A parent's question
+          is "what is my swimmer in", and a sixty-line list does not answer it. */}
+      {isViewer && (
+        <ViewerMeetEntries meetId={meetId} upcoming={isUpcoming(meet, today)} />
+      )}
+
+      <MeetProgrammeTable
+        events={meet.events}
+        signups={isViewer ? undefined : tallies}
+        upcoming={isUpcoming(meet, today)}
+        onOpenLine={isViewer ? undefined : setOpenLineId}
+      />
+
+      {!isViewer && (
+        <MeetEntriesSheet
+          meetId={meetId}
+          lineId={openLineId}
+          onOpenChange={(open) => !open && setOpenLineId(null)}
+        />
+      )}
 
       {canEdit && (
         <>
@@ -210,12 +274,21 @@ export function MeetDetailScreen({
             title="Remove this meet?"
             description={
               <>
-                <span className="font-medium text-ink">{meet.name}</span> and its{" "}
+                <span className="font-medium text-ink">{meet.name}</span> and
+                its{" "}
                 {meet.events.length === 0
                   ? "empty programme"
                   : `${meet.events.length}-event programme`}{" "}
                 will be removed from the calendar. Times already logged keep the
-                meet name they were saved with — no result is affected.
+                meet name they were saved with, so no result is affected.
+                {entryCount > 0 && (
+                  <span className="mt-2 block text-warning-ink">
+                    {entryCount === 1
+                      ? "1 swimmer is"
+                      : `${entryCount} swimmers are`}{" "}
+                    signed up for this meet. Take them off their events first.
+                  </span>
+                )}
               </>
             }
             confirmLabel="Remove meet"

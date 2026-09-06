@@ -4,7 +4,13 @@ import { Waves } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { GALA_FULL, GALA_SHORT, GALA_TOKEN, type GalaCode } from "@/lib/galas";
-import { MEET_GENDER_LABEL, compareMeetEvents, type MeetEvent } from "@/lib/meets";
+import {
+  MEET_GENDER_LABEL,
+  compareMeetEvents,
+  meetEventLabel,
+  type MeetEvent,
+} from "@/lib/meets";
+import { describeTally, type EntryTally } from "@/lib/meetEntries";
 import { STROKE_LABEL, type Course } from "@/lib/swim";
 
 /*
@@ -53,12 +59,24 @@ export function GalaTag({ code }: { code: GalaCode }) {
 export function MeetProgrammeTable({
   events,
   headingLevel = 2,
+  signups,
+  upcoming = false,
+  onOpenLine,
 }: {
   events: ReadonlyArray<MeetEvent>;
   /** 2 under a page h1; 3 inside a sheet whose own title is already an h2. */
   headingLevel?: 2 | 3;
+  /** This club's sign-ups per line id. Absent = don't show the column at all. */
+  signups?: ReadonlyMap<string, EntryTally>;
+  /** Before the meet, a count is all there is to say; after it, what is missing. */
+  upcoming?: boolean;
+  /** Present = each row opens its sign-up sheet. Absent = a read-only table. */
+  onOpenLine?: (lineId: string) => void;
 }) {
   const Heading = headingLevel === 3 ? "h3" : "h2";
+  // The column exists only where sign-ups do. The viewer mirror and the
+  // calendar's programme sheet pass neither prop and render exactly as before.
+  const entering = onOpenLine !== undefined;
   if (events.length === 0) {
     return (
       <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-theme-sm">
@@ -110,6 +128,14 @@ export function MeetProgrammeTable({
                 <th scope="col" className="w-24 px-3 py-2.5 font-medium">
                   Stroke
                 </th>
+                {entering && (
+                  <th
+                    scope="col"
+                    className="w-40 px-3 py-2.5 text-right font-medium"
+                  >
+                    Swimmers
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -117,15 +143,22 @@ export function MeetProgrammeTable({
                 const resolved =
                   event.distance !== undefined && event.stroke !== undefined;
                 return (
-                  <tr key={`${event.eventNumber ?? "x"}-${i}`} className="align-middle">
+                  <tr
+                    key={`${event.eventNumber ?? "x"}-${i}`}
+                    className="align-middle"
+                  >
                     {numbered && (
                       <td className="px-3 py-2 tabular-nums text-ink-muted">
                         {event.eventNumber ?? "—"}
                       </td>
                     )}
-                    <td className="px-3 py-2 font-medium text-ink">{event.rawLabel}</td>
+                    <td className="px-3 py-2 font-medium text-ink">
+                      {event.rawLabel}
+                    </td>
                     <td className="px-3 py-2 text-ink-muted">
-                      {event.gender ? MEET_GENDER_LABEL[event.gender] : "All entrants"}
+                      {event.gender
+                        ? MEET_GENDER_LABEL[event.gender]
+                        : "All entrants"}
                     </td>
                     {resolved ? (
                       <>
@@ -139,6 +172,16 @@ export function MeetProgrammeTable({
                     ) : (
                       <td colSpan={2} className="px-3 py-2 text-ink-muted">
                         Not a tracked event
+                      </td>
+                    )}
+                    {entering && (
+                      <td className="px-3 py-2 text-right">
+                        <SignupCell
+                          event={event}
+                          tally={event.id ? signups?.get(event.id) : undefined}
+                          upcoming={upcoming}
+                          onOpen={onOpenLine}
+                        />
                       </td>
                     )}
                   </tr>
@@ -171,16 +214,80 @@ export function MeetProgrammeTable({
                 {event.rawLabel}
               </span>
               <span className="mt-0.5 block text-xs text-ink-muted">
-                {event.gender ? MEET_GENDER_LABEL[event.gender] : "All entrants"}
+                {event.gender
+                  ? MEET_GENDER_LABEL[event.gender]
+                  : "All entrants"}
                 {" · "}
                 {event.distance !== undefined && event.stroke !== undefined
                   ? `${event.distance} m ${STROKE_LABEL[event.stroke]}`
                   : "Not a tracked event"}
               </span>
             </span>
+            {entering && (
+              <SignupCell
+                event={event}
+                tally={event.id ? signups?.get(event.id) : undefined}
+                upcoming={upcoming}
+                onOpen={onOpenLine}
+              />
+            )}
           </li>
         ))}
       </ul>
     </section>
+  );
+}
+
+/**
+ * The sign-up state of one programme line, and the way into it.
+ *
+ * Reads as a count before the meet and as what is still outstanding after it,
+ * so a coach scanning a past meet can see at a glance which events they still
+ * owe times for without opening each one.
+ *
+ * A relay or a 25 m sprint is not something a swimmer can be entered for here,
+ * and a line saved before programme lines had identities cannot be pointed at
+ * — both say so rather than offering a control that would not work.
+ */
+function SignupCell({
+  event,
+  tally,
+  upcoming,
+  onOpen,
+}: {
+  event: MeetEvent;
+  tally: EntryTally | undefined;
+  upcoming: boolean;
+  onOpen?: (lineId: string) => void;
+}) {
+  const resolved = event.distance !== undefined && event.stroke !== undefined;
+  if (!resolved) {
+    return <span className="text-xs text-ink-faint">No entries</span>;
+  }
+  if (event.id === undefined || onOpen === undefined) {
+    return (
+      <span
+        className="text-xs text-ink-faint"
+        title="This programme predates sign-ups. Save the meet once to enable them."
+      >
+        Not available
+      </span>
+    );
+  }
+
+  const summary = tally ? describeTally(tally, upcoming) : "";
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(event.id!)}
+      className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-primary transition-colors [transition-duration:var(--dur-1)] hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+    >
+      {summary === "" ? (
+        <span className="text-ink-muted">Add swimmers</span>
+      ) : (
+        <span className="tabular-nums">{summary}</span>
+      )}
+      <span className="sr-only">for {meetEventLabel(event)}</span>
+    </button>
   );
 }

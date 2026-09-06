@@ -657,6 +657,91 @@ function fastest<T extends { timeMs: number; swimDate: string }>(
 }
 
 /**
+ * The fastest MEET swim in `rows` — the §4.6 headline rule, in one place.
+ *
+ * Time trials, practice and school galas never count toward a personal best,
+ * however fast they were. This is the single copy of that rule: it used to be
+ * re-implemented wherever a "best time" was needed (personal bests, the log
+ * form's is-this-a-PB check, the roster comparison), and three copies of a rule
+ * is three chances for one of them to drift.
+ *
+ * It says nothing about which EVENT the rows are for — pass it rows already
+ * grouped by (distance, stroke, course), because a course is never borrowed.
+ */
+export function fastestMeetSwim<
+  T extends { timeMs: number; swimDate: string; swimType: SwimType | string },
+>(rows: ReadonlyArray<T>): T | null {
+  return fastest(rows.filter((r) => r.swimType === "MEET"));
+}
+
+/**
+ * The PB a swimmer took INTO a meet: their fastest MEET swim of this exact
+ * event, in this exact course, strictly before `beforeDate`.
+ *
+ * "Strictly before the meet's START date" is deliberate on both halves. Before,
+ * because a mark set at the meet being looked at is what we are measuring
+ * against it, not the baseline. The start date rather than the swim's own day,
+ * so a swimmer racing the event on day 1 and day 3 is measured against the same
+ * mark both times — otherwise day 3's improvement would silently be measured
+ * against day 1 and read as nothing.
+ *
+ * Course is part of the event's identity and is never borrowed (§4.2): a short
+ * course PB is not a baseline for a long course swim.
+ */
+export function pbBefore(
+  rows: ReadonlyArray<ResultForPB>,
+  event: { distance: Distance; stroke: Stroke; course: Course },
+  beforeDate: string,
+): HeadlinePB | null {
+  const best = fastestMeetSwim(
+    rows.filter(
+      (r) =>
+        r.distance === event.distance &&
+        r.stroke === event.stroke &&
+        r.course === event.course &&
+        r.swimDate < beforeDate,
+    ),
+  );
+  return best === null
+    ? null
+    : {
+        timeMs: best.timeMs,
+        swimDate: best.swimDate,
+        meetName: best.meetName ?? null,
+        ageAtSwim: best.ageAtSwim ?? null,
+      };
+}
+
+/** How a swim at a meet read against the PB the swimmer walked in with. */
+export type MeetSwimComparison = {
+  timeMs: number | null;
+  pbBeforeMs: number | null;
+  /**
+   * Signed `pbBeforeMs - timeMs`, so positive means faster — the same
+   * convention as `Improvement.absMs`. Null when either side is missing.
+   */
+  deltaMs: number | null;
+  /** Beat the mark they came in with. */
+  newPb: boolean;
+  /** Never raced this event before, so the swim IS the personal best. */
+  firstTime: boolean;
+};
+
+/** Read one swim against the PB going in. Both halves may legitimately be absent. */
+export function compareToPbBefore(
+  timeMs: number | null,
+  pbBeforeMs: number | null,
+): MeetSwimComparison {
+  return {
+    timeMs,
+    pbBeforeMs,
+    deltaMs: timeMs === null || pbBeforeMs === null ? null : pbBeforeMs - timeMs,
+    newPb: timeMs !== null && pbBeforeMs !== null && timeMs < pbBeforeMs,
+    firstTime: timeMs !== null && pbBeforeMs === null,
+  };
+}
+
+/**
  * The earliest swim in `rows` (min `swimDate`); ties break to the FASTER time so
  * the improvement baseline is conservative (never overstates a gain). Returns
  * null for an empty list.
@@ -709,7 +794,7 @@ export function computePersonalBests(
     const course = rows[0].course as Course;
 
     // Headline: fastest MEET only. Time trials + practice are excluded here.
-    const headlineRow = fastest(rows.filter((r) => r.swimType === "MEET"));
+    const headlineRow = fastestMeetSwim(rows);
     const overallRow = fastest(rows)!; // group is non-empty by construction
 
     const headline: HeadlinePB | null = headlineRow

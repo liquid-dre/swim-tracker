@@ -66,6 +66,12 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   identically styled, with invalid options **disabled** (not hidden) per the event whitelist.
 - **Time input:** a right-to-left digit accumulator (digits fill hundredths → seconds → minutes;
   backspace removes the last digit; no caret/segment focus). Validate via `parseTime` on blur/save.
+- **Meets are one screen.** Add/Edit is a `sm:max-w-2xl` Sheet with **Details | Events** tabs (the
+  programme editor lives in the second); importing a document stays its own button and its own sheet,
+  because parsing a PDF and typing four events are different jobs. Signing swimmers up is a Sheet
+  opened from the programme row, never a route: a coach typing up results works down thirty events
+  and must not navigate thirty times. The viewer mirror puts **their own events above** the
+  programme, since four of its sixty lines concern them.
 - **Chart pages:** the chart is the centred hero above the fold; filters are a slim toolbar (primary
   selectors) plus a compact "Filters" popover (secondary filters, with an active-count badge) — never a
   tall filter block. Shared FilterBar across all chart pages.
@@ -157,8 +163,39 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   date (`11/9/2026`) is read day-first **and flagged** for the importer to confirm. The parser is
   pure and lives in `lib/meetImport.ts` — PDF, CSV and paste all become text first (`lib/pdfText.ts`
   reassembles a PDF's positioned fragments into lines) so there is one set of rules and one test.
+- **A programme LINE has an identity, and sign-ups point at it.** Every `meets.events[]` object
+  carries a stable `id`, minted in `cleanEvents` (the one seam every programme write passes through)
+  and preserved across edits and re-imports by `reconcileLines` — by the line's own id first, then by
+  `eventNumber` + normalised `rawLabel`. Never key an entry on (distance, stroke): a real programme
+  repeats "100 Free" per age band and the parser strips the band. Never key on array position: an
+  import replaces the whole array. The **event number is the running order** (`compareMeetEvents`
+  sorts by it), so reordering swaps numbers as well as positions, splitting shifts the rest of the
+  programme up, and two lines may never claim one number.
+- **A meet's course is a form DEFAULT, never an inference.** The Add-meet form and the import sheet
+  pre-select long course so a human decides before saving; `parseMeetProgramme` still reports no
+  course, and a meet stored without one shows "Not set" and cannot take times at all — a guessed
+  course files a swim in the wrong pool and nothing downstream would ever flag it.
+- **Sign-ups (`meetEntries`) are club-scoped and coach-owned, on a meet that is neither.** One row per
+  (programme line, swimmer): a plan before the meet, the swim after it. Typing a time writes a real
+  `results` doc through `convex/resultsShared.ts` — the same seam `/log` uses, so a poolside time is
+  parsed, dated and judged identically — and links it back; `swimType` is not a parameter, because an
+  entry is on a meet's programme. `clubId` is denormalised from the swimmer (the `attendance`
+  pattern), so a coach never sees another club's entries on the same fixture, while the super-user's
+  programme guards count every club's. The line's GENDER is deliberately not denormalised: changing a
+  line to Girls must FLAG the boys already entered, and a flag derived at read time cannot go stale.
+- **The PB on a meet sheet is the PB going IN**: `pbBefore` in `lib/swim.ts` — fastest MEET swim, in
+  the meet's own course, strictly before its **start date**, so day 1 never becomes day 3's baseline.
+  Two "new PB" facts are returned and must not be collapsed: `newPb` (beat everything, what the toast
+  says) and `newPbForMeet` (beat the mark they came in with, what the row badge shows).
+- **Nothing destroys a swim as a side effect.** `deleteMeet` refuses while any sign-up exists and
+  merely clears `meetId` on linked results (they keep the `meetName` they were logged with);
+  dropping a programme line with sign-ups needs an explicit confirmation and is refused outright when
+  any of them has a time; an entry with a time cannot be removed until that time goes through the
+  tombstoned `deleteResult`, which then frees the entry back to a plan.
 - **The event whitelist has ONE copy:** `EVENT_WHITELIST` in `lib/swim.ts`, shared by the `events`
   seed and the programme parser. Do not transcribe §4.3 a third time.
+- **The headline-PB rule has one copy too:** `fastestMeetSwim` in `lib/swim.ts`. It used to be
+  written out in `computePersonalBests`, `logResult` and `getEventComparison` separately.
 - **Roles:** coaches edit; viewers are read-only and see only their linked swimmer(s), enforced
   server-side in every query and mutation.
 

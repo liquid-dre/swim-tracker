@@ -17,6 +17,7 @@ import { formatMeetDates, isUpcoming } from "@/lib/meets";
 import { trailForHref } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { COURSE_LABEL, GalaTag } from "./meetShared";
+import { describeTally, type EntryTally } from "@/lib/meetEntries";
 import { ImportMeetSheet } from "./ImportMeetSheet";
 import { MeetForm } from "./MeetForm";
 
@@ -57,6 +58,28 @@ export function MeetsScreen({
   const base = isViewer ? "/me/meets" : "/meets";
 
   const meets = useQuery(api.meets.listMeets, {});
+  // Sign-ups per meet: this club's for a coach, this family's for a viewer.
+  // Both are read for the whole season in one seek rather than per row.
+  const clubCounts = useQuery(
+    api.meetEntries.getEntryCounts,
+    isViewer ? "skip" : { from: "2000-01-01", to: "2100-12-31" },
+  );
+  const myCounts = useQuery(
+    api.meetEntries.getMyEntryCounts,
+    isViewer ? {} : "skip",
+  );
+  const tallies = useMemo(() => {
+    const out = new Map<string, EntryTally>();
+    for (const row of clubCounts ?? []) {
+      out.set(String(row.meetId), { entered: row.entered, timed: row.timed });
+    }
+    // A viewer is told how many events their swimmer is down for; "how many
+    // have times" is the coach's outstanding-work question, not theirs.
+    for (const row of myCounts ?? []) {
+      out.set(String(row.meetId), { entered: row.entered, timed: row.entered });
+    }
+    return out;
+  }, [clubCounts, myCounts]);
   const profile = useCurrentProfile();
   const canEdit = !isViewer && profile?.role === "SUPER_USER";
 
@@ -76,7 +99,9 @@ export function MeetsScreen({
     if (value === "upcoming") next.delete("show");
     else next.set("show", value);
     const query = next.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
   }
 
   // The search box stays local: it changes on every keystroke, and a router
@@ -199,7 +224,11 @@ export function MeetsScreen({
       {shown === undefined ? (
         <MeetsSkeleton />
       ) : shown.length === 0 ? (
-        <EmptyState filter={filter} canEdit={canEdit} searching={search.trim() !== ""} />
+        <EmptyState
+          filter={filter}
+          canEdit={canEdit}
+          searching={search.trim() !== ""}
+        />
       ) : (
         <>
           {/* Wide: one dense table. Narrow: stacked rows — a viewer meets this
@@ -210,9 +239,7 @@ export function MeetsScreen({
           <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm lg:block">
             <div className="custom-scrollbar overflow-x-auto">
               <table className="w-full min-w-[36rem] text-sm">
-                <caption className="sr-only">
-                  {captionFor(filter)}
-                </caption>
+                <caption className="sr-only">{captionFor(filter)}</caption>
                 <thead>
                   <tr className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
                     <th scope="col" className="px-4 py-2.5 font-medium">
@@ -224,8 +251,17 @@ export function MeetsScreen({
                     <th scope="col" className="w-40 px-4 py-2.5 font-medium">
                       Course
                     </th>
-                    <th scope="col" className="w-28 px-4 py-2.5 text-right font-medium">
+                    <th
+                      scope="col"
+                      className="w-28 px-4 py-2.5 text-right font-medium"
+                    >
                       Events
+                    </th>
+                    <th
+                      scope="col"
+                      className="w-40 px-4 py-2.5 text-right font-medium"
+                    >
+                      {isViewer ? "Yours" : "Swimmers"}
                     </th>
                   </tr>
                 </thead>
@@ -260,7 +296,16 @@ export function MeetsScreen({
                           {meet.course ? COURSE_LABEL[meet.course] : "Not set"}
                         </td>
                         <td className="px-4 py-2.5 text-right tabular-nums text-ink-muted">
-                          {meet.events.length === 0 ? "None yet" : meet.events.length}
+                          {meet.events.length === 0
+                            ? "None yet"
+                            : meet.events.length}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-ink-muted">
+                          <EntryCount
+                            tally={tallies.get(String(meet._id))}
+                            upcoming={!past}
+                            viewer={isViewer}
+                          />
                         </td>
                       </tr>
                     );
@@ -270,7 +315,10 @@ export function MeetsScreen({
             </div>
           </div>
 
-          <ul aria-label={captionFor(filter)} className="flex flex-col gap-2 lg:hidden">
+          <ul
+            aria-label={captionFor(filter)}
+            className="flex flex-col gap-2 lg:hidden"
+          >
             {shown.map((meet) => {
               const past = !isUpcoming(meet, today);
               return (
@@ -297,8 +345,20 @@ export function MeetsScreen({
                     </span>
                     <span aria-hidden>·</span>
                     <span>
-                      {meet.course ? COURSE_LABEL[meet.course] : "Course not set"}
+                      {meet.course
+                        ? COURSE_LABEL[meet.course]
+                        : "Course not set"}
                     </span>
+                    {tallies.get(String(meet._id)) && (
+                      <>
+                        <span aria-hidden>·</span>
+                        <EntryCount
+                          tally={tallies.get(String(meet._id))}
+                          upcoming={!past}
+                          viewer={isViewer}
+                        />
+                      </>
+                    )}
                   </p>
                   {meet.venue && (
                     <p className="mt-1">
@@ -423,5 +483,43 @@ function MeetsSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * A meet's sign-up state in one phrase.
+ *
+ * A meet still to come has only a number to report. A meet that has been swum
+ * has a more useful fact: how many of its times are still missing — which turns
+ * the Past filter into a worklist rather than an archive.
+ */
+function EntryCount({
+  tally,
+  upcoming,
+  viewer,
+}: {
+  tally: EntryTally | undefined;
+  upcoming: boolean;
+  viewer: boolean;
+}) {
+  if (tally === undefined || tally.entered === 0) {
+    return <span className="text-ink-faint">&mdash;</span>;
+  }
+  const summary = describeTally(tally, upcoming);
+  const outstanding = !upcoming && tally.timed < tally.entered;
+  return (
+    <span
+      className={outstanding && !viewer ? "text-warning-ink" : undefined}
+      title={
+        viewer
+          ? `${tally.entered === 1 ? "1 event" : `${tally.entered} events`} scheduled`
+          : outstanding
+            ? "Some times have not been recorded yet"
+            : undefined
+      }
+    >
+      <span className="tabular-nums">{summary}</span>
+      {viewer && (tally.entered === 1 ? " event" : " events")}
+    </span>
   );
 }
