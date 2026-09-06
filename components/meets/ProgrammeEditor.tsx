@@ -8,6 +8,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
+  type SetStateAction,
 } from "react";
 import { ArrowDown, ArrowUp, Plus, Split, Trash2 } from "lucide-react";
 
@@ -62,6 +64,22 @@ import {
 */
 
 const GENDERS: MeetEventGender[] = ["MIXED", "M", "F"];
+/** Built once: a fresh array each render would defeat the row's memoization. */
+const GENDER_OPTIONS = GENDERS.map((g) => ({
+  value: g,
+  label: MEET_GENDER_LABEL[g],
+}));
+
+/** The line-editing operations, made once so a memoized row stays memoized. */
+type LineHandlers = {
+  update: (i: number, patch: Partial<MeetEvent>) => void;
+  gender: (i: number, g: MeetEventGender) => void;
+  resolve: (i: number, event: { distance: Distance; stroke: Stroke }) => void;
+  clear: (i: number) => void;
+  move: (i: number, delta: -1 | 1, said: string) => void;
+  split: (i: number, said: string) => void;
+  remove: (i: number, said: string) => void;
+};
 
 export function ProgrammeEditor({
   lines,
@@ -75,7 +93,8 @@ export function ProgrammeEditor({
   lines: MeetEvent[];
   /** The meet's course, so impossible events can be shown as impossible. */
   course: Course | null;
-  onChange: (lines: MeetEvent[]) => void;
+  /** A state setter, so an edit can be expressed as a function of the list. */
+  onChange: Dispatch<SetStateAction<MeetEvent[]>>;
   /**
    * Sign-ups per line id. `undefined` means NOT YET KNOWN, which is a different
    * fact from "nobody is entered" and is drawn differently: a coach must never
@@ -90,15 +109,30 @@ export function ProgrammeEditor({
 }) {
   const [announcement, setAnnouncement] = useState("");
 
-  // Stable, so `memo` on the row below is not defeated by a fresh callback on
-  // every keystroke — a sixty-line programme re-rendering per character is the
-  // difference between typing and waiting.
+  // The row below is memoized, which only pays off if its props are stable —
+  // and passing the whole `lines` array plus a closure over it would rebuild
+  // every prop on every keystroke, re-rendering sixty rows to change one. So
+  // each edit is expressed as a FUNCTION of the current list, which needs
+  // nothing from this render and can therefore be made once.
   const apply = useCallback(
-    (next: MeetEvent[], said: string) => {
-      onChange(next);
-      setAnnouncement(said);
+    (edit: (lines: MeetEvent[]) => MeetEvent[], said: string) => {
+      onChange((prev) => edit(prev));
+      if (said !== "") setAnnouncement(said);
     },
     [onChange],
+  );
+
+  const on = useMemo<LineHandlers>(
+    () => ({
+      update: (i, patch) => apply((ls) => updateLine(ls, i, patch), ""),
+      gender: (i, g) => apply((ls) => setLineGender(ls, i, g), ""),
+      resolve: (i, event) => apply((ls) => resolveLine(ls, i, event), ""),
+      clear: (i) => apply((ls) => unresolveLine(ls, i), ""),
+      move: (i, delta, said) => apply((ls) => moveLine(ls, i, delta), said),
+      split: (i, said) => apply((ls) => splitLine(ls, i), said),
+      remove: (i, said) => apply((ls) => removeLine(ls, i), said),
+    }),
+    [apply],
   );
 
   return (
@@ -143,8 +177,9 @@ export function ProgrammeEditor({
               problem={problem?.index === i ? problem.message : null}
               focusMe={focusLine === i}
               onFocused={onFocused}
-              lines={lines}
-              onChange={apply}
+              canMoveUp={canMoveLine(lines, i, -1)}
+              canMoveDown={canMoveLine(lines, i, 1)}
+              on={on}
             />
           ))}
         </ul>
@@ -345,8 +380,9 @@ const ProgrammeLine = memo(function ProgrammeLine({
   problem,
   focusMe,
   onFocused,
-  lines,
-  onChange,
+  canMoveUp,
+  canMoveDown,
+  on,
 }: {
   line: MeetEvent;
   index: number;
@@ -358,8 +394,14 @@ const ProgrammeLine = memo(function ProgrammeLine({
   problem: string | null;
   focusMe: boolean;
   onFocused?: () => void;
-  lines: MeetEvent[];
-  onChange: (lines: MeetEvent[], said: string) => void;
+  /**
+   * A numbered line cannot swap with an unnumbered one: the number decides the
+   * running order and one of the pair has not got one, so the move would be
+   * undone the moment the programme was read back.
+   */
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  on: LineHandlers;
 }) {
   const resolved = line.distance !== undefined && line.stroke !== undefined;
   const rowRef = useRef<HTMLLIElement>(null);
@@ -402,12 +444,9 @@ const ProgrammeLine = memo(function ProgrammeLine({
               // rather than clearing the number the coach already had.
               const raw = e.target.value.trim();
               if (!/^\d{0,4}$/.test(raw)) return;
-              onChange(
-                updateLine(lines, index, {
-                  eventNumber: raw === "" ? undefined : Number(raw),
-                }),
-                "",
-              );
+              on.update(index, {
+                eventNumber: raw === "" ? undefined : Number(raw),
+              });
             }}
             className="h-11 w-full rounded-lg border border-gray-300 bg-white px-2 text-base tabular-nums text-gray-800 outline-none focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
           />
@@ -424,12 +463,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
             aria-label={`As the programme words it, event ${index + 1}`}
             aria-invalid={problem !== null ? true : undefined}
             aria-describedby={problem !== null ? problemId : undefined}
-            onChange={(e) =>
-              onChange(
-                updateLine(lines, index, { rawLabel: e.target.value }),
-                "",
-              )
-            }
+            onChange={(e) => on.update(index, { rawLabel: e.target.value })}
             className="h-11 w-full rounded-lg border border-gray-300 bg-white px-2 text-base text-gray-800 outline-none focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
           />
         </label>
@@ -444,11 +478,8 @@ const ProgrammeLine = memo(function ProgrammeLine({
           <Segmented
             ariaLabel={`Who swims ${name}`}
             value={line.gender ?? "MIXED"}
-            onChange={(g) => onChange(setLineGender(lines, index, g), "")}
-            options={GENDERS.map((g) => ({
-              value: g,
-              label: MEET_GENDER_LABEL[g],
-            }))}
+            onChange={(g) => on.gender(index, g)}
+            options={GENDER_OPTIONS}
           />
         </div>
       </div>
@@ -457,55 +488,60 @@ const ProgrammeLine = memo(function ProgrammeLine({
         <EventPair
           line={line}
           course={course}
-          onResolve={(event) => onChange(resolveLine(lines, index, event), "")}
-          onClear={() => onChange(unresolveLine(lines, index), "")}
+          onResolve={(event) => on.resolve(index, event)}
+          onClear={() => on.clear(index)}
         />
 
         <div className="ml-auto flex items-center gap-1">
           <IconButton
             ref={upRef}
-            label={`Move ${name} earlier`}
-            disabled={!canMoveLine(lines, index, -1)}
+            label={
+              canMoveUp
+                ? `Move ${name} earlier`
+                : `${name} can't move: this programme numbers some events and not others, and the number is the running order.`
+            }
+            disabled={!canMoveUp}
             onClick={() => {
               // The button about to be pressed disables itself at the top of
               // the list, so move focus before it leaves the tab order.
               if (index - 1 === 0) downRef.current?.focus();
-              onChange(moveLine(lines, index, -1), `${name} moved earlier.`);
+              on.move(index, -1, `${name} moved earlier.`);
             }}
           >
             <ArrowUp aria-hidden className="size-4" />
           </IconButton>
           <IconButton
             ref={downRef}
-            label={`Move ${name} later`}
-            disabled={!canMoveLine(lines, index, 1)}
+            label={
+              canMoveDown
+                ? `Move ${name} later`
+                : `${name} can't move: this programme numbers some events and not others, and the number is the running order.`
+            }
+            disabled={!canMoveDown}
             onClick={() => {
               if (index + 1 === total - 1) upRef.current?.focus();
-              onChange(moveLine(lines, index, 1), `${name} moved later.`);
+              on.move(index, 1, `${name} moved later.`);
             }}
           >
             <ArrowDown aria-hidden className="size-4" />
           </IconButton>
           <IconButton
             label={`Split ${name} into Boys and Girls`}
-            onClick={() =>
-              onChange(
-                splitLine(lines, index),
-                `${name} split into two events.`,
-              )
-            }
+            onClick={() => on.split(index, `${name} split into two events.`)}
           >
             <Split aria-hidden className="size-4" />
           </IconButton>
           <IconButton
-            label={`Remove ${name}`}
+            label={
+              entered === undefined
+                ? `Checking whether anyone is signed up for ${name}`
+                : `Remove ${name}`
+            }
             danger
             // Sign-ups are what makes removing this expensive, so the control
             // waits until it knows whether there are any.
             disabled={entered === undefined}
-            onClick={() =>
-              onChange(removeLine(lines, index), `${name} removed.`)
-            }
+            onClick={() => on.remove(index, `${name} removed.`)}
           >
             <Trash2 aria-hidden className="size-4" />
           </IconButton>
