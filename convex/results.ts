@@ -4,6 +4,9 @@ import { mutation } from "./_generated/server";
 import { assertMayWriteResult, requireSignedIn } from "./authz";
 import { recordResultDeletion } from "./audit";
 import { computeAge } from "../lib/swim";
+import { formatMeetDates, meetDates } from "../lib/meets";
+import { pickEntryToFill } from "../lib/meetEntries";
+import { entriesForSwimmerAtMeet, entryForResult } from "./meetEntriesShared";
 import { galaCodeValidator } from "./galas";
 import {
   assertValidEvent,
@@ -67,6 +70,12 @@ export const logResult = mutation({
     swimType,
     swimDate: v.string(),
     timeInput: v.string(),
+    /**
+     * The meet on the calendar, when the coach picked one. `meetName` still
+     * travels with the swim — the id is the join, the name is the record, and
+     * a meet can be deleted while the words must survive.
+     */
+    meetId: v.optional(v.id("meets")),
     meetName: v.optional(v.string()),
     venue: v.optional(v.string()),
     notes: v.optional(v.string()),
@@ -96,6 +105,19 @@ export const logResult = mutation({
     const timeMs = parseTimeBounded(args.timeInput);
     const ageAtSwim = computeAge(swimmer.dob, swimDate);
 
+    // A picked meet has to be one that was actually running that day, or the
+    // swim would appear on a meet nobody attended.
+    let meet: Doc<"meets"> | null = null;
+    if (args.meetId !== undefined) {
+      meet = await ctx.db.get(args.meetId);
+      if (meet === null) throw new ConvexError("That meet no longer exists.");
+      if (!meetDates(meet).includes(swimDate)) {
+        throw new ConvexError(
+          `${meet.name} runs ${formatMeetDates(meet)}, so a swim on ${swimDate} can't belong to it.`,
+        );
+      }
+    }
+
     // What this swim MEANT — PB and newly-met cut — through the one seam both
     // doors into `results` share, so a time typed on the meet sheet is judged
     // exactly as one typed here.
@@ -117,12 +139,33 @@ export const logResult = mutation({
       swimType: args.swimType,
       swimDate,
       ageAtSwim,
-      meetName: cleanOptional(args.meetName),
-      venue: cleanOptional(args.venue),
+      ...(meet === null ? {} : { meetId: meet._id }),
+      meetName: cleanOptional(args.meetName) ?? meet?.name,
+      venue: cleanOptional(args.venue) ?? meet?.venue,
       notes: cleanOptional(args.notes),
       enteredBy: profile._id,
       createdAt: Date.now(),
     });
+
+    // A coach who logs poolside the usual way should not also have to tick the
+    // swimmer off on the meet sheet. If they were signed up for this event and
+    // have no time yet, this swim IS that entry's time. Only when the course
+    // matches the meet's: filling an entry with a swim from the other pool
+    // would compare it against a PB it has nothing to do with.
+    if (meet !== null && meet.course === args.course) {
+      const entry = pickEntryToFill(
+        await entriesForSwimmerAtMeet(ctx, args.swimmerId, meet._id),
+        { distance: args.distance, stroke: args.stroke },
+      );
+      if (entry !== null) {
+        await ctx.db.patch(entry._id, {
+          resultId,
+          swimDate,
+          lastEditedBy: profile._id,
+          updatedAt: Date.now(),
+        });
+      }
+    }
 
     return { resultId, newPb, newlyMetGala };
   },
@@ -173,11 +216,21 @@ export const updateResult = mutation({
 
     const patch: Partial<Doc<"results">> = {};
 
-    if (
+    // A swim recorded on a meet's sign-up sheet takes its event FROM the
+    // programme line. Letting it be edited here would give the same swim two
+    // sources of truth for what race it was, so the line is where that changes.
+    const linkedEntry = await entryForResult(ctx, args.resultId);
+    const changesEvent =
       args.distance !== undefined ||
       args.stroke !== undefined ||
-      args.course !== undefined
-    ) {
+      args.course !== undefined;
+    if (linkedEntry !== null && changesEvent) {
+      throw new ConvexError(
+        "This time is attached to a meet's programme, which decides what event it was. Change it on the meet, or delete the time first.",
+      );
+    }
+
+    if (changesEvent) {
       await assertValidEvent(ctx, nextDistance, nextStroke, nextCourse);
       patch.distance = nextDistance;
       patch.stroke = nextStroke;
@@ -251,6 +304,18 @@ export const deleteResult = mutation({
       actor: profile,
       reason: args.reason,
     });
+    // A meet sign-up pointing at this row survives the deletion as a plan again,
+    // rather than being left pointing at nothing. This is also the only way to
+    // free an entry for removal: `removeEntry` refuses while a time exists, and
+    // deleting the swim is deliberately routed through here so it is tombstoned.
+    const entry = await entryForResult(ctx, args.resultId);
+    if (entry !== null) {
+      await ctx.db.patch(entry._id, {
+        resultId: undefined,
+        lastEditedBy: profile._id,
+        updatedAt: Date.now(),
+      });
+    }
     await ctx.db.delete(args.resultId);
     return null;
   },

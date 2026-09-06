@@ -24,6 +24,8 @@ import type * as emails from "../emails.js";
 import type * as events from "../events.js";
 import type * as galas from "../galas.js";
 import type * as http from "../http.js";
+import type * as meetEntries from "../meetEntries.js";
+import type * as meetEntriesShared from "../meetEntriesShared.js";
 import type * as meets from "../meets.js";
 import type * as migrations_galaStandards from "../migrations/galaStandards.js";
 import type * as migrations_meets from "../migrations/meets.js";
@@ -65,6 +67,8 @@ declare const fullApi: ApiFromModules<{
   events: typeof events;
   galas: typeof galas;
   http: typeof http;
+  meetEntries: typeof meetEntries;
+  meetEntriesShared: typeof meetEntriesShared;
   meets: typeof meets;
   "migrations/galaStandards": typeof migrations_galaStandards;
   "migrations/meets": typeof migrations_meets;
