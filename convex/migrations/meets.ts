@@ -13,26 +13,35 @@ import { MEET_SEED } from "../../lib/meets";
   11th). The file is gone; these rows replace it, and importing a real programme
   corrects them.
 
-  Idempotent by (name, startDate): running it again inserts nothing, so it is
-  safe to re-run after a deploy. It deliberately does NOT update or delete
-  anything — an existing row may have been corrected by hand or by an import,
-  and a seed must never undo that.
+  Idempotent by a stable `seedKey` stamped on each row, NOT by (name, date).
+  Those are exactly the fields an import corrects — keying on them would let a
+  re-run resurrect "1st seeded, 12 Sep" beside the corrected "HAS 1ST SEEDED
+  GALA 2026, 11 Sep", which is the duplicate this whole flow exists to prevent.
+
+  It never updates or deletes: a row may have been corrected by hand or by an
+  import, and a seed must not undo that.
 
   Run once from the Convex dashboard:  migrations/meets:seedMeets
 */
 
 export type SeedMeetsResult = { inserted: number; skipped: number };
 
+/** A seed entry's stable identity, independent of the fields an import corrects. */
+function seedKeyFor(seed: { name: string; startDate: string }): string {
+  return `${seed.startDate}|${seed.name}`;
+}
+
 export async function applySeedMeets(ctx: MutationCtx): Promise<SeedMeetsResult> {
   // The whole table, once: 15 seed rows against a season of tens is far cheaper
   // to diff in memory than 15 indexed lookups.
   const existing = await ctx.db.query("meets").take(500);
-  const seen = new Set(existing.map((m) => `${m.startDate}|${m.name.toLowerCase()}`));
+  const seen = new Set(existing.map((m) => m.seedKey).filter(Boolean));
 
   let inserted = 0;
   let skipped = 0;
   for (const seed of MEET_SEED) {
-    if (seen.has(`${seed.startDate}|${seed.name.toLowerCase()}`)) {
+    const seedKey = seedKeyFor(seed);
+    if (seen.has(seedKey)) {
       skipped++;
       continue;
     }
@@ -40,6 +49,7 @@ export async function applySeedMeets(ctx: MutationCtx): Promise<SeedMeetsResult>
       name: seed.name,
       startDate: seed.startDate,
       events: [],
+      seedKey,
       createdAt: Date.now(),
     });
     inserted++;

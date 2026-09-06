@@ -176,10 +176,18 @@ export default defineSchema({
         stroke: v.optional(stroke),
       }),
     ),
+    // Provenance for a row created by the fixture seed, e.g. "2026-09-12|1st
+    // seeded". The seed's idempotency key MUST be stable under correction: the
+    // whole point of importing a programme is that it fixes a seeded row's name
+    // and date, and keying on those would let a re-run resurrect the stale
+    // fixture beside the corrected one. Absent on hand-added and imported meets.
+    seedKey: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.optional(v.number()),
     updatedBy: v.optional(v.id("profiles")),
-  }).index("by_startDate", ["startDate"]),
+  })
+    .index("by_startDate", ["startDate"])
+    .index("by_seedKey", ["seedKey"]),
 
   // DEPRECATED — superseded by galas.tourDate / galas.tourName.
   // Retained ONLY so `migrations.migrateToGalas` can copy the super-user-entered
