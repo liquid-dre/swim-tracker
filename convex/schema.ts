@@ -145,7 +145,9 @@ export default defineSchema({
   //
   // `events` is the programme, stored inline: it is small (tens of rows), read
   // only ever together with its meet, and never queried across meets — so a
-  // separate table would buy nothing but joins.
+  // separate table would buy nothing but joins. Sign-ups did not change that:
+  // what `meetEntries` needed from a line was IDENTITY, not a row, and a stable
+  // `id` string gives identity without the join.
   meets: defineTable({
     name: v.string(),
     startDate: v.string(), // ISO YYYY-MM-DD
@@ -167,6 +169,21 @@ export default defineSchema({
     // appears without being mistaken for something the app can score.
     events: v.array(
       v.object({
+        // Stable identity for this line — what a `meetEntries` row points at.
+        //
+        // A programme line is not a document, so it needs a name that survives
+        // the two things that happen to programmes: an edit that re-words or
+        // renumbers a line, and a re-import that replaces the whole array.
+        // Neither (distance, stroke) nor array position can serve — a real
+        // programme repeats "100 Free" once per age band, and an import
+        // rewrites every position. Minted in `cleanEvents`, the one seam every
+        // programme write funnels through.
+        //
+        // Optional only for the widening deploy: rows written before this field
+        // shipped must still validate. Narrowed to required once
+        // `migrations/meets:backfillMeetEventIds` has run everywhere — the same
+        // widen/backfill/narrow shape `standards.galaId` documents below.
+        id: v.optional(v.string()),
         eventNumber: v.optional(v.number()),
         rawLabel: v.string(),
         gender: v.optional(
@@ -188,6 +205,71 @@ export default defineSchema({
   })
     .index("by_startDate", ["startDate"])
     .index("by_seedKey", ["seedKey"]),
+
+  // One swimmer signed up for one programme line.
+  //
+  // BEFORE the meet the row is a plan — "Jane swims event 14". AFTER it, the
+  // coach types the time on that same row, which creates a real `results` doc
+  // (`swimType: "MEET"`) and links it back here. One row therefore carries the
+  // whole life of one swim at one meet, and there is no second "the entry
+  // became a result" state to keep in sync.
+  //
+  // CLUB-SCOPED end to end, mirroring `attendance`: `clubId` is denormalised
+  // from the swimmer at write time, so a coach's read of a meet's sign-ups is
+  // an index seek that cannot see another club's rather than a whole-meet read
+  // filtered afterwards. The MEET stays global reference data — several clubs
+  // enter the same fixture and never see each other's entries.
+  //
+  // `rawLabel` / `eventNumber` / `distance` / `stroke` are DENORMALISED from
+  // the line so a swimmer-scoped read across meets ("what am I down for?") can
+  // say what each entry is FOR without loading every meet document. `lineId`
+  // stays the identity; the denormals are re-synced whenever a line's wording
+  // changes, which is precisely why identity is the id and not the label.
+  //
+  // The line's GENDER is deliberately NOT denormalised. Changing a line to
+  // Girls must FLAG the boys already entered rather than delete them, and a
+  // flag derived at read time from the live line can never go stale.
+  meetEntries: defineTable({
+    meetId: v.id("meets"),
+    lineId: v.string(), // meets.events[].id
+    swimmerId: v.id("swimmers"),
+    clubId: v.id("clubs"),
+    // Denormalised meet start, kept in sync on a date edit — it is what the
+    // meets list reads a whole season of entries by, in one seek.
+    meetStartDate: v.string(),
+    // Which DAY of the meet this swim is on; always one of `meetDates(meet)`.
+    // A single-day meet only ever holds its own date, and the UI shows no day
+    // control at all — but `ageAtSwim` is computed from a real date, and a
+    // birthday during a three-day gala changes a swimmer's qualifying age.
+    swimDate: v.string(),
+    rawLabel: v.string(),
+    eventNumber: v.optional(v.number()),
+    distance: v.optional(distance),
+    stroke: v.optional(stroke),
+    // The swim, once it exists. Cleared by `deleteResult` rather than left
+    // dangling, so an entry always either has a real time or has none.
+    resultId: v.optional(v.id("results")),
+    enteredBy: v.id("profiles"),
+    createdAt: v.number(),
+    lastEditedBy: v.optional(v.id("profiles")),
+    updatedAt: v.optional(v.number()),
+  })
+    // Global, all clubs: the `deleteMeet` refusal and the dropped-line guard
+    // must see EVERY club's entries, or a super-user tidying the calendar
+    // silently destroys another club's sign-ups. Its `meetId` prefix serves the
+    // whole-meet count; the full key serves one line.
+    .index("by_meet_line", ["meetId", "lineId"])
+    // The sign-up sheet's own subscription: this club's entries at this meet.
+    .index("by_club_meet", ["clubId", "meetId"])
+    // The viewer's "Your events" block, and `logResult` asking whether the
+    // swimmer already has an unfilled entry at the meet it just linked to.
+    .index("by_swimmer_meet", ["swimmerId", "meetId"])
+    // A club's whole season in one seek — the Entries column on the meets list,
+    // which needs a count for every meet on screen, not one query per row.
+    .index("by_club_date", ["clubId", "meetStartDate"])
+    // Traverse the link backwards, so a deleted result can never leave an entry
+    // pointing at a row that no longer exists.
+    .index("by_result", ["resultId"]),
 
   // DEPRECATED — superseded by galas.tourDate / galas.tourName.
   // Retained ONLY so `migrations.migrateToGalas` can copy the super-user-entered
@@ -426,6 +508,12 @@ export default defineSchema({
     swimDate: v.string(), // ISO date
     ageAtSwim: v.number(), // computed from dob + swimDate
     meetName: v.optional(v.string()),
+    // The calendar meet this swim was at, when it is one the app knows.
+    //
+    // `meetName` stays the provenance and is NEVER derived from this at read
+    // time: a meet can be deleted, and the words the coach saved must survive
+    // that. So the two coexist — the id is the join, the name is the record.
+    meetId: v.optional(v.id("meets")),
     venue: v.optional(v.string()),
     notes: v.optional(v.string()),
     enteredBy: v.id("profiles"),
@@ -439,7 +527,12 @@ export default defineSchema({
     .index("by_swimmer", ["swimmerId"])
     .index("by_event", ["swimmerId", "distance", "stroke", "course"])
     .index("by_event_global", ["distance", "stroke", "course"])
-    .index("by_date", ["swimDate"]),
+    .index("by_date", ["swimDate"])
+    // Every swim at one meet — the meet page's results, and the link-clearing
+    // `deleteMeet` does. ALWAYS seek this with `.eq("meetId", …)`: the field is
+    // optional, so Convex indexes the rows where it is undefined too, and an
+    // unseeked scan is the whole results table.
+    .index("by_meet", ["meetId"]),
 
   // Dated coaching notes about training focus (§R16). A running LOG / audit
   // trail — past notes PERSIST and stay visible, so a reader lines a training

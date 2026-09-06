@@ -52,6 +52,16 @@ export type MeetEventGender = "M" | "F" | "MIXED";
  * different fact from "the line was blank".
  */
 export type MeetEvent = {
+  /**
+   * Stable identity for this line, assigned on write and preserved across
+   * edits and re-imports. Sign-ups point at a LINE, not at a resolved event:
+   * a real programme repeats "100 Free" once per age band, so (distance,
+   * stroke) cannot tell two of its lines apart. Array position cannot either —
+   * an import replaces the whole array.
+   *
+   * Optional only while the backfill runs; every write assigns one.
+   */
+  id?: string;
   /** HY-TEK programme number (101, 102…). Absent when the source has none. */
   eventNumber?: number;
   rawLabel: string;
@@ -289,6 +299,168 @@ export function compareMeetEvents(a: MeetEvent, b: MeetEvent): number {
   return ak - bk;
 }
 
+// ---------------------------------------------------------------------------
+// 5. Programme editing
+// ---------------------------------------------------------------------------
+//
+// A programme is no longer write-once. It can be built by hand, edited line by
+// line, and re-imported over the top — and sign-ups point at LINES. So the one
+// thing this section must guarantee is that a line keeps its identity through
+// every one of those operations, and that when a line genuinely does disappear,
+// the caller is told rather than discovering it as an orphaned entry.
+
+/** A fresh line id. Random, because position and label are both mutable. */
+export function newLineId(): string {
+  return globalThis.crypto.randomUUID();
+}
+
+/**
+ * A meet name reduced to what two spellings of the same meet share: case and
+ * spacing carry no meaning, so "HAS 1ST SEEDED  GALA 2026" and "HAS 1st Seeded
+ * Gala 2026" are the same fixture. Nothing else is normalised — punctuation and
+ * wording differences are real differences, and guessing past them is how a
+ * swim ends up attached to a meet nobody attended.
+ */
+export function normaliseMeetName(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+/** Labels compare on case and spacing only — "100 FREE" is "100 Free". */
+function labelKey(event: MeetEvent): string {
+  return `${event.eventNumber ?? ""}|${event.rawLabel.trim().replace(/\s+/g, " ").toLowerCase()}`;
+}
+
+/**
+ * Give every incoming line an id, reusing the existing line it corresponds to.
+ *
+ * An import replaces the whole array, so without this a re-import of the same
+ * programme — the ordinary case, correcting a venue or a typo — would mint 60
+ * new ids and strand every sign-up. A line is matched by its own `id` first
+ * (an edit from the programme editor, which round-trips ids), then by event
+ * number + label (an import, which has none). Anything unmatched is new.
+ *
+ * `droppedIds` names the existing lines nothing claimed. The caller decides
+ * what that means: the meet form warns before saving, and the entry layer
+ * refuses to strand sign-ups silently.
+ */
+export function reconcileLines(
+  existing: ReadonlyArray<MeetEvent>,
+  incoming: ReadonlyArray<MeetEvent>,
+  mint: () => string = newLineId,
+): { lines: MeetEvent[]; droppedIds: string[] } {
+  const byId = new Map<string, MeetEvent>();
+  const byLabel = new Map<string, MeetEvent[]>();
+  for (const line of existing) {
+    if (line.id === undefined) continue;
+    byId.set(line.id, line);
+    const key = labelKey(line);
+    const bucket = byLabel.get(key);
+    if (bucket === undefined) byLabel.set(key, [line]);
+    else bucket.push(line);
+  }
+
+  const claimed = new Set<string>();
+  const lines = incoming.map((line) => {
+    if (line.id !== undefined && byId.has(line.id) && !claimed.has(line.id)) {
+      claimed.add(line.id);
+      return { ...line, id: line.id };
+    }
+    // Duplicate labels are real (two heats of the same event), so take the
+    // first unclaimed match rather than collapsing them onto one id.
+    const bucket = byLabel.get(labelKey(line));
+    const match = bucket?.find((m) => m.id !== undefined && !claimed.has(m.id));
+    if (match?.id !== undefined) {
+      claimed.add(match.id);
+      return { ...line, id: match.id };
+    }
+    return { ...line, id: mint() };
+  });
+
+  const droppedIds = [...byId.keys()].filter((id) => !claimed.has(id));
+  return { lines, droppedIds };
+}
+
+/** The programme's own words for a hand-built line: "Boys 100 Free". */
+export function buildRawLabel(spec: {
+  gender?: MeetEventGender;
+  distance?: Distance;
+  stroke?: Stroke;
+}): string | null {
+  if (spec.distance === undefined || spec.stroke === undefined) return null;
+  return `${MEET_GENDER_LABEL[spec.gender ?? "MIXED"]} ${eventLabel(spec.distance, spec.stroke)}`;
+}
+
+/** Re-word a line for a different sex scope, keeping everything else. */
+function relabelForGender(line: MeetEvent, gender: MeetEventGender): string {
+  const built = buildRawLabel({ ...line, gender });
+  if (built !== null) return built;
+  // Unresolved line (a relay, a 25 m sprint): keep the source's words and swap
+  // only the sex prefix, so "4 x 50 Medley Relay" survives the split intact.
+  let rest = line.rawLabel.trim();
+  for (const [pattern] of GENDER_WORDS) {
+    const stripped = rest.replace(pattern, "").trim();
+    if (stripped !== rest) {
+      rest = stripped;
+      break;
+    }
+  }
+  return `${MEET_GENDER_LABEL[gender]} ${rest}`.trim();
+}
+
+/**
+ * Split one mixed line into a boys' line and a girls' line.
+ *
+ * The boys' line KEEPS the original id, so sign-ups already made against the
+ * mixed line survive the split rather than being silently dropped; the girls'
+ * line is new. Any male entrants therefore stay valid and only female entrants
+ * are flagged for the coach to move — which is the smaller correction of the
+ * two, and never a deletion.
+ */
+export function splitLineByGender(
+  line: MeetEvent,
+  mint: () => string = newLineId,
+): [MeetEvent, MeetEvent] {
+  const boys: MeetEvent = {
+    ...line,
+    id: line.id ?? mint(),
+    gender: "M",
+    rawLabel: relabelForGender(line, "M"),
+  };
+  const girls: MeetEvent = {
+    ...line,
+    id: mint(),
+    gender: "F",
+    rawLabel: relabelForGender(line, "F"),
+    ...(line.eventNumber === undefined
+      ? {}
+      : { eventNumber: line.eventNumber + 1 }),
+  };
+  return [boys, girls];
+}
+
+/**
+ * May this swimmer be entered in this line? An unstated or mixed sex scope
+ * takes everyone; a boys' or girls' line takes only its own.
+ */
+export function genderAllowsSwimmer(
+  line: MeetEventGender | undefined,
+  swimmer: "M" | "F",
+): boolean {
+  return line === undefined || line === "MIXED" || line === swimmer;
+}
+
+/** The programme line with this id, or null. */
+export function lineById(
+  events: ReadonlyArray<MeetEvent>,
+  lineId: string,
+): MeetEvent | null {
+  return events.find((e) => e.id === lineId) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// 6. Formatting
+// ---------------------------------------------------------------------------
+
 /** "11 Sep 2026" or "28–30 Nov 2026" — a meet's dates in one phrase. */
 export function formatMeetDates(meet: {
   startDate: string;
@@ -338,7 +510,7 @@ export function cleanCourse(value: string | null | undefined): Course | null {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Seed — the 2026/27 season's fixtures
+// 7. Seed — the 2026/27 season's fixtures
 // ---------------------------------------------------------------------------
 //
 // These 15 dates were previously hardcoded in `lib/galaCalendar.ts`, whose only

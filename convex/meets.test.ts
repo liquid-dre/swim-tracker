@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 
 import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 /*
@@ -32,30 +33,75 @@ async function setup() {
       clubId?: typeof club,
     ) {
       const userId = await ctx.db.insert("users", { name, email });
-      await ctx.db.insert("profiles", {
+      const profileId = await ctx.db.insert("profiles", {
         authId: userId,
         name,
         email,
         role,
         ...(clubId ? { clubId } : {}),
       });
-      return userId;
+      return { userId, profileId };
     }
 
     const superUser = await account("Admin", "admin@x.test", "SUPER_USER");
     const coach = await account("Coach", "coach@x.test", "COACH", club);
     const viewer = await account("Parent", "parent@x.test", "VIEWER");
 
-    return { superUser, coach, viewer };
+    const swimmer = await ctx.db.insert("swimmers", {
+      name: "Jane Doe",
+      dob: "2012-04-01",
+      gender: "F",
+      active: true,
+      clubId: club,
+      createdAt: 0,
+    });
+
+    return {
+      superUser: superUser.userId,
+      coach: coach.userId,
+      coachProfile: coach.profileId,
+      viewer: viewer.userId,
+      club,
+      swimmer,
+    };
   });
 
   const as = (userId: string) => t.withIdentity({ subject: `${userId}|s` });
   return {
     t,
+    ids,
     asSuper: as(ids.superUser),
     asCoach: as(ids.coach),
     asViewer: as(ids.viewer),
   };
+}
+
+/**
+ * Sign a swimmer up for one programme line, straight into the table.
+ *
+ * The entry MUTATIONS have their own suite; what these tests need is only the
+ * row's existence, so that the guards protecting it can be exercised without
+ * depending on how it got there.
+ */
+async function signUp(
+  { t, ids }: Pick<Awaited<ReturnType<typeof setup>>, "t" | "ids">,
+  meetId: Id<"meets">,
+  lineId: string,
+  swimDate = "2026-09-12",
+) {
+  return await t.run(async (ctx) =>
+    ctx.db.insert("meetEntries", {
+      meetId,
+      lineId,
+      swimmerId: ids.swimmer,
+      clubId: ids.club,
+      meetStartDate: swimDate,
+      swimDate,
+      rawLabel: "Mixed 100 Freestyle",
+      enteredBy: ids.coachProfile,
+      createdAt: 0,
+    }),
+  );
 }
 
 /** The HAS programme, as the import sheet would hand it over. */
@@ -180,10 +226,16 @@ describe("programme validation", () => {
       events: [{ rawLabel: "Mixed 4x50 Free Relay", eventNumber: 110 }],
     });
     const meet = await asSuper.query(api.meets.getMeet, { meetId });
-    expect(meet?.events[0]).toEqual({
+    // No distance/stroke: a relay is programme content, never a swimmer's event.
+    expect(meet?.events[0]).toMatchObject({
       rawLabel: "Mixed 4x50 Free Relay",
       eventNumber: 110,
     });
+    expect(meet?.events[0]).not.toHaveProperty("distance");
+    expect(meet?.events[0]).not.toHaveProperty("stroke");
+    // Every stored line carries an identity, minted server-side, so a sign-up
+    // has something to point at that survives an edit or a re-import.
+    expect(typeof meet?.events[0].id).toBe("string");
   });
 
   test("refuses a line claiming an event that does not exist", async () => {
@@ -400,6 +452,302 @@ describe("delete", () => {
     // surface a failure for something that already succeeded.
     await asSuper.mutation(api.meets.deleteMeet, { meetId });
     expect(await asSuper.query(api.meets.listMeets, {})).toEqual([]);
+  });
+
+  test("refuses while swimmers are signed up, and says how many", async () => {
+    const ctx = await setup();
+    const { asSuper } = ctx;
+    const meetId = await seedMeet(asSuper, { events: HAS_EVENTS });
+    const meet = await asSuper.query(api.meets.getMeet, { meetId });
+    await signUp(ctx, meetId, meet!.events[0].id!);
+
+    await expect(
+      asSuper.mutation(api.meets.deleteMeet, { meetId }),
+    ).rejects.toThrow(/1 sign-up/i);
+    // The meet is still there: a refusal is not a partial delete.
+    expect(await asSuper.query(api.meets.getMeet, { meetId })).not.toBeNull();
+  });
+
+  test("keeps a linked swim and its meet name, clearing only the link", async () => {
+    // A meet can be deleted once nobody is entered; a swim that happened still
+    // happened. It keeps the words the coach typed and loses only the join.
+    const ctx = await setup();
+    const { asSuper, t, ids } = ctx;
+    const meetId = await seedMeet(asSuper, { events: HAS_EVENTS });
+    const resultId = await t.run(async (c) =>
+      c.db.insert("results", {
+        swimmerId: ids.swimmer,
+        distance: 100,
+        stroke: "FREE",
+        course: "LCM",
+        timeMs: 70_000,
+        swimType: "MEET",
+        swimDate: "2026-09-12",
+        ageAtSwim: 14,
+        meetName: "1st seeded",
+        meetId,
+        enteredBy: ids.coachProfile,
+        createdAt: 0,
+      }),
+    );
+
+    await asSuper.mutation(api.meets.deleteMeet, { meetId });
+
+    const after = await t.run(async (c) => c.db.get(resultId));
+    expect(after).not.toBeNull();
+    expect(after?.meetId).toBeUndefined();
+    expect(after?.meetName).toBe("1st seeded");
+  });
+});
+
+describe("programme line identity", () => {
+  test("re-importing the same programme keeps every line's id", async () => {
+    // The case the whole mechanism exists for: a corrected document is parsed
+    // again, arrives with no ids, and must not strand the sign-ups behind it.
+    const { asSuper } = await setup();
+    const meetId = await seedMeet(asSuper, { events: HAS_EVENTS });
+    const before = await asSuper.query(api.meets.getMeet, { meetId });
+
+    await asSuper.mutation(api.meets.importMeet, {
+      meetId,
+      name: "HAS 1ST SEEDED GALA 2026",
+      startDate: "2026-09-11",
+      venue: "Les Brown Pool",
+      // Re-parsed from the document: the same lines, re-cased, and — as the
+      // parser always produces — carrying no ids at all.
+      events: HAS_EVENTS.map((line) => ({
+        ...line,
+        rawLabel: line.rawLabel.toUpperCase(),
+      })),
+    });
+
+    const after = await asSuper.query(api.meets.getMeet, { meetId });
+    expect(after!.events.map((e) => e.id)).toEqual(before!.events.map((e) => e.id));
+  });
+
+  test("a genuinely new line gets a new id, and a vanished one is reported", async () => {
+    const ctx = await setup();
+    const { asSuper } = ctx;
+    const meetId = await seedMeet(asSuper, { events: HAS_EVENTS });
+    const before = await asSuper.query(api.meets.getMeet, { meetId });
+    const droppedLineId = before!.events[2].id!;
+    await signUp(ctx, meetId, droppedLineId);
+
+    // The third line is gone; a different event takes its place.
+    const events = [
+      ...HAS_EVENTS.slice(0, 2),
+      {
+        eventNumber: 106,
+        rawLabel: "Mixed 200 Backstroke",
+        gender: "MIXED" as const,
+        distance: 200 as const,
+        stroke: "BACK" as const,
+      },
+    ];
+
+    // Dropping a line somebody is entered for needs an explicit confirmation.
+    await expect(
+      asSuper.mutation(api.meets.updateMeet, {
+        meetId,
+        name: "1st seeded",
+        startDate: "2026-09-12",
+        events,
+      }),
+    ).rejects.toThrow(/signed up for/i);
+
+    await asSuper.mutation(api.meets.updateMeet, {
+      meetId,
+      name: "1st seeded",
+      startDate: "2026-09-12",
+      events,
+      allowDroppingEntries: true,
+    });
+
+    const after = await asSuper.query(api.meets.getMeet, { meetId });
+    expect(after!.events[0].id).toBe(before!.events[0].id);
+    expect(after!.events[2].id).not.toBe(droppedLineId);
+    // The sign-up went with the line it pointed at; nothing is left dangling.
+    const left = await ctx.t.run(async (c) => c.db.query("meetEntries").collect());
+    expect(left).toEqual([]);
+  });
+
+  test("never drops a line whose entry carries a recorded time", async () => {
+    const ctx = await setup();
+    const { asSuper, t, ids } = ctx;
+    const meetId = await seedMeet(asSuper, { events: HAS_EVENTS });
+    const meet = await asSuper.query(api.meets.getMeet, { meetId });
+    const entryId = await signUp(ctx, meetId, meet!.events[0].id!);
+    await t.run(async (c) => {
+      const resultId = await c.db.insert("results", {
+        swimmerId: ids.swimmer,
+        distance: 100,
+        stroke: "FREE",
+        course: "LCM",
+        timeMs: 70_000,
+        swimType: "MEET",
+        swimDate: "2026-09-12",
+        ageAtSwim: 14,
+        enteredBy: ids.coachProfile,
+        createdAt: 0,
+      });
+      await c.db.patch(entryId, { resultId });
+    });
+
+    // Even WITH the confirmation: a swim is deleted on the tombstoned delete
+    // path, never as a side effect of re-reading a programme.
+    await expect(
+      asSuper.mutation(api.meets.updateMeet, {
+        meetId,
+        name: "1st seeded",
+        startDate: "2026-09-12",
+        events: HAS_EVENTS.slice(1),
+        allowDroppingEntries: true,
+      }),
+    ).rejects.toThrow(/recorded time/i);
+  });
+
+  test("moves entries with the meet when its dates change", async () => {
+    const ctx = await setup();
+    const { asSuper, t } = ctx;
+    const meetId = await seedMeet(asSuper, {
+      events: HAS_EVENTS,
+      endDate: "2026-09-14",
+    });
+    const meet = await asSuper.query(api.meets.getMeet, { meetId });
+    // Entered on day 3, which the new dates will not include.
+    const entryId = await signUp(ctx, meetId, meet!.events[0].id!, "2026-09-14");
+
+    await asSuper.mutation(api.meets.updateMeet, {
+      meetId,
+      name: "1st seeded",
+      startDate: "2026-10-01",
+      endDate: "2026-10-02",
+      events: HAS_EVENTS,
+    });
+
+    const entry = await t.run(async (c) => c.db.get(entryId));
+    expect(entry?.meetStartDate).toBe("2026-10-01");
+    // A day the meet no longer runs on would give the swim a wrong `ageAtSwim`,
+    // so it is pulled back to the first day rather than left behind.
+    expect(entry?.swimDate).toBe("2026-10-01");
+  });
+});
+
+describe("backfills", () => {
+  test("gives legacy programme lines an identity, once", async () => {
+    const { t } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("meets", {
+        name: "Legacy",
+        startDate: "2026-03-01",
+        events: [{ rawLabel: "Mixed 100 Free" }, { rawLabel: "Mixed 50 Fly" }],
+        createdAt: 0,
+      });
+    });
+
+    expect(
+      await t.mutation(internal.migrations.meets.backfillMeetEventIds, {}),
+    ).toEqual({ meets: 1, lines: 2 });
+
+    const ids = await t.run(async (ctx) => {
+      const meet = (await ctx.db.query("meets").first())!;
+      return meet.events.map((e) => e.id);
+    });
+    expect(ids.every((id) => typeof id === "string")).toBe(true);
+    expect(new Set(ids).size).toBe(2);
+
+    // Idempotent — and an id already issued is the link, so it is never redealt.
+    expect(
+      await t.mutation(internal.migrations.meets.backfillMeetEventIds, {}),
+    ).toEqual({ meets: 0, lines: 0 });
+  });
+
+  test("links a logged swim to the meet it names, and refuses to guess", async () => {
+    const { t, ids, asSuper } = await setup();
+    const meetId = await seedMeet(asSuper, { name: "Winter Gala" });
+
+    const insertResult = (meetName: string, swimDate: string) =>
+      t.run(async (ctx) =>
+        ctx.db.insert("results", {
+          swimmerId: ids.swimmer,
+          distance: 100,
+          stroke: "FREE",
+          course: "LCM",
+          timeMs: 70_000,
+          swimType: "MEET",
+          swimDate,
+          ageAtSwim: 14,
+          meetName,
+          enteredBy: ids.coachProfile,
+          createdAt: 0,
+        }),
+      );
+
+    // Same meet, differently spelled; and one swum on a day nothing was on.
+    const matching = await insertResult("winter  GALA", "2026-09-12");
+    const elsewhere = await insertResult("Winter Gala", "2026-11-01");
+
+    expect(
+      await t.mutation(internal.migrations.meets.linkResultsToMeets, {}),
+    ).toMatchObject({ linked: 1, ambiguous: 0 });
+
+    const [a, b] = await t.run(async (ctx) => [
+      await ctx.db.get(matching),
+      await ctx.db.get(elsewhere),
+    ]);
+    expect(a?.meetId).toBe(meetId);
+    expect(b?.meetId).toBeUndefined();
+  });
+
+  test("counts a genuine ambiguity rather than picking one", async () => {
+    const { t, ids, asSuper } = await setup();
+    await seedMeet(asSuper, { name: "Club Gala", startDate: "2026-09-12" });
+    await seedMeet(asSuper, { name: "CLUB GALA", startDate: "2026-09-12" });
+    await t.run(async (ctx) =>
+      ctx.db.insert("results", {
+        swimmerId: ids.swimmer,
+        distance: 100,
+        stroke: "FREE",
+        course: "LCM",
+        timeMs: 70_000,
+        swimType: "MEET",
+        swimDate: "2026-09-12",
+        ageAtSwim: 14,
+        meetName: "Club Gala",
+        enteredBy: ids.coachProfile,
+        createdAt: 0,
+      }),
+    );
+
+    expect(
+      await t.mutation(internal.migrations.meets.linkResultsToMeets, {}),
+    ).toMatchObject({ linked: 0, ambiguous: 1 });
+  });
+
+  test("leaves a trial or a practice swim alone", async () => {
+    // Only a MEET swim belongs to a meet. A time trial run on a gala day is
+    // still a time trial, and attaching it would put it on the meet's sheet.
+    const { t, ids, asSuper } = await setup();
+    await seedMeet(asSuper, { name: "Winter Gala" });
+    await t.run(async (ctx) =>
+      ctx.db.insert("results", {
+        swimmerId: ids.swimmer,
+        distance: 100,
+        stroke: "FREE",
+        course: "LCM",
+        timeMs: 70_000,
+        swimType: "TIME_TRIAL",
+        swimDate: "2026-09-12",
+        ageAtSwim: 14,
+        meetName: "Winter Gala",
+        enteredBy: ids.coachProfile,
+        createdAt: 0,
+      }),
+    );
+
+    expect(
+      await t.mutation(internal.migrations.meets.linkResultsToMeets, {}),
+    ).toMatchObject({ linked: 0, scanned: 0 });
   });
 });
 
