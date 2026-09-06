@@ -1,14 +1,16 @@
 import { describe, expect, test } from "vitest";
 
-import type { MeetEvent } from "@/lib/meets";
+import { compareMeetEvents, type MeetEvent } from "@/lib/meets";
 import {
   addCustomLine,
   addWhitelistLine,
   canMoveLine,
+  eventFitsCourse,
   eventOptions,
   moveLine,
   nextEventNumber,
   removeLine,
+  reorderBlockedReason,
   resolveLine,
   setLineGender,
   splitLine,
@@ -142,11 +144,6 @@ describe("reordering and removing", () => {
     line({ id: "c", rawLabel: "c" }),
   ];
 
-  test("swaps neighbours", () => {
-    expect(moveLine(lines, 1, -1).map((l) => l.id)).toEqual(["b", "a", "c"]);
-    expect(moveLine(lines, 1, 1).map((l) => l.id)).toEqual(["a", "c", "b"]);
-  });
-
   test("carries the event numbers with the move", () => {
     // Every read surface sorts by event number, so a move that changed only
     // array positions would appear to work and then not stick.
@@ -159,33 +156,41 @@ describe("reordering and removing", () => {
     expect(moved.map((l) => l.eventNumber)).toEqual([1, 2]);
   });
 
-  test("leaves an unnumbered programme's positions as the only order", () => {
-    expect(moveLine(lines, 1, -1).map((l) => l.eventNumber)).toEqual([
-      undefined,
-      undefined,
-      undefined,
+  test("numbers an unnumbered programme, because that is what an order IS", () => {
+    // `compareMeetEvents` falls back to distance-and-stroke for unnumbered
+    // lines and NEVER to array position, so without numbers this move would be
+    // invisible on the meet page. Asking to reorder is the coach stating an
+    // order, so it is honest to record one — unlike merely adding a line.
+    const moved = moveLine(lines, 2, -1);
+    expect(moved.map((l) => l.id)).toEqual(["a", "c", "b"]);
+    expect(moved.map((l) => l.eventNumber)).toEqual([1, 2, 3]);
+    // And the numbers now agree with the array, so the two orders cannot drift.
+    expect([...moved].sort(compareMeetEvents).map((l) => l.id)).toEqual([
+      "a",
+      "c",
+      "b",
     ]);
   });
 
-  test("refuses a move that could not stick", () => {
-    // A numbered line and an unnumbered one cannot swap: the number decides the
-    // order, one of them has not got one, and `compareMeetEvents` would hoist
-    // the numbered line back above regardless of the array.
+  test("refuses a move on a half-numbered programme", () => {
+    // Half a running order is not one, and guessing which half to extend would
+    // be inventing the meet's schedule.
     const mixed = [
       line({ id: "a", rawLabel: "a", eventNumber: 1 }),
       line({ id: "b", rawLabel: "b" }),
     ];
     expect(canMoveLine(mixed, 0, 1)).toBe(false);
     expect(moveLine(mixed, 0, 1).map((l) => l.id)).toEqual(["a", "b"]);
-
-    expect(canMoveLine(lines, 0, 1)).toBe(true);
-    expect(canMoveLine(lines, 0, -1)).toBe(false);
-    expect(canMoveLine(lines, 2, 1)).toBe(false);
+    expect(reorderBlockedReason(mixed)).toMatch(/numbered and some aren't/);
+    expect(reorderBlockedReason(lines)).toBeNull();
   });
 
   test("a move off either end does nothing, rather than wrapping around", () => {
     expect(moveLine(lines, 0, -1).map((l) => l.id)).toEqual(["a", "b", "c"]);
     expect(moveLine(lines, 2, 1).map((l) => l.id)).toEqual(["a", "b", "c"]);
+    expect(canMoveLine(lines, 0, -1)).toBe(false);
+    expect(canMoveLine(lines, 2, 1)).toBe(false);
+    expect(canMoveLine(lines, 0, 1)).toBe(true);
   });
 
   test("removes exactly one line", () => {
@@ -215,31 +220,40 @@ describe("splitLine", () => {
     ];
     const split = splitLine(lines, 0, minter());
     expect(split.map((l) => l.eventNumber)).toEqual([4, 5, 6, 7]);
-    expect(validateLines(split, null)).toBeNull();
+    expect(validateLines(split)).toEqual([]);
   });
 });
 
 describe("validateLines", () => {
   test("passes a programme the server would accept", () => {
     const lines = addWhitelistLine([], { distance: 100, stroke: "FREE" }, minter());
-    expect(validateLines(lines, "LCM")).toBeNull();
+    expect(validateLines(lines)).toEqual([]);
   });
 
   test("names an empty line by its event number, and says which line it is", () => {
     // "Event 104 has no name" is not actionable in a sixty-line drawer unless
     // something can take you to Event 104.
     expect(
-      validateLines(
-        [line({ rawLabel: "ok" }), line({ rawLabel: "  ", eventNumber: 104 })],
-        null,
-      ),
-    ).toEqual({ message: "Event 104 has no name.", index: 1 });
+      validateLines([
+        line({ rawLabel: "ok" }),
+        line({ rawLabel: "  ", eventNumber: 104 }),
+      ]),
+    ).toEqual([{ message: "Event 104 has no name.", index: 1 }]);
+  });
+
+  test("reports every problem, not just the first", () => {
+    // Eight bad lines should be one pass, not eight rounds of fix-blocked-fix.
+    const problems = validateLines([
+      line({ rawLabel: "" }),
+      line({ rawLabel: "ok" }),
+      line({ rawLabel: "" }),
+    ]);
+    expect(problems.map((p) => p.index)).toEqual([0, 2]);
   });
 
   test("catches half an event", () => {
     expect(
-      validateLines([{ rawLabel: "x", distance: 100 } as MeetEvent], null)
-        ?.message,
+      validateLines([{ rawLabel: "x", distance: 100 } as MeetEvent])[0].message,
     ).toMatch(/half an event/);
   });
 
@@ -247,23 +261,23 @@ describe("validateLines", () => {
     // The number IS the running order, so a duplicate leaves every read surface
     // ordering the pair arbitrarily.
     expect(
-      validateLines(
-        [
-          line({ rawLabel: "a", eventNumber: 4 }),
-          line({ rawLabel: "b", eventNumber: 4 }),
-        ],
-        null,
-      ),
-    ).toEqual({ message: expect.stringMatching(/both numbered 4/), index: 1 });
+      validateLines([
+        line({ rawLabel: "a", eventNumber: 4 }),
+        line({ rawLabel: "b", eventNumber: 4 }),
+      ]),
+    ).toEqual([
+      { message: expect.stringMatching(/both numbered 4/), index: 1 },
+    ]);
   });
 
-  test("catches an event that cannot be swum in this meet's pool", () => {
-    // Not fatal on the server, but the line would be untimeable — better heard
-    // now than at the poolside.
+  test("does not block a save on a rule the server does not enforce", () => {
+    // A course-incompatible line is a per-line warning, not a problem. Blocking
+    // here would make a legacy programme unsaveable for ANY edit — including a
+    // one-character fix to the meet's name — which the server would have
+    // allowed.
     const lines = addWhitelistLine([], { distance: 100, stroke: "IM" }, minter());
-    expect(validateLines(lines, "LCM")?.message).toMatch(
-      /can't be swum in this meet's course/,
-    );
-    expect(validateLines(lines, "SCM")).toBeNull();
+    expect(validateLines(lines)).toEqual([]);
+    expect(eventFitsCourse(100, "IM", "LCM")).toBe(false);
+    expect(eventFitsCourse(100, "IM", "SCM")).toBe(true);
   });
 });

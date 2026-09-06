@@ -38,6 +38,7 @@ import {
   canMoveLine,
   eventFitsCourse,
   eventOptions,
+  reorderBlockedReason,
   moveLine,
   removeLine,
   resolveLine,
@@ -86,7 +87,7 @@ export function ProgrammeEditor({
   course,
   onChange,
   entryCounts,
-  problem = null,
+  problems = [],
   focusLine = null,
   onFocused,
 }: {
@@ -101,8 +102,8 @@ export function ProgrammeEditor({
    * see an empty warning slot and read it as permission to delete.
    */
   entryCounts?: Map<string, number>;
-  /** What is blocking the save, so the offending line can say so itself. */
-  problem?: ProgrammeProblem | null;
+  /** Everything blocking the save, so every offending line can say so itself. */
+  problems?: ReadonlyArray<ProgrammeProblem>;
   /** A line to scroll to and focus, set when the footer says "go to it". */
   focusLine?: number | null;
   onFocused?: () => void;
@@ -121,6 +122,19 @@ export function ProgrammeEditor({
     },
     [onChange],
   );
+
+  // Every problem on a line, so a row that is wrong twice says so twice.
+  const problemsByLine = useMemo(() => {
+    const out = new Map<number, string>();
+    for (const p of problems) {
+      if (p.index === null) continue;
+      const already = out.get(p.index);
+      out.set(p.index, already === undefined ? p.message : `${already} ${p.message}`);
+    }
+    return out;
+  }, [problems]);
+
+  const reorderBlocked = reorderBlockedReason(lines);
 
   const on = useMemo<LineHandlers>(
     () => ({
@@ -162,7 +176,7 @@ export function ProgrammeEditor({
         <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xs">
           {lines.map((line, i) => (
             <ProgrammeLine
-              key={line.id ?? `${i}-${line.rawLabel}`}
+              key={line.id ?? String(i)}
               line={line}
               index={i}
               total={lines.length}
@@ -174,7 +188,8 @@ export function ProgrammeEditor({
                     ? 0
                     : (entryCounts.get(line.id) ?? 0)
               }
-              problem={problem?.index === i ? problem.message : null}
+              problem={problemsByLine.get(i) ?? null}
+              reorderBlocked={reorderBlocked}
               focusMe={focusLine === i}
               onFocused={onFocused}
               canMoveUp={canMoveLine(lines, i, -1)}
@@ -250,10 +265,8 @@ function AddEvent({
       // is disabled ("100 IM is short course only") is the whole point of
       // showing it, and skipping past it puts that reason out of reach of
       // anyone navigating by keyboard or screen reader.
-      setActive((i) => {
-        const next = e.key === "ArrowDown" ? i + 1 : i - 1;
-        return Math.max(0, Math.min(options.length - 1, next));
-      });
+      const next = e.key === "ArrowDown" ? active + 1 : active - 1;
+      setActive(Math.max(0, Math.min(options.length - 1, next)));
       return;
     }
     if (e.key === "Enter") {
@@ -303,7 +316,6 @@ function AddEvent({
             size="sm"
             className="shrink-0"
             disabled={search.trim() === "" || exactMatch !== undefined}
-            aria-describedby={exactMatch ? "programme-add-hint" : undefined}
             onClick={() => {
               onChange(addCustomLine(lines, search));
               onAdded(search.trim());
@@ -325,7 +337,6 @@ function AddEvent({
           >
             {options.length === 0 && (
               <li
-                role="presentation"
                 className="px-2 py-1.5 text-sm text-ink-muted"
               >
                 No event matches that. &ldquo;Add as written&rdquo; puts it on
@@ -362,7 +373,9 @@ function AddEvent({
           </ul>
         )}
       </div>
-      <p id="programme-add-hint" className="text-xs text-ink-muted">
+      {/* A live region, because the sentence changes underneath a button that
+          is disabled and therefore cannot describe itself to a screen reader. */}
+      <p role="status" className="text-xs text-ink-muted">
         {exactMatch
           ? `${exactMatch.label} is a real event, so add it from the list — a line typed by hand can never take a time.`
           : "Every event is Mixed unless you say otherwise. Split one into Boys and Girls with the split button on its row."}
@@ -382,6 +395,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
   onFocused,
   canMoveUp,
   canMoveDown,
+  reorderBlocked,
   on,
 }: {
   line: MeetEvent;
@@ -401,6 +415,8 @@ const ProgrammeLine = memo(function ProgrammeLine({
    */
   canMoveUp: boolean;
   canMoveDown: boolean;
+  /** Why this programme cannot be reordered at all, or null. */
+  reorderBlocked: string | null;
   on: LineHandlers;
 }) {
   const resolved = line.distance !== undefined && line.stroke !== undefined;
@@ -426,10 +442,15 @@ const ProgrammeLine = memo(function ProgrammeLine({
     <li
       ref={rowRef}
       className={
-        // Never colour alone: the tint draws the eye, the sentence below says
-        // what is wrong, and the field itself carries `aria-invalid` — which a
-        // list item cannot, and which is where a screen reader will meet it.
-        "p-3 " + (problem !== null ? "bg-error-50/50" : "")
+        // Never colour alone: the bar and tint draw the eye, the sentence
+        // below says what is wrong, and the field itself carries `aria-invalid`
+        // — which a list item cannot, and which is where a screen reader meets
+        // it. The bar is shape as well as colour, so the row is still marked
+        // where colour is not perceived.
+        "p-3 " +
+        (problem !== null
+          ? "border-l-2 border-error-500 bg-error-50 pl-[calc(0.75rem-2px)]"
+          : "")
       }
     >
       <div className="flex flex-wrap items-end gap-2">
@@ -464,7 +485,15 @@ const ProgrammeLine = memo(function ProgrammeLine({
             aria-invalid={problem !== null ? true : undefined}
             aria-describedby={problem !== null ? problemId : undefined}
             onChange={(e) => on.update(index, { rawLabel: e.target.value })}
-            className="h-11 w-full rounded-lg border border-gray-300 bg-white px-2 text-base text-gray-800 outline-none focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
+            className={
+              // Hand-rolled rather than the shared `Input`, whose root takes no
+              // className and so cannot flex inside this row. The error
+              // treatment matches it exactly.
+              "h-11 w-full rounded-lg border bg-white px-2 text-base text-gray-800 outline-none focus:border-brand-300 focus:shadow-focus-ring lg:h-9 " +
+              (problem !== null
+                ? "border-error-500 bg-error-50"
+                : "border-gray-300 hover:border-gray-400")
+            }
           />
         </label>
 
@@ -495,11 +524,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
         <div className="ml-auto flex items-center gap-1">
           <IconButton
             ref={upRef}
-            label={
-              canMoveUp
-                ? `Move ${name} earlier`
-                : `${name} can't move: this programme numbers some events and not others, and the number is the running order.`
-            }
+            label={`Move ${name} earlier`}
             disabled={!canMoveUp}
             onClick={() => {
               // The button about to be pressed disables itself at the top of
@@ -512,11 +537,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
           </IconButton>
           <IconButton
             ref={downRef}
-            label={
-              canMoveDown
-                ? `Move ${name} later`
-                : `${name} can't move: this programme numbers some events and not others, and the number is the running order.`
-            }
+            label={`Move ${name} later`}
             disabled={!canMoveDown}
             onClick={() => {
               if (index + 1 === total - 1) upRef.current?.focus();
@@ -532,16 +553,19 @@ const ProgrammeLine = memo(function ProgrammeLine({
             <Split aria-hidden className="size-4" />
           </IconButton>
           <IconButton
-            label={
-              entered === undefined
-                ? `Checking whether anyone is signed up for ${name}`
-                : `Remove ${name}`
-            }
+            label={`Remove ${name}`}
             danger
             // Sign-ups are what makes removing this expensive, so the control
             // waits until it knows whether there are any.
             disabled={entered === undefined}
-            onClick={() => on.remove(index, `${name} removed.`)}
+            onClick={() => {
+              // The row is about to unmount, taking the focused button with
+              // it. Hand focus to the row that will take its place before it
+              // goes, rather than letting it fall to the document.
+              const next = index === total - 1 ? upRef : downRef;
+              next.current?.focus();
+              on.remove(index, `${name} removed.`);
+            }}
           >
             <Trash2 aria-hidden className="size-4" />
           </IconButton>
@@ -552,6 +576,12 @@ const ProgrammeLine = memo(function ProgrammeLine({
         <p id={problemId} className="mt-2 text-xs font-medium text-danger-ink">
           {problem}
         </p>
+      )}
+      {/* A disabled button carries neither a tooltip (pointer events are off)
+          nor its label (it is out of the tab order), so the reason has to be
+          text. Shown once, on the first row, not sixty times. */}
+      {reorderBlocked !== null && index === 0 && (
+        <p className="mt-2 text-xs text-warning-ink">{reorderBlocked}</p>
       )}
       {!resolved && (
         <p className="mt-2 text-xs text-ink-muted">

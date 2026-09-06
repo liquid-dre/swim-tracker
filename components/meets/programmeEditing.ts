@@ -190,14 +190,40 @@ export function setLineGender(
   return updateLine(lines, index, { gender });
 }
 
+/** Does every line carry a number? Does none? Anything else is neither. */
+function numbering(lines: ReadonlyArray<MeetEvent>): "all" | "none" | "mixed" {
+  const numbered = lines.filter((l) => l.eventNumber !== undefined).length;
+  if (numbered === 0) return "none";
+  if (numbered === lines.length) return "all";
+  return "mixed";
+}
+
+/**
+ * Number every line 1..n in its current array order.
+ *
+ * `nextEventNumber` deliberately refuses to invent numbers when a line is
+ * merely ADDED — a running order the source document never stated is a claim,
+ * not a convenience. Asking to reorder is different: it is the coach stating
+ * one. So this is reachable only from `moveLine`, and only on a programme that
+ * has no numbers at all.
+ */
+export function numberAll(lines: ReadonlyArray<MeetEvent>): MeetEvent[] {
+  return lines.map((line, i) => ({ ...line, eventNumber: i + 1 }));
+}
+
 /**
  * Move a line up or down; a move off either end is a no-op, not a wrap.
  *
  * The two lines swap EVENT NUMBERS as well as positions, because the number is
- * what actually decides the running order: `compareMeetEvents` sorts by it, so
- * every surface that reads the programme back — the meet page, the sign-up
- * sheet, the viewer's list — would otherwise show the original order and make
- * this control a lie.
+ * what actually decides the running order. `compareMeetEvents` sorts by it, and
+ * falls back to distance-and-stroke for lines that have none — never to array
+ * position. So an array-only move is invisible everywhere the programme is read
+ * back: the meet page, the sign-up sheet, the viewer's list.
+ *
+ * A programme with no numbers therefore gets them here, from its current order,
+ * because that is the only way an order can be expressed at all. A programme
+ * with SOME numbers is refused: half a running order is not one, and guessing
+ * which half to extend would be inventing the meet's schedule.
  */
 export function moveLine(
   lines: ReadonlyArray<MeetEvent>,
@@ -208,20 +234,14 @@ export function moveLine(
   if (index < 0 || index >= lines.length || to < 0 || to >= lines.length) {
     return [...lines];
   }
-  const out = [...lines];
+  const shape = numbering(lines);
+  if (shape === "mixed") return [...lines];
+
+  const out = shape === "none" ? numberAll(lines) : [...lines];
   const a = out[index];
   const b = out[to];
-  // Only one of the pair numbered is a programme that has not decided what its
-  // order is. Moving within it would change the array while `compareMeetEvents`
-  // kept hoisting the numbered line above the unnumbered one, so the move would
-  // once again not stick. Refuse it, and let `numberAll` be the way through.
-  if ((a.eventNumber === undefined) !== (b.eventNumber === undefined)) {
-    return [...lines];
-  }
-  if (a.eventNumber !== undefined && b.eventNumber !== undefined) {
-    out[index] = { ...a, eventNumber: b.eventNumber };
-    out[to] = { ...b, eventNumber: a.eventNumber };
-  }
+  out[index] = { ...a, eventNumber: b.eventNumber };
+  out[to] = { ...b, eventNumber: a.eventNumber };
   [out[index], out[to]] = [out[to], out[index]];
   return out;
 }
@@ -266,9 +286,9 @@ export function splitLine(
 }
 
 /**
- * Can this line be moved? Only within a run that agrees about numbering: a
- * numbered line and an unnumbered one cannot swap, because the number decides
- * the order and one of them has not got one.
+ * Can this line be moved? Not on a programme that numbers only some of its
+ * events: the number is the running order, half an order is not one, and a
+ * move that could not be expressed would appear to work and then not stick.
  */
 export function canMoveLine(
   lines: ReadonlyArray<MeetEvent>,
@@ -276,10 +296,17 @@ export function canMoveLine(
   delta: -1 | 1,
 ): boolean {
   const to = index + delta;
-  const a = lines[index];
-  const b = lines[to];
-  if (a === undefined || b === undefined) return false;
-  return (a.eventNumber === undefined) === (b.eventNumber === undefined);
+  if (lines[index] === undefined || lines[to] === undefined) return false;
+  return numbering(lines) !== "mixed";
+}
+
+/** Why reordering is unavailable on this programme, or null. */
+export function reorderBlockedReason(
+  lines: ReadonlyArray<MeetEvent>,
+): string | null {
+  return numbering(lines) === "mixed"
+    ? "Some events here are numbered and some aren't. The number is the running order, so give every event one (or none) before reordering."
+    : null;
 }
 
 /** A programme problem, and which line to send the coach to. */
@@ -304,72 +331,63 @@ export function eventFitsCourse(
 }
 
 /**
- * The first reason this programme could not be saved, or null.
+ * Every reason this programme could not be saved, in line order.
  *
- * Mirrors `cleanEvents` in convex/meets.ts so the form can block before the
- * server has to refuse — the server stays the control either way. It returns
- * WHICH line as well as what is wrong, because "Event 12 has no name" is not
- * actionable in a sixty-line drawer unless something can take you to Event 12.
+ * Mirrors `cleanEvents` in convex/meets.ts — and only `cleanEvents`. A rule the
+ * server does not enforce must not block the save here either: a stored
+ * programme that predates the rule would then be unsaveable for ANY edit,
+ * including a one-character fix to the meet's name. The course mismatch is
+ * exactly that case, so it is a per-line warning (`EventPair` renders it) and
+ * not a problem.
+ *
+ * All of them, not the first, so eight bad lines is one pass rather than eight
+ * rounds of fix-blocked-fix.
  */
 export function validateLines(
   lines: ReadonlyArray<MeetEvent>,
-  course: Course | null,
-): ProgrammeProblem | null {
+): ProgrammeProblem[] {
   if (lines.length > 200) {
-    return {
-      message: `That is ${lines.length} events, more than the 200 a meet can hold.`,
-      index: null,
-    };
+    return [
+      {
+        message: `That is ${lines.length} events, more than the 200 a meet can hold.`,
+        index: null,
+      },
+    ];
   }
 
-  const seenNumbers = new Map<number, number>();
+  const out: ProgrammeProblem[] = [];
+  const seenNumbers = new Set<number>();
   for (const [i, line] of lines.entries()) {
     const where =
       line.eventNumber === undefined
         ? `Event ${i + 1}`
         : `Event ${line.eventNumber}`;
-    const problem = (message: string): ProgrammeProblem => ({
-      message,
-      index: i,
-    });
+    const say = (message: string) => out.push({ message, index: i });
 
-    if (line.rawLabel.trim() === "") return problem(`${where} has no name.`);
-    if (line.rawLabel.length > 120)
-      return problem(`${where}'s name is too long.`);
+    if (line.rawLabel.trim() === "") {
+      say(`${where} has no name.`);
+    } else if (line.rawLabel.length > 120) {
+      say(`${where}'s name is too long.`);
+    }
 
     // An event number IS the running order, so two lines cannot share one:
     // every read surface sorts by it and would order the pair arbitrarily.
     if (line.eventNumber !== undefined) {
-      const first = seenNumbers.get(line.eventNumber);
-      if (first !== undefined) {
-        return problem(
+      if (seenNumbers.has(line.eventNumber)) {
+        say(
           `Two events are both numbered ${line.eventNumber}. Give one of them a different number.`,
         );
       }
-      seenNumbers.set(line.eventNumber, i);
+      seenNumbers.add(line.eventNumber);
     }
 
     const hasDistance = line.distance !== undefined;
     const hasStroke = line.stroke !== undefined;
     if (hasDistance !== hasStroke) {
-      return problem(
-        `${where} has only half an event: a distance needs a stroke.`,
-      );
-    }
-    if (hasDistance && !isWhitelistedEvent(line.distance!, line.stroke!)) {
-      return problem(`${where} ("${line.rawLabel}") is not a real event.`);
-    }
-    // Not fatal on the server, but it would make the line untimeable, and the
-    // coach should hear it now rather than at the poolside.
-    if (
-      hasDistance &&
-      course !== null &&
-      !eventFitsCourse(line.distance!, line.stroke!, course)
-    ) {
-      return problem(
-        `${where} (${eventLabel(line.distance!, line.stroke!)}) can't be swum in this meet's course.`,
-      );
+      say(`${where} has only half an event: a distance needs a stroke.`);
+    } else if (hasDistance && !isWhitelistedEvent(line.distance!, line.stroke!)) {
+      say(`${where} ("${line.rawLabel}") is not a real event.`);
     }
   }
-  return null;
+  return out;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
@@ -96,6 +96,10 @@ export function MeetForm({
   // The line the blocked reason is about, so the footer can take the coach to
   // it instead of naming an event number they then have to hunt for.
   const [focusLine, setFocusLine] = useState<number | null>(null);
+  // Stable: a fresh closure here would change a prop on every programme row on
+  // every keystroke, which is precisely what the row's memoization exists to
+  // avoid.
+  const clearFocusLine = useCallback(() => setFocusLine(null), []);
   const [saving, setSaving] = useState(false);
   // Set when the server refuses because the edit would clear sign-ups; holds
   // the refusal's own wording so the confirmation says exactly what it costs.
@@ -131,17 +135,16 @@ export function MeetForm({
     /^\d{4}-\d{2}-\d{2}$/.test(startDate) &&
     (endDate === "" ||
       (/^\d{4}-\d{2}-\d{2}$/.test(endDate) && endDate >= startDate));
-  const programmeProblem = validateLines(
-    events,
-    (course || null) as Course | null,
-  );
-  const valid = name.trim() !== "" && datesValid && programmeProblem === null;
+  const programmeProblems = validateLines(events);
+  const firstProblem = programmeProblems[0] ?? null;
+  const valid =
+    name.trim() !== "" && datesValid && programmeProblems.length === 0;
   const blockedReason =
     name.trim() === ""
       ? "Enter a meet name."
       : !datesValid
         ? "Check the dates: an end date cannot be before the start."
-        : (programmeProblem?.message ?? null);
+        : (firstProblem?.message ?? null);
 
   // Building a forty-line programme by hand is an hour's work, and this sheet
   // is keyed on its open state, so closing it throws that away. Anything the
@@ -310,7 +313,9 @@ export function MeetForm({
                 // is carried by the label instead, which is a channel a count
                 // cannot compete for.
                 label:
-                  programmeProblem === null ? "Events" : "Events · needs a fix",
+                  programmeProblems.length === 0
+                    ? "Events"
+                    : `Events · ${programmeProblems.length} to fix`,
                 badge: events.length,
                 content: (
                   <div className="pt-4">
@@ -319,9 +324,9 @@ export function MeetForm({
                       course={(course || null) as Course | null}
                       onChange={setEvents}
                       entryCounts={entryCounts}
-                      problem={programmeProblem}
+                      problems={programmeProblems}
                       focusLine={focusLine}
-                      onFocused={() => setFocusLine(null)}
+                      onFocused={clearFocusLine}
                     />
                   </div>
                 ),
@@ -330,7 +335,9 @@ export function MeetForm({
           />
         </div>
 
-        <SheetFooter className="flex-row items-center justify-end gap-2 border-t border-border">
+        {/* flex-wrap so a long blocked reason takes its own row on a phone
+            rather than being squeezed into a column beside two buttons. */}
+        <SheetFooter className="flex-row flex-wrap items-center justify-end gap-2 border-t border-border">
           {/* A blocked save is an error, not a hint: it is announced, inked as
               one, and where the problem is a specific programme line it is the
               way TO that line. `aria-describedby` on the disabled button below
@@ -341,16 +348,19 @@ export function MeetForm({
             role="status"
             className="mr-auto min-w-0 text-xs text-danger-ink"
           >
-            {blockedReason && programmeProblem?.index != null ? (
+            {blockedReason && firstProblem?.index != null ? (
               <button
                 type="button"
-                className="text-left underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                className="text-left underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 onClick={() => {
                   setTab("events");
-                  setFocusLine(programmeProblem.index);
+                  setFocusLine(firstProblem.index);
                 }}
               >
-                {blockedReason} Go to it.
+                {blockedReason}{" "}
+                {programmeProblems.length > 1
+                  ? `Go to the first of ${programmeProblems.length}.`
+                  : "Go to it."}
               </button>
             ) : (
               blockedReason
