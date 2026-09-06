@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { Check, Timer, Trash2 } from "lucide-react";
@@ -16,7 +16,14 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { errorMessage, notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
-import { computeAge, STROKE_LABEL, GALA_FULL, type Course, type Stroke } from "@/lib/swim";
+import { meetOverlapsRange } from "@/lib/meets";
+import {
+  computeAge,
+  STROKE_LABEL,
+  GALA_FULL,
+  type Course,
+  type Stroke,
+} from "@/lib/swim";
 import { parseDigits, TimeField } from "./TimeField";
 import { EventSelectors, isValidEventTriple } from "./EventSelectors";
 
@@ -64,6 +71,18 @@ export function LogScreen({
   const [meetName, setMeetName] = useState("");
   const [meetEdited, setMeetEdited] = useState(false);
   const scheduledMeet = useQuery(api.meets.meetNameForDate, { date: swimDate });
+  // The calendar, so a swim can be ATTACHED to a meet rather than only named
+  // after one. Only meets that were running on the chosen day are offered:
+  // the server refuses any other, so offering one would be offering a refusal.
+  const meetOptions = useQuery(api.meets.listMeetOptions, {});
+  const [meetId, setMeetId] = useState<string>("");
+  const meetsOnDay = useMemo(
+    () =>
+      (meetOptions ?? []).filter((m) =>
+        meetOverlapsRange(m, swimDate, swimDate),
+      ),
+    [meetOptions, swimDate],
+  );
   const [notes, setNotes] = useState("");
   const [digits, setDigits] = useState("");
 
@@ -75,6 +94,15 @@ export function LogScreen({
   if (!meetEdited && scheduledMeet !== undefined && prefilledFor !== swimDate) {
     setPrefilledFor(swimDate);
     setMeetName(scheduledMeet ?? "");
+    // Latest-starting match wins, the same rule the name pre-fill uses, so the
+    // picker and the name never disagree about which meet the date means.
+    const match = meetsOnDay[meetsOnDay.length - 1];
+    setMeetId(match === undefined ? "" : String(match._id));
+  }
+
+  // A date change can strand a chosen meet on a day it does not run.
+  if (meetId !== "" && !meetsOnDay.some((m) => String(m._id) === meetId)) {
+    setMeetId("");
   }
 
   function handleMeetChange(value: string) {
@@ -140,11 +168,14 @@ export function LogScreen({
     !saving;
 
   const ageAtSwim =
-    selectedSwimmer && dateValid ? computeAge(selectedSwimmer.dob, swimDate) : null;
+    selectedSwimmer && dateValid
+      ? computeAge(selectedSwimmer.dob, swimDate)
+      : null;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSave || distance === null || stroke === null || course === null) return;
+    if (!canSave || distance === null || stroke === null || course === null)
+      return;
 
     setSaving(true);
     setServerError(null);
@@ -157,6 +188,7 @@ export function LogScreen({
         swimType,
         swimDate,
         timeInput: parsedTime.text!, // canonical m:ss:hh from the anchor
+        ...(meetId === "" ? {} : { meetId: meetId as Id<"meets"> }),
         meetName: meetName.trim() === "" ? undefined : meetName.trim(),
         notes: notes.trim() === "" ? undefined : notes.trim(),
       });
@@ -228,7 +260,10 @@ export function LogScreen({
       {noSwimmers ? (
         <EmptyRoster />
       ) : (
-        <form onSubmit={onSubmit} className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <form
+          onSubmit={onSubmit}
+          className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]"
+        >
           <div className="flex flex-col gap-6">
             {/* 1 — swimmer */}
             <Field label="Swimmer" htmlFor="swimmer">
@@ -236,7 +271,9 @@ export function LogScreen({
                 <Select
                   id="swimmer"
                   size="md"
-                  placeholder={loading ? "Loading swimmers…" : "Select a swimmer"}
+                  placeholder={
+                    loading ? "Loading swimmers…" : "Select a swimmer"
+                  }
                   value={swimmerId}
                   onValueChange={(v) => setSwimmerId(v as Id<"swimmers">)}
                   disabled={loading}
@@ -281,7 +318,12 @@ export function LogScreen({
 
             {/* Desktop submit; the sticky bar below covers mobile. */}
             <div className="hidden lg:block">
-              <Button type="submit" size="md" disabled={!canSave} loading={saving}>
+              <Button
+                type="submit"
+                size="md"
+                disabled={!canSave}
+                loading={saving}
+              >
                 {justSaved ? (
                   <>
                     <Check className="size-4" /> Saved
@@ -311,8 +353,8 @@ export function LogScreen({
               />
               {swimType === "SCHOOL_GALA" ? (
                 <p className="mt-1.5 text-xs text-warning-ink">
-                  Unofficial — shows in progression and history only. Never counts
-                  toward a personal best or qualifying.
+                  Unofficial — shows in progression and history only. Never
+                  counts toward a personal best or qualifying.
                 </p>
               ) : (
                 swimType !== "MEET" && (
@@ -330,16 +372,56 @@ export function LogScreen({
               max={today}
               onChange={setSwimDate}
               error={
-                swimDate !== "" && !dateValid ? "Pick a date up to today." : undefined
+                swimDate !== "" && !dateValid
+                  ? "Pick a date up to today."
+                  : undefined
               }
             />
 
+            {meetsOnDay.length > 0 && (
+              <div className="flex min-w-0 flex-col gap-1.5">
+                <label
+                  htmlFor="log-meet"
+                  className="text-sm font-medium text-gray-700"
+                >
+                  Meet
+                </label>
+                <Select
+                  id="log-meet"
+                  value={meetId}
+                  onValueChange={(value) => {
+                    setMeetId(value);
+                    const picked = meetsOnDay.find(
+                      (m) => String(m._id) === value,
+                    );
+                    if (picked) handleMeetChange(picked.name);
+                  }}
+                  size="md"
+                  options={[
+                    { value: "", label: "Not one of these" },
+                    ...meetsOnDay.map((m) => ({
+                      value: String(m._id),
+                      label: m.name,
+                    })),
+                  ]}
+                />
+                <p className="text-xs text-ink-muted">
+                  Attaching the swim to a meet puts it on that meet&rsquo;s
+                  sheet, and fills the swimmer&rsquo;s entry if they had one.
+                </p>
+              </div>
+            )}
+
             <Input
-              label="Meet / venue name"
+              label={meetId === "" ? "Meet / venue name" : "Shown as"}
               value={meetName}
               onChange={(e) => handleMeetChange(e.target.value)}
               placeholder="e.g. Summer Championships"
-              hint="Auto-filled from the date for scheduled galas; edit to override."
+              hint={
+                meetId === ""
+                  ? "Auto-filled from the date for scheduled galas; edit to override."
+                  : "The words saved with this swim. They stay even if the meet is later removed."
+              }
             />
 
             <Input
@@ -352,7 +434,13 @@ export function LogScreen({
 
           {/* Mobile sticky save bar — always in thumb reach. */}
           <div className="sticky bottom-0 -mx-4 border-t border-border bg-bg/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-bg/80 lg:hidden">
-            <Button type="submit" size="md" className="w-full" disabled={!canSave} loading={saving}>
+            <Button
+              type="submit"
+              size="md"
+              className="w-full"
+              disabled={!canSave}
+              loading={saving}
+            >
               {justSaved ? (
                 <>
                   <Check className="size-4" /> Saved
@@ -430,13 +518,17 @@ function RecentList({
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-medium text-ink-muted">Logged this session</h2>
+      <h2 className="text-sm font-medium text-ink-muted">
+        Logged this session
+      </h2>
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
         <ul className="divide-y divide-gray-100">
           {entries.map((r) => (
             <li key={r.id} className="flex items-center gap-3 px-4 py-3">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-base font-medium text-ink">{r.swimmer}</p>
+                <p className="truncate text-base font-medium text-ink">
+                  {r.swimmer}
+                </p>
                 <p className="text-xs text-ink-muted">
                   {r.event} · {r.course}
                   {r.swimType !== "MEET" && (
@@ -492,7 +584,8 @@ function EmptyRoster() {
       <div className="space-y-1">
         <p className="text-sm font-medium text-ink">No active swimmers yet</p>
         <p className="mx-auto max-w-[42ch] text-sm text-ink-muted">
-          Add a swimmer on the Roster screen first, then come back to log their times.
+          Add a swimmer on the Roster screen first, then come back to log their
+          times.
         </p>
       </div>
       <Link href="/swimmers" className={buttonClasses("secondary", "sm")}>

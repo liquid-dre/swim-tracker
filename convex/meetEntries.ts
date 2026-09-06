@@ -6,6 +6,7 @@ import {
   accessibleSwimmerIds,
   assertCoachManagesSwimmer,
   requireCoach,
+  requireSuperUser,
 } from "./authz";
 import { galaCodeValidator } from "./galas";
 import {
@@ -220,6 +221,33 @@ export const getEntryCounts = query({
         timed: tally.timed,
       }),
     );
+  },
+});
+
+/**
+ * Sign-ups per programme line, across EVERY club.
+ *
+ * Deliberately not club-scoped, unlike the sheet. This is what the programme
+ * editor warns from, and the warning has to match the refusal: the super-user
+ * owns the programme, so the number they see before removing a line must be
+ * every club's sign-ups on it, not their own club's — otherwise a line reading
+ * "nobody is entered" could still take another club's entries with it.
+ */
+export const getLineEntryCounts = query({
+  args: { meetId: v.id("meets") },
+  returns: v.array(v.object({ lineId: v.string(), entered: v.number() })),
+  handler: async (ctx, { meetId }) => {
+    await requireSuperUser(ctx);
+    const entries = await ctx.db
+      .query("meetEntries")
+      .withIndex("by_meet_line", (q) => q.eq("meetId", meetId))
+      .take(MAX_ENTRIES_PER_CLUB);
+
+    const counts = new Map<string, number>();
+    for (const entry of entries) {
+      counts.set(entry.lineId, (counts.get(entry.lineId) ?? 0) + 1);
+    }
+    return [...counts].map(([lineId, entered]) => ({ lineId, entered }));
   },
 });
 

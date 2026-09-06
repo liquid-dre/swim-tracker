@@ -93,16 +93,18 @@ export function ImportMeetSheet({
 
   const [text, setText] = useState("");
   /** Set when a PDF was longer than the reader's page cap. */
-  const [truncated, setTruncated] = useState<{ read: number; total: number } | null>(
-    null,
-  );
+  const [truncated, setTruncated] = useState<{
+    read: number;
+    total: number;
+  } | null>(null);
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [done, setDone] = useState<{ created: boolean; eventCount: number } | null>(
-    null,
-  );
+  const [done, setDone] = useState<{
+    created: boolean;
+    eventCount: number;
+  } | null>(null);
 
   // The parse is pure and cheap, so it re-runs from the text rather than being
   // stored — one source of truth for what the file says.
@@ -116,9 +118,18 @@ export function ImportMeetSheet({
   const [nameEdit, setNameEdit] = useState<string | null>(null);
   const [dateEdit, setDateEdit] = useState<string | null>(null);
   const [venueEdit, setVenueEdit] = useState<string | null>(null);
-  const [course, setCourse] = useState("");
+  // `null` = untouched, so the control can mean different things in its two
+  // situations without either being a silent default. Creating a meet, it opens
+  // on long course — a default the person sees and can change is their
+  // decision, and it is what almost every meet here is. REPLACING one, it opens
+  // on "keep": quietly re-pooling a meet somebody already set would be a guess,
+  // and the parser still never states a course either way.
+  const [courseEdit, setCourseEdit] = useState<string | null>(null);
   const [target, setTarget] = useState<string>(""); // "" = create a new meet
   const [targetTouched, setTargetTouched] = useState(false);
+  // The server's own wording when an import would clear sign-ups, held so the
+  // confirmation can say exactly what it costs.
+  const [dropWarning, setDropWarning] = useState<string | null>(null);
 
   const name = nameEdit ?? draft?.name ?? "";
   const startDate = dateEdit ?? draft?.startDate ?? "";
@@ -155,6 +166,10 @@ export function ImportMeetSheet({
   // target's row there is no name and no diff to confirm against.
   const targetUnresolved = isReplace && targetMeet === null;
 
+  // "" means KEEP on a replace and "not known" on a new meet; an untouched
+  // control opens on long course only in the second case. See `courseEdit`.
+  const course = courseEdit ?? (targetMeet === null ? "LCM" : "");
+
   // A chosen target that has left the calendar (deleted in another tab) is
   // dropped rather than displayed as a selection the sheet cannot honour —
   // otherwise the picker would read "A new meet" while the button still said
@@ -181,7 +196,11 @@ export function ImportMeetSheet({
       out.push({ label: "Name", from: targetMeet.name, to: nextName });
     }
     // A conflicting date is reported as a blocker below, not as a change.
-    if (!datesConflict && startDate !== "" && targetMeet.startDate !== startDate) {
+    if (
+      !datesConflict &&
+      startDate !== "" &&
+      targetMeet.startDate !== startDate
+    ) {
       out.push({
         label: "Date",
         from: formatMeetDates(targetMeet),
@@ -209,7 +228,8 @@ export function ImportMeetSheet({
     if (draft && targetMeet.eventCount !== draft.events.length) {
       out.push({
         label: "Events",
-        from: targetMeet.eventCount === 0 ? "None" : String(targetMeet.eventCount),
+        from:
+          targetMeet.eventCount === 0 ? "None" : String(targetMeet.eventCount),
         to: String(draft.events.length),
       });
     }
@@ -224,7 +244,7 @@ export function ImportMeetSheet({
     setNameEdit(null);
     setDateEdit(null);
     setVenueEdit(null);
-    setCourse("");
+    setCourseEdit(null);
     setTarget("");
     setTargetTouched(false);
     if (fileRef.current) fileRef.current.value = "";
@@ -270,7 +290,7 @@ export function ImportMeetSheet({
    * has its own error slot and must stay open on failure — closing a modal on a
    * failed write loses the context the decision was made in.
    */
-  async function runImport(rethrow = false) {
+  async function runImport(rethrow = false, allowDroppingEntries?: boolean) {
     if (!canImport || importing || draft === null) return;
     setImporting(true);
     try {
@@ -280,6 +300,7 @@ export function ImportMeetSheet({
         startDate,
         venue: venue.trim() || undefined,
         course: (course || undefined) as Course | undefined,
+        allowDroppingEntries,
         // No end date and no gala tag: a programme states neither, and the
         // mutation leaves both alone when they are absent, so importing over an
         // existing meet never silently unsets details someone entered by hand.
@@ -291,12 +312,22 @@ export function ImportMeetSheet({
           ? `Meet added with ${res.eventCount} events`
           : `Programme replaced — ${res.eventCount} events`,
       );
+      setDropWarning(null);
       onImported?.(res.meetId);
     } catch (err) {
+      // A programme that no longer lists an event somebody is entered for is a
+      // real correction, so the refusal is re-asked as a confirmation carrying
+      // the server's own count rather than left as a dead end. An event whose
+      // swimmers already have TIMES is refused outright and never gets here.
+      const message = errorMessage(err);
+      if (message.includes("signed up for")) {
+        setDropWarning(message);
+        return;
+      }
       // The confirmation dialog renders the failure inline, where the decision
       // was made — a toast as well would report the same thing twice.
       if (rethrow) throw err;
-      notify.error(errorMessage(err));
+      notify.error(message);
     } finally {
       setImporting(false);
     }
@@ -343,8 +374,8 @@ export function ImportMeetSheet({
               </>
             ) : (
               <>
-                A HY-TEK event list (PDF), a CSV, or pasted text. Nothing is saved
-                until you confirm what was read below.
+                A HY-TEK event list (PDF), a CSV, or pasted text. Nothing is
+                saved until you confirm what was read below.
               </>
             )}
           </SheetDescription>
@@ -390,7 +421,10 @@ export function ImportMeetSheet({
           )}
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="meet-text" className="text-sm font-medium text-gray-700">
+            <label
+              htmlFor="meet-text"
+              className="text-sm font-medium text-gray-700"
+            >
               …or paste the programme
             </label>
             <textarea
@@ -403,13 +437,17 @@ export function ImportMeetSheet({
                 setTruncated(null);
               }}
               spellCheck={false}
-              placeholder={"HAS 1st Seeded Gala 2026 - 11/9/2026\n101  Mixed 100 Freestyle\n103  Mixed 100 Breaststroke"}
+              placeholder={
+                "HAS 1st Seeded Gala 2026 - 11/9/2026\n101  Mixed 100 Freestyle\n103  Mixed 100 Breaststroke"
+              }
               className="h-32 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-ink outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] placeholder:text-ink-faint hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
             />
             <p className="text-xs text-ink-muted">
               One event per line, as the programme prints it. A leading event
               number is optional, and a CSV of{" "}
-              <span className="font-medium text-ink">event number, event name</span>{" "}
+              <span className="font-medium text-ink">
+                event number, event name
+              </span>{" "}
               works the same way.
             </p>
           </div>
@@ -428,7 +466,10 @@ export function ImportMeetSheet({
               <>
                 {truncated && (
                   <p className="flex gap-2 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
-                    <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    <AlertTriangle
+                      aria-hidden
+                      className="mt-0.5 size-4 shrink-0"
+                    />
                     <span>
                       Only the first {truncated.read} of {truncated.total} pages
                       were read. Export just the event list, or paste the rest.
@@ -440,11 +481,14 @@ export function ImportMeetSheet({
                     role="alert"
                     className="flex gap-2 rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2.5 text-sm text-danger-ink"
                   >
-                    <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    <AlertTriangle
+                      aria-hidden
+                      className="mt-0.5 size-4 shrink-0"
+                    />
                     <span>
-                      This programme is dated after {targetMeet.name}&rsquo;s end
-                      date ({formatMeetDates(targetMeet)}). Fix that meet&rsquo;s
-                      dates first, or save this as a new meet.
+                      This programme is dated after {targetMeet.name}&rsquo;s
+                      end date ({formatMeetDates(targetMeet)}). Fix that
+                      meet&rsquo;s dates first, or save this as a new meet.
                     </span>
                   </p>
                 )}
@@ -452,7 +496,10 @@ export function ImportMeetSheet({
                   <ul className="flex flex-col gap-1.5 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
                     {draft.warnings.map((w, i) => (
                       <li key={i} className="flex gap-2">
-                        <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                        <AlertTriangle
+                          aria-hidden
+                          className="mt-0.5 size-4 shrink-0"
+                        />
                         <span>{w}</span>
                       </li>
                     ))}
@@ -493,7 +540,7 @@ export function ImportMeetSheet({
                     <Select
                       id="import-course"
                       value={course}
-                      onValueChange={setCourse}
+                      onValueChange={setCourseEdit}
                       size="md"
                       options={[
                         {
@@ -561,7 +608,9 @@ export function ImportMeetSheet({
                         {!targetTouched && (
                           <p className="text-xs text-ink-muted">
                             Suggested because the dates are close. Choose{" "}
-                            <span className="font-medium text-ink">A new meet</span>{" "}
+                            <span className="font-medium text-ink">
+                              A new meet
+                            </span>{" "}
                             to add a fixture instead.
                           </p>
                         )}
@@ -587,7 +636,10 @@ export function ImportMeetSheet({
                   </p>
                   <ul className="custom-scrollbar max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-white text-sm">
                     {draft.events.map((event, i) => (
-                      <li key={i} className="flex items-baseline gap-2 px-3 py-1.5">
+                      <li
+                        key={i}
+                        className="flex items-baseline gap-2 px-3 py-1.5"
+                      >
                         <span className="w-10 shrink-0 tabular-nums text-ink-faint">
                           {event.eventNumber ?? "—"}
                         </span>
@@ -616,7 +668,8 @@ export function ImportMeetSheet({
                   <details className="rounded-lg border border-border bg-white px-3 py-2 text-xs">
                     <summary className="cursor-pointer text-ink-muted outline-none focus-visible:ring-2 focus-visible:ring-ring">
                       {draft.skipped.length} line
-                      {draft.skipped.length === 1 ? "" : "s"} were not read as events
+                      {draft.skipped.length === 1 ? "" : "s"} were not read as
+                      events
                     </summary>
                     <ul className="mt-2 flex flex-col gap-1">
                       {draft.skipped.map((s, i) => (
@@ -627,7 +680,9 @@ export function ImportMeetSheet({
                           <span className="min-w-0 flex-1 truncate text-ink-muted">
                             {s.text}
                           </span>
-                          <span className="shrink-0 text-ink-faint">{s.reason}</span>
+                          <span className="shrink-0 text-ink-faint">
+                            {s.reason}
+                          </span>
                         </li>
                       ))}
                     </ul>
@@ -645,7 +700,8 @@ export function ImportMeetSheet({
                 />
                 <p className="text-ink">
                   {done.created ? "Meet added" : "Programme replaced"}:{" "}
-                  {done.eventCount} event{done.eventCount === 1 ? "" : "s"} loaded.
+                  {done.eventCount} event{done.eventCount === 1 ? "" : "s"}{" "}
+                  loaded.
                 </p>
               </div>
             )}
@@ -714,6 +770,27 @@ export function ImportMeetSheet({
             onConfirm={() => runImport(true)}
           />
         )}
+
+        <ConfirmDialog
+          open={dropWarning !== null}
+          onOpenChange={(next) => !next && setDropWarning(null)}
+          title="Remove those sign-ups?"
+          description={
+            <>
+              <p>{dropWarning}</p>
+              <p className="mt-2">
+                Their sign-ups go with the events this programme no longer
+                lists. No recorded time is affected &mdash; an event whose
+                swimmers already have times cannot be removed at all.
+              </p>
+            </>
+          }
+          confirmLabel="Remove sign-ups and import"
+          onConfirm={async () => {
+            setDropWarning(null);
+            await runImport(false, true);
+          }}
+        />
       </SheetContent>
     </Sheet>
   );
@@ -746,7 +823,8 @@ function ChangeSummary({
     <div className="flex flex-col gap-2 rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2.5">
       <p className="text-sm text-danger-ink">
         Replaces <span className="font-medium">{targetName}</span>&rsquo;s{" "}
-        {eventCount === 0 ? "empty programme" : `${eventCount}-event programme`}.
+        {eventCount === 0 ? "empty programme" : `${eventCount}-event programme`}
+        .
       </p>
       {changes.length === 0 ? (
         <p className="text-xs text-ink-muted">
@@ -755,13 +833,21 @@ function ChangeSummary({
       ) : (
         <dl className="flex flex-col gap-0.5 text-xs text-ink">
           {changes.map((c) => (
-            <div key={c.label} className="flex flex-wrap items-baseline gap-1.5">
-              <dt className="w-14 shrink-0 font-medium text-ink-muted">{c.label}</dt>
+            <div
+              key={c.label}
+              className="flex flex-wrap items-baseline gap-1.5"
+            >
+              <dt className="w-14 shrink-0 font-medium text-ink-muted">
+                {c.label}
+              </dt>
               <dd className="flex flex-wrap items-baseline gap-1.5">
                 {/* No opacity on the old value: it is struck through, which is
                     the signal, and fading it as well drops it below AA. */}
                 <span className="text-ink-muted line-through">{c.from}</span>
-                <ArrowRight aria-hidden className="size-3 shrink-0 text-ink-faint" />
+                <ArrowRight
+                  aria-hidden
+                  className="size-3 shrink-0 text-ink-faint"
+                />
                 <span className="font-medium text-ink">{c.to}</span>
               </dd>
             </div>
@@ -819,5 +905,7 @@ function parseSummary(
 
 /** Whole days from `a` to `b` (both ISO). Used only for the nearest-meet hint. */
 function daysBetween(a: string, b: string): number {
-  return (Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000;
+  return (
+    (Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000
+  );
 }

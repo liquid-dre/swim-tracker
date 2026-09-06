@@ -330,6 +330,38 @@ export const listMeetsInRange = query({
 });
 
 /**
+ * The calendar as a picker: every meet, without its programme.
+ *
+ * The log form keeps this subscribed while a coach types, and a programme is
+ * the one part of a meet it has no use for — a season of full programmes is
+ * thousands of lines to hold open for a dropdown of twenty names.
+ */
+export const listMeetOptions = query({
+  args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("meets"),
+      name: v.string(),
+      startDate: v.string(),
+      endDate: v.union(v.string(), v.null()),
+      venue: v.union(v.string(), v.null()),
+      course: v.union(courseValidator, v.null()),
+    }),
+  ),
+  handler: async (ctx) => {
+    await requireSignedIn(ctx);
+    return (await loadMeets(ctx)).map((meet) => ({
+      _id: meet._id,
+      name: meet.name,
+      startDate: meet.startDate,
+      endDate: meet.endDate ?? null,
+      venue: meet.venue ?? null,
+      course: meet.course ?? null,
+    }));
+  },
+});
+
+/**
  * The meet name to pre-fill on the log form for a swim date, or null.
  *
  * This replaced the hardcoded `lib/galaCalendar.ts` map, whose only consumer was
