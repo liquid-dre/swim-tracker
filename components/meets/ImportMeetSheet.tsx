@@ -424,9 +424,8 @@ export function ImportMeetSheet({
                 className="mt-0.5 size-4 shrink-0 text-success-600"
               />
               <p className="text-ink">
-                {done.created ? "Meet added" : "Programme replaced"} —{" "}
-                <span className="tabular-nums">{done.eventCount}</span> event
-                {done.eventCount === 1 ? "" : "s"}.
+                {done.created ? "Meet added" : "Programme replaced"}:{" "}
+                {done.eventCount} event{done.eventCount === 1 ? "" : "s"}.
               </p>
             </div>
           )}

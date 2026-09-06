@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { formatMeetDates } from "@/lib/meets";
 import { notify } from "@/lib/notify";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
+import { cn } from "@/lib/utils";
 import { COURSE_LABEL, GalaTag, MeetProgrammeTable } from "./meetShared";
 import { ImportMeetSheet } from "./ImportMeetSheet";
 import { MeetForm } from "./MeetForm";
@@ -126,7 +127,12 @@ export function MeetDetailScreen({
           each be a lonely card. "Not set" is stated rather than left blank: a
           missing course is a fact worth reading, not an empty cell. */}
       <dl className="flex flex-wrap gap-x-8 gap-y-3 rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-theme-sm">
-        <Fact icon={CalendarDays} label="Dates" value={formatMeetDates(meet)} />
+        <Fact
+          icon={CalendarDays}
+          label="Dates"
+          value={formatMeetDates(meet)}
+          numeric
+        />
         <Fact
           icon={MapPin}
           label="Venue"
@@ -210,11 +216,14 @@ function Fact({
   label,
   value,
   muted = false,
+  numeric = false,
 }: {
   icon: typeof CalendarDays;
   label: string;
   value: string;
   muted?: boolean;
+  /** Lining figures, for a value that is a date or a number (app-wide rule). */
+  numeric?: boolean;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
@@ -222,10 +231,11 @@ function Fact({
         {label}
       </dt>
       <dd
-        className={
-          "flex items-center gap-1.5 text-sm " +
-          (muted ? "text-ink-faint" : "text-ink")
-        }
+        className={cn(
+          "flex items-center gap-1.5 text-sm",
+          numeric && "tabular-nums",
+          muted ? "text-ink-faint" : "text-ink",
+        )}
       >
         <Icon aria-hidden className="size-3.5 text-ink-faint" />
         {value}
