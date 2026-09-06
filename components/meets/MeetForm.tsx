@@ -91,6 +91,12 @@ export function MeetForm({
     /^\d{4}-\d{2}-\d{2}$/.test(startDate) &&
     (endDate === "" || (/^\d{4}-\d{2}-\d{2}$/.test(endDate) && endDate >= startDate));
   const valid = name.trim() !== "" && datesValid;
+  const blockedReason =
+    name.trim() === ""
+      ? "Enter a meet name."
+      : !datesValid
+        ? "Check the dates: an end date cannot be before the start."
+        : null;
 
   async function onSave() {
     if (!valid || saving) return;
@@ -217,11 +223,21 @@ export function MeetForm({
           )}
         </div>
 
-        <SheetFooter className="flex-row justify-end gap-2 border-t border-border">
+        <SheetFooter className="flex-row items-center justify-end gap-2 border-t border-border">
+          {blockedReason && (
+            <p id="meet-form-blocked" className="mr-auto text-xs text-ink-muted">
+              {blockedReason}
+            </p>
+          )}
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button loading={saving} disabled={!valid} onClick={onSave}>
+          <Button
+            loading={saving}
+            disabled={!valid}
+            aria-describedby={blockedReason ? "meet-form-blocked" : undefined}
+            onClick={onSave}
+          >
             {editing ? "Save meet" : "Add meet"}
           </Button>
         </SheetFooter>

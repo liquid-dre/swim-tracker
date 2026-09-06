@@ -302,6 +302,26 @@ export function ImportMeetSheet({
     }
   }
 
+  /**
+   * Why the commit button is disabled, in the words of the thing to fix. A dead
+   * control with no stated reason is the reader's problem to solve twice: work
+   * out that it is disabled, then work out why.
+   */
+  const blockedReason: string | null =
+    draft === null
+      ? "Choose a file or paste a programme."
+      : draft.events.length === 0
+        ? "No events were found in this file."
+        : datesConflict
+          ? "Fix the date conflict above, or save this as a new meet."
+          : name.trim() === ""
+            ? "Enter a meet name."
+            : !/^\d{4}-\d{2}-\d{2}$/.test(startDate)
+              ? "Set the meet's date."
+              : targetUnresolved
+                ? "Choose a meet to replace, or save this as a new meet."
+                : null;
+
   // Replacing is irreversible, so it goes through the app's destructive
   // confirmation. Adding a new meet destroys nothing and commits straight away.
   function onSubmit() {
@@ -401,7 +421,7 @@ export function ImportMeetSheet({
               wrapper would have to be `display: contents` to keep the layout,
               and that can drop the live region from the accessibility tree. */}
           <p className="sr-only" role="status">
-            {draft ? parseSummary(draft) : "No programme loaded."}
+            {draft ? parseSummary(draft, truncated) : "No programme loaded."}
           </p>
           <>
             {draft && !done && (
@@ -639,7 +659,12 @@ export function ImportMeetSheet({
           </p>
         )}
 
-        <SheetFooter className="flex-row justify-end gap-2 border-t border-border">
+        <SheetFooter className="flex-row items-center justify-end gap-2 border-t border-border">
+          {blockedReason && !done && (
+            <p id="import-blocked" className="mr-auto text-xs text-ink-muted">
+              {blockedReason}
+            </p>
+          )}
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {done ? "Done" : "Cancel"}
           </Button>
@@ -649,6 +674,7 @@ export function ImportMeetSheet({
               variant={isReplace ? "danger" : "primary"}
               loading={importing}
               disabled={!canImport}
+              aria-describedby={blockedReason ? "import-blocked" : undefined}
               onClick={onSubmit}
             >
               {isReplace ? "Replace programme" : "Add meet"}
@@ -760,16 +786,29 @@ function ChangeRow({ change }: { change: Change }) {
   );
 }
 
-/** One sentence of what the parse found, for the screen-reader status line. */
-function parseSummary(draft: MeetDraft): string {
-  const parts = [
-    `${draft.events.length} event${draft.events.length === 1 ? "" : "s"} read`,
-  ];
-  if (draft.warnings.length > 0) {
+/**
+ * One sentence of what the parse found, for the screen-reader status line.
+ *
+ * The truncation leads, because it is the one fact that makes the rest
+ * misleading: "8 events read" is a true sentence and a false impression when
+ * 14 of the file's pages were never opened.
+ */
+function parseSummary(
+  draft: MeetDraft,
+  truncated: { read: number; total: number } | null,
+): string {
+  const parts: string[] = [];
+  if (truncated) {
     parts.push(
-      `${draft.warnings.length} warning${draft.warnings.length === 1 ? "" : "s"}`,
+      `Only the first ${truncated.read} of ${truncated.total} pages were read`,
     );
   }
+  parts.push(
+    `${draft.events.length} event${draft.events.length === 1 ? "" : "s"} read`,
+  );
+  // The warnings themselves, not a count: "1 warning" tells a listener nothing
+  // about an ambiguous date they are about to accept.
+  for (const warning of draft.warnings) parts.push(warning.replace(/\.$/, ""));
   if (draft.skipped.length > 0) {
     parts.push(
       `${draft.skipped.length} line${draft.skipped.length === 1 ? "" : "s"} not read as events`,

@@ -66,7 +66,17 @@ export function Select({
         )}
       >
         <span className="truncate text-left">
-          <SelectPrimitive.Value placeholder={placeholder} />
+          {/* Callers use "" for "nothing chosen", and Radix renders NOTHING for
+              an unset value unless given a placeholder — so a select whose
+              current choice is the empty option showed a blank box ("All
+              squads", "A new meet", "Not set" all invisible until opened).
+              The empty option's own label is the right placeholder; an explicit
+              `placeholder` still wins. */}
+          <SelectPrimitive.Value
+            placeholder={
+              placeholder ?? options.find((o) => o.value === "")?.label ?? undefined
+            }
+          />
         </span>
         <SelectPrimitive.Icon asChild>
           <ChevronDown
