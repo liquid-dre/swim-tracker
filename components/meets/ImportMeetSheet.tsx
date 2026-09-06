@@ -144,6 +144,15 @@ export function ImportMeetSheet({
   // target's row there is no name and no diff to confirm against.
   const targetUnresolved = isReplace && targetMeet === null;
 
+  // A chosen target that has left the calendar (deleted in another tab) is
+  // dropped rather than displayed as a selection the sheet cannot honour —
+  // otherwise the picker would read "A new meet" while the button still said
+  // "Replace programme". Only the freely-chosen selection is cleared; a locked
+  // target is the caller's, and its row is simply still loading.
+  if (!lockedMeetId && targetTouched && targetUnresolved && meets.length > 0) {
+    setTarget("");
+  }
+
   /** Exactly what changes on the target meet, so nothing is renamed silently. */
   const changes: Change[] = useMemo(() => {
     if (!targetMeet) return [];
@@ -446,7 +455,7 @@ export function ImportMeetSheet({
                     </label>
                     <Select
                       id="import-target"
-                      value={targetMeet ? effectiveTarget : ""}
+                      value={effectiveTarget}
                       onValueChange={(next) => {
                         setTarget(next);
                         setTargetTouched(true);
