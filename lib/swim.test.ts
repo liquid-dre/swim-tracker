@@ -35,6 +35,9 @@ import {
   worldRecordMs,
   authorizeResultWrite,
   type EventDef,
+  compareToPbBefore,
+  fastestMeetSwim,
+  pbBefore,
   type ResultForPB,
   type StandardCut,
   type GalaCode,
@@ -1911,5 +1914,145 @@ describe("authorizeResultWrite", () => {
         existingSwimType: "SCHOOL_GALA",
       }),
     ).toMatch(/school gala/i);
+  });
+});
+
+/*
+  The PB going into a meet (§R19).
+
+  These are the numbers the meet sheet shows next to a swim, so the thing worth
+  pinning is what they must NEVER include: a swim in the other course, a swim at
+  the meet itself, and a swim that came later.
+*/
+describe("fastestMeetSwim", () => {
+  const row = (
+    timeMs: number,
+    swimType: ResultForPB["swimType"],
+    swimDate: string,
+  ) => ({ distance: 100, stroke: "FREE", course: "LCM", timeMs, swimType, swimDate });
+
+  it("ignores every swim that is not a meet, however fast", () => {
+    // A blistering practice swim is still not a personal best (§4.6).
+    expect(
+      fastestMeetSwim([
+        row(60_000, "PRACTICE", "2026-01-01"),
+        row(58_000, "TIME_TRIAL", "2026-02-01"),
+        row(61_000, "SCHOOL_GALA", "2026-03-01"),
+        row(70_000, "MEET", "2026-04-01"),
+      ])?.timeMs,
+    ).toBe(70_000);
+  });
+
+  it("breaks a tie to the earliest date, so a PB reads as first achieved on", () => {
+    expect(
+      fastestMeetSwim([
+        row(70_000, "MEET", "2026-06-01"),
+        row(70_000, "MEET", "2026-01-01"),
+      ])?.swimDate,
+    ).toBe("2026-01-01");
+  });
+
+  it("has nothing to report when the swimmer has never raced", () => {
+    expect(fastestMeetSwim([])).toBeNull();
+    expect(fastestMeetSwim([row(60_000, "PRACTICE", "2026-01-01")])).toBeNull();
+  });
+});
+
+describe("pbBefore", () => {
+  const swim = (
+    timeMs: number,
+    swimDate: string,
+    over: Partial<ResultForPB> = {},
+  ): ResultForPB => ({
+    distance: 100,
+    stroke: "FREE",
+    course: "LCM",
+    swimType: "MEET",
+    timeMs,
+    swimDate,
+    ...over,
+  });
+
+  const MEET_START = "2026-09-12";
+
+  it("is the mark the swimmer walked in with, not one set since", () => {
+    const pb = pbBefore(
+      [
+        swim(70_000, "2026-01-10"),
+        // Faster, but swum AFTER the meet — it cannot be what they came in with.
+        swim(65_000, "2026-12-01"),
+      ],
+      { distance: 100, stroke: "FREE", course: "LCM" },
+      MEET_START,
+    );
+    expect(pb?.timeMs).toBe(70_000);
+  });
+
+  it("never borrows the other course's PB", () => {
+    // 68.00 short course is genuinely faster, and genuinely irrelevant: a long
+    // course swim is only ever compared against long course (§4.2).
+    const pb = pbBefore(
+      [swim(70_000, "2026-01-10"), swim(68_000, "2026-05-01", { course: "SCM" })],
+      { distance: 100, stroke: "FREE", course: "LCM" },
+      MEET_START,
+    );
+    expect(pb?.timeMs).toBe(70_000);
+  });
+
+  it("measures day three against the same mark as day one", () => {
+    // A swimmer racing the event twice at one meet must not have day one's swim
+    // become day three's baseline — the improvement would vanish.
+    const rows = [swim(70_000, "2026-01-10"), swim(69_000, "2026-09-12")];
+    const event = { distance: 100 as const, stroke: "FREE" as const, course: "LCM" as const };
+    expect(pbBefore(rows, event, MEET_START)?.timeMs).toBe(70_000);
+  });
+
+  it("is null when they have never raced it, which is what makes it a first time", () => {
+    expect(
+      pbBefore([swim(70_000, "2026-01-10", { stroke: "BACK" })], { distance: 100, stroke: "FREE", course: "LCM" }, MEET_START),
+    ).toBeNull();
+  });
+
+  it("ignores a trial swum the week before", () => {
+    expect(
+      pbBefore(
+        [swim(65_000, "2026-09-05", { swimType: "TIME_TRIAL" })],
+        { distance: 100, stroke: "FREE", course: "LCM" },
+        MEET_START,
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("compareToPbBefore", () => {
+  it("signs the delta so positive means faster, like Improvement.absMs", () => {
+    expect(compareToPbBefore(69_000, 70_000)).toEqual({
+      timeMs: 69_000,
+      pbBeforeMs: 70_000,
+      deltaMs: 1_000,
+      newPb: true,
+      firstTime: false,
+    });
+    expect(compareToPbBefore(71_500, 70_000).deltaMs).toBe(-1_500);
+    expect(compareToPbBefore(71_500, 70_000).newPb).toBe(false);
+  });
+
+  it("calls a swim with no prior mark a first time, not a PB", () => {
+    // "Cannot be compared" and "did not improve" are different facts, and the
+    // sheet says different things about them.
+    const first = compareToPbBefore(69_000, null);
+    expect(first).toMatchObject({ firstTime: true, newPb: false, deltaMs: null });
+  });
+
+  it("equalling the mark is not beating it", () => {
+    expect(compareToPbBefore(70_000, 70_000).newPb).toBe(false);
+  });
+
+  it("says nothing at all about an entry with no time yet", () => {
+    expect(compareToPbBefore(null, 70_000)).toMatchObject({
+      deltaMs: null,
+      newPb: false,
+      firstTime: false,
+    });
   });
 });

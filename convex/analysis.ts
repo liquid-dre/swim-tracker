@@ -22,6 +22,7 @@ import {
   galaResolutionAges,
   isGalaAgeEligible,
   highestGalaMet,
+  fastestMeetSwim,
   pickApplicableStandardsPerGala,
   resolveGalaCut,
   rollingSeasonStart,
@@ -232,27 +233,29 @@ export const getEventComparison = query({
       )
       .take(EVENT_RESULTS_LIMIT);
 
-    // Headline PB = fastest MEET only. Ties break to the earliest date so the PB
-    // reads as "first achieved on…" — same rule as computePersonalBests.
+    // Headline PB = fastest MEET only (§4.6), through the shared rule rather
+    // than a fourth hand-rolled copy of it. The index already fixed the event
+    // and course, so grouping by swimmer is all that is left to do.
+    const rowsBySwimmer = new Map<Id<"swimmers">, typeof results>();
+    for (const r of results) {
+      const bucket = rowsBySwimmer.get(r.swimmerId);
+      if (bucket === undefined) rowsBySwimmer.set(r.swimmerId, [r]);
+      else bucket.push(r);
+    }
+
     const bestBySwimmer = new Map<
       Id<"swimmers">,
       { timeMs: number; swimDate: string; meetName: string | null; ageAtSwim: number }
     >();
-    for (const r of results) {
-      if (r.swimType !== "MEET") continue;
-      const cur = bestBySwimmer.get(r.swimmerId);
-      if (
-        !cur ||
-        r.timeMs < cur.timeMs ||
-        (r.timeMs === cur.timeMs && r.swimDate < cur.swimDate)
-      ) {
-        bestBySwimmer.set(r.swimmerId, {
-          timeMs: r.timeMs,
-          swimDate: r.swimDate,
-          meetName: r.meetName ?? null,
-          ageAtSwim: r.ageAtSwim,
-        });
-      }
+    for (const [swimmerId, rows] of rowsBySwimmer) {
+      const best = fastestMeetSwim(rows);
+      if (best === null) continue;
+      bestBySwimmer.set(swimmerId, {
+        timeMs: best.timeMs,
+        swimDate: best.swimDate,
+        meetName: best.meetName ?? null,
+        ageAtSwim: best.ageAtSwim,
+      });
     }
 
     const today = new Date().toISOString().slice(0, 10);

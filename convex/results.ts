@@ -6,6 +6,7 @@ import { assertMayWriteResult, requireSignedIn } from "./authz";
 import { recordResultDeletion } from "./audit";
 import {
   computeAge,
+  fastestMeetSwim,
   galaResolutionAges,
   highestGalaMet,
   isValidEvent,
@@ -164,10 +165,7 @@ export const logResult = mutation({
             .eq("course", args.course),
         )
         .take(1000);
-      for (const r of siblings) {
-        if (r.swimType !== "MEET") continue;
-        if (prevBestMs === null || r.timeMs < prevBestMs) prevBestMs = r.timeMs;
-      }
+      prevBestMs = fastestMeetSwim(siblings)?.timeMs ?? null;
     }
     const newPb =
       args.swimType === "MEET" && (prevBestMs === null || timeMs < prevBestMs);
