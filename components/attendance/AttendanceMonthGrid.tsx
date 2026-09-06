@@ -248,12 +248,15 @@ export function AttendanceMonthGrid({
       <div className="grid grid-cols-7">
         {weeks.flat().map((date, i) => {
           if (!date) {
-            return <div key={i} aria-hidden className="min-h-24 border-b border-r border-gray-100 bg-gray-50/40" />;
+            return <div key={`blank-${i}`} aria-hidden className="min-h-24 border-b border-r border-gray-100 bg-gray-50/40" />;
           }
           const iso = toIso(date);
           return (
+            // Keyed by DATE, not by grid position: a cell holds its own
+            // "expanded" state, and keying by index would hand that state to
+            // whatever day landed in the same slot next month.
             <DayCell
-              key={i}
+              key={iso}
               date={date}
               isToday={iso === today}
               sessions={byDate.get(iso) ?? []}
