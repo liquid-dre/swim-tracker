@@ -253,7 +253,7 @@ export function MeetPinSheet({
               >
                 Open meet
               </Link>
-              <MeetProgrammeTable events={current.meet.events} />
+              <MeetProgrammeTable events={current.meet.events} headingLevel={3} />
             </div>
           </>
         ) : current?.kind === "tour" ? (

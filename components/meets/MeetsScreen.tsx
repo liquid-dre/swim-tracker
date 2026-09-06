@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
-import { CalendarPlus, MapPin, Upload } from "lucide-react";
+import { CalendarPlus, MapPin, Search, Upload } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 
@@ -145,17 +145,33 @@ export function MeetsScreen({
         }
         trailing={
           <FilterField label="Find">
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Meet or venue"
-              aria-label="Filter meets by name or venue"
-              className="h-11 w-44 rounded-lg border border-gray-300 bg-white px-3 text-sm text-ink outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] placeholder:text-gray-500 hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
-            />
+            {/* The roster's search, verbatim: leading magnifier, text-base (14px
+                triggers iOS zoom-on-focus), grows with its container. */}
+            <div className="relative w-full min-w-48">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-faint"
+              />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search meets"
+                aria-label="Search meets by name or venue"
+                className="h-11 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-base text-ink outline-none transition-[border-color] [transition-duration:var(--dur-1)] placeholder:text-ink-muted hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
+              />
+            </div>
           </FilterField>
         }
       />
+
+      {/* Filtering and searching change the list silently. This says what came
+          back, for a reader who cannot see it change. */}
+      <p className="sr-only" role="status">
+        {shown === undefined
+          ? "Loading meets."
+          : `${shown.length} meet${shown.length === 1 ? "" : "s"} shown.`}
+      </p>
 
       {shown === undefined ? (
         <MeetsSkeleton />
@@ -248,7 +264,7 @@ export function MeetsScreen({
                   <p className="mt-0.5 text-sm tabular-nums text-ink-muted">
                     {formatMeetDates(meet)}
                   </p>
-                  <p className="relative mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
                     {past && <PastBadge />}
                     {meet.galaCode && <GalaTag code={meet.galaCode} />}
                     <span>

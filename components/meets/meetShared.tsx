@@ -50,7 +50,15 @@ export function GalaTag({ code }: { code: GalaCode }) {
  * shows the source document's words and says plainly that this app has no event
  * for it, rather than being dropped or silently blanked.
  */
-export function MeetProgrammeTable({ events }: { events: ReadonlyArray<MeetEvent> }) {
+export function MeetProgrammeTable({
+  events,
+  headingLevel = 2,
+}: {
+  events: ReadonlyArray<MeetEvent>;
+  /** 2 under a page h1; 3 inside a sheet whose own title is already an h2. */
+  headingLevel?: 2 | 3;
+}) {
+  const Heading = headingLevel === 3 ? "h3" : "h2";
   if (events.length === 0) {
     return (
       <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-theme-sm">
@@ -73,12 +81,12 @@ export function MeetProgrammeTable({ events }: { events: ReadonlyArray<MeetEvent
 
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-sm font-semibold text-ink">
+      <Heading className="text-sm font-semibold text-ink">
         Programme{" "}
         <span className="font-normal tabular-nums text-ink-muted">
           ({ordered.length})
         </span>
-      </h2>
+      </Heading>
       <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm sm:block">
         <div className="custom-scrollbar overflow-x-auto">
           <table className="w-full min-w-[30rem] text-sm">

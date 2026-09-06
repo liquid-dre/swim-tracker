@@ -279,6 +279,48 @@ describe("import", () => {
     });
   });
 
+  test("refuses a programme dated after the meet's end date", async () => {
+    // The import leaves endDate alone, so a later start date would leave the
+    // meet dated backwards — and isUpcoming reads the END date, so a future
+    // meet would quietly start reading as Past.
+    const { asSuper } = await setup();
+    const meetId = await seedMeet(asSuper, {
+      name: "HAS senior champs",
+      startDate: "2026-11-28",
+      endDate: "2026-11-30",
+    });
+
+    await expect(
+      asSuper.mutation(api.meets.importMeet, {
+        meetId,
+        name: "HAS senior champs",
+        startDate: "2026-12-05",
+        events: HAS_EVENTS,
+      }),
+    ).rejects.toThrow(/end date/i);
+
+    // Refused outright: the programme is not half-applied.
+    const meet = await asSuper.query(api.meets.getMeet, { meetId });
+    expect(meet).toMatchObject({ startDate: "2026-11-28", endDate: "2026-11-30" });
+    expect(meet?.events).toEqual([]);
+  });
+
+  test("accepts a start date inside the meet's own span", async () => {
+    const { asSuper } = await setup();
+    const meetId = await seedMeet(asSuper, {
+      startDate: "2026-11-28",
+      endDate: "2026-11-30",
+    });
+    await asSuper.mutation(api.meets.importMeet, {
+      meetId,
+      name: "HAS senior champs",
+      startDate: "2026-11-29",
+      events: HAS_EVENTS,
+    });
+    const meet = await asSuper.query(api.meets.getMeet, { meetId });
+    expect(meet).toMatchObject({ startDate: "2026-11-29", endDate: "2026-11-30" });
+  });
+
   test("creates a new meet when none is chosen", async () => {
     const { asSuper } = await setup();
     const res = await asSuper.mutation(api.meets.importMeet, {

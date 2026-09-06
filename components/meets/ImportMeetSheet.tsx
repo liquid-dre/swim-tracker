@@ -156,7 +156,10 @@ export function ImportMeetSheet({
       out.push({
         label: "Date",
         from: formatMeetDates(targetMeet),
-        to: formatMeetDates({ startDate }),
+        // The import never touches `endDate`, so a multi-day meet keeps its
+        // span — showing a bare single date here would claim a change the
+        // write will not make.
+        to: formatMeetDates({ startDate, endDate: targetMeet.endDate }),
       });
     }
     const nextVenue = venue.trim();
@@ -443,7 +446,7 @@ export function ImportMeetSheet({
                     </label>
                     <Select
                       id="import-target"
-                      value={effectiveTarget}
+                      value={targetMeet ? effectiveTarget : ""}
                       onValueChange={(next) => {
                         setTarget(next);
                         setTargetTouched(true);
@@ -559,7 +562,9 @@ export function ImportMeetSheet({
 
         {targetUnresolved && (
           <p className="px-4 pb-1 text-xs text-ink-muted" role="status">
-            Loading this meet&rsquo;s details…
+            {lockedMeetId
+              ? "Loading this meet\u2019s details\u2026"
+              : "That meet is no longer on the calendar. Choose another, or save this as a new meet."}
           </p>
         )}
 

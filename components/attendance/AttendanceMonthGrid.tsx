@@ -180,22 +180,14 @@ function DayCell({
         {shownSessions.map((s) => (
           <SessionChip key={s.id} session={s} variant={variant} onOpen={onOpenSession} />
         ))}
-        {hidden > 0 && (
+        {(hidden > 0 || expanded) && (
           <button
             type="button"
-            onClick={() => setExpanded(true)}
+            onClick={() => setExpanded(!expanded)}
+            aria-expanded={expanded}
             className="rounded px-1 text-left text-2xs text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
           >
-            +{hidden} more
-          </button>
-        )}
-        {expanded && (
-          <button
-            type="button"
-            onClick={() => setExpanded(false)}
-            className="rounded px-1 text-left text-2xs text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Show less
+            {expanded ? "Show less" : `+${hidden} more`}
           </button>
         )}
       </div>

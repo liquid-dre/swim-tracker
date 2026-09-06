@@ -429,6 +429,17 @@ export const importMeet = mutation({
     if (args.meetId !== undefined) {
       const existing = await ctx.db.get(args.meetId);
       if (existing === null) throw new ConvexError("That meet no longer exists.");
+
+      // A programme states one date, and the patch below deliberately leaves
+      // `endDate` alone — but a start date after the stored end would leave the
+      // meet dated backwards, and `isUpcoming` reads the END date, so a future
+      // meet would silently start showing as Past. Refuse, and say which two
+      // dates disagree rather than quietly repairing one of them.
+      if (existing.endDate !== undefined && startDate > existing.endDate) {
+        throw new ConvexError(
+          `This programme is dated ${startDate}, after that meet's end date (${existing.endDate}). Fix the meet's dates first, or import it as a new meet.`,
+        );
+      }
       // Patch only what a PROGRAMME actually states. An event list carries a
       // name, a date, a venue and events; it says nothing about how many days
       // the meet runs, which course the pool is, or whether this is a gala tour.

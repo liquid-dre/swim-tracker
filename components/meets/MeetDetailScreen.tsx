@@ -82,10 +82,11 @@ export function MeetDetailScreen({
 
   async function onDelete() {
     if (meet === null) return;
-    await notify.promise(deleteMeet({ meetId }), {
-      loading: "Removing meet…",
-      success: "Meet removed",
-    });
+    // No notify.promise here: ConfirmDialog stays open on a rejection and shows
+    // the message in its own alert, so a toast would report it twice. Success
+    // is announced once, after the dialog has closed.
+    await deleteMeet({ meetId });
+    notify.success("Meet removed");
     router.push(base);
   }
 

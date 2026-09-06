@@ -60,6 +60,9 @@
   --color-error-50: #fef3f2;
   --color-error-500: #f04438;
   --color-error-600: #d92d20;
+  /* Danger ink is read on --color-error-50, where 600 lands at 4.4:1 and just
+     misses AA for body text. 700 is the same hue at 6.0:1. */
+  --color-error-700: #b42318;
   --color-warning-50: #fffaeb;
   --color-warning-500: #f79009;
   --color-warning-600: #dc6803;
@@ -217,7 +220,7 @@
   --warning-subtle: var(--color-warning-50);
   --danger: var(--color-error-500);
   --danger-fg: #ffffff;
-  --danger-ink: var(--color-error-600);
+  --danger-ink: var(--color-error-700); /* AA on --danger-subtle (6.0:1) */
   --danger-subtle: var(--color-error-50);
 
   /* shadcn/ui (DESIGN.md §4) */
