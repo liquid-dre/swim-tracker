@@ -28,6 +28,8 @@ import {
 */
 
 const MAX_CHIPS = 4;
+/** Competitions shown before a cell starts counting them instead (see below). */
+const MAX_MEET_PINS = 2;
 
 export function SessionChip({
   session,
@@ -175,9 +177,15 @@ export function AttendanceMonthGrid({
           const meets = meetsByDate?.get(iso) ?? [];
           const isToday = iso === today;
           // Competitions take chip budget first: on a day with both, the gala is
-          // the thing a coach must not miss.
-          const shown = sessions.slice(0, Math.max(1, MAX_CHIPS - meets.length));
-          const overflow = sessions.length - shown.length;
+          // the thing a coach must not miss. Both lists are capped, so a day
+          // carrying a multi-day champs, a tour date and training cannot stretch
+          // its row out of the grid.
+          const shownMeets = meets.slice(0, MAX_MEET_PINS);
+          const shown = sessions.slice(0, Math.max(1, MAX_CHIPS - shownMeets.length));
+          // One counter for everything hidden — a "+2 more" that silently
+          // excluded a gala would be worse than no counter at all.
+          const overflow =
+            sessions.length - shown.length + (meets.length - shownMeets.length);
 
           return (
             <div
@@ -198,13 +206,10 @@ export function AttendanceMonthGrid({
                 </span>
               </div>
               <div className="flex flex-col gap-1">
-                {meets.map((pin) => (
-                  <MeetPinChip
-                    key={pin.key}
-                    pin={pin}
-                    onOpen={onOpenMeet ?? (() => {})}
-                  />
-                ))}
+                {onOpenMeet &&
+                  shownMeets.map((pin) => (
+                    <MeetPinChip key={pin.key} pin={pin} onOpen={onOpenMeet} />
+                  ))}
                 {shown.map((s) => (
                   <SessionChip key={s.id} session={s} variant={variant} onOpen={onOpenSession} />
                 ))}

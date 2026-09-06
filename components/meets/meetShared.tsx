@@ -57,7 +57,7 @@ export function MeetProgrammeTable({ events }: { events: ReadonlyArray<MeetEvent
         <Waves aria-hidden className="mx-auto size-5 text-ink-faint" />
         <p className="mt-2 text-sm font-medium text-ink">No programme yet</p>
         <p className="mt-1 text-sm text-ink-muted">
-          The event list for this meet hasn&rsquo;t been loaded.
+          No programme has been loaded for this meet yet.
         </p>
       </div>
     );
@@ -65,69 +65,105 @@ export function MeetProgrammeTable({ events }: { events: ReadonlyArray<MeetEvent
 
   const ordered = [...events].sort(compareMeetEvents);
   const numbered = ordered.some((e) => e.eventNumber !== undefined);
+  // Only claim the meet's own running order when the meet actually numbered its
+  // events; otherwise this is canonical event order and the caption says so.
+  const caption = numbered
+    ? `The meet programme in event order. ${ordered.length} events.`
+    : `The meet programme, ordered by distance and stroke. ${ordered.length} events.`;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[30rem] text-sm">
-          <caption className="sr-only">
-            The meet programme, in event order. {ordered.length} events.
-          </caption>
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50 text-left text-2xs uppercase tracking-wide text-ink-faint">
-              {numbered && (
-                <th scope="col" className="w-16 px-3 py-2 font-semibold">
-                  Event
+    <>
+      <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm sm:block">
+        <div className="custom-scrollbar overflow-x-auto">
+          <table className="w-full min-w-[30rem] text-sm">
+            <caption className="sr-only">{caption}</caption>
+            <thead>
+              <tr className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+                {numbered && (
+                  <th scope="col" className="w-16 px-3 py-2.5 font-medium">
+                    Event
+                  </th>
+                )}
+                <th scope="col" className="px-3 py-2.5 font-medium">
+                  Name
                 </th>
-              )}
-              <th scope="col" className="px-3 py-2 font-semibold">
-                Name
-              </th>
-              <th scope="col" className="w-24 px-3 py-2 font-semibold">
-                For
-              </th>
-              <th scope="col" className="w-28 px-3 py-2 font-semibold">
-                Distance
-              </th>
-              <th scope="col" className="w-24 px-3 py-2 font-semibold">
-                Stroke
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {ordered.map((event, i) => {
-              const resolved = event.distance !== undefined && event.stroke !== undefined;
-              return (
-                <tr key={`${event.eventNumber ?? "x"}-${i}`} className="align-middle">
-                  {numbered && (
-                    <td className="px-3 py-2 tabular-nums text-ink-muted">
-                      {event.eventNumber ?? "—"}
-                    </td>
-                  )}
-                  <td className="px-3 py-2 font-medium text-ink">{event.rawLabel}</td>
-                  <td className="px-3 py-2 text-ink-muted">
-                    {event.gender ? MEET_GENDER_LABEL[event.gender] : "—"}
-                  </td>
-                  {resolved ? (
-                    <>
-                      <td className="px-3 py-2 tabular-nums text-ink">
-                        {event.distance} m
+                <th scope="col" className="w-24 px-3 py-2.5 font-medium">
+                  Entrants
+                </th>
+                <th scope="col" className="w-28 px-3 py-2.5 font-medium">
+                  Distance
+                </th>
+                <th scope="col" className="w-24 px-3 py-2.5 font-medium">
+                  Stroke
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {ordered.map((event, i) => {
+                const resolved =
+                  event.distance !== undefined && event.stroke !== undefined;
+                return (
+                  <tr key={`${event.eventNumber ?? "x"}-${i}`} className="align-middle">
+                    {numbered && (
+                      <td className="px-3 py-2 tabular-nums text-ink-muted">
+                        {event.eventNumber ?? "—"}
                       </td>
-                      <td className="px-3 py-2 text-ink">
-                        {STROKE_LABEL[event.stroke!]}
-                      </td>
-                    </>
-                  ) : (
-                    <td colSpan={2} className="px-3 py-2 text-ink-faint">
-                      Not a tracked event
+                    )}
+                    <td className="px-3 py-2 font-medium text-ink">{event.rawLabel}</td>
+                    <td className="px-3 py-2 text-ink-muted">
+                      {event.gender ? MEET_GENDER_LABEL[event.gender] : "—"}
                     </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    {resolved ? (
+                      <>
+                        <td className="px-3 py-2 tabular-nums text-ink">
+                          {event.distance} m
+                        </td>
+                        <td className="px-3 py-2 text-ink">
+                          {STROKE_LABEL[event.stroke!]}
+                        </td>
+                      </>
+                    ) : (
+                      <td colSpan={2} className="px-3 py-2 text-ink-muted">
+                        Not a tracked event
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+
+      {/* Narrow: one line per event. A parent checking "what is my swimmer in"
+          reads this on a phone, where a five-column table would hide the stroke
+          off the right-hand edge. */}
+      <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm sm:hidden">
+        {ordered.map((event, i) => (
+          <li
+            key={`${event.eventNumber ?? "x"}-${i}`}
+            className="flex items-baseline gap-3 px-4 py-2.5"
+          >
+            {numbered && (
+              <span className="w-8 shrink-0 tabular-nums text-xs text-ink-faint">
+                {event.eventNumber ?? "—"}
+              </span>
+            )}
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-ink">
+                {event.rawLabel}
+              </span>
+              <span className="mt-0.5 block text-xs text-ink-muted">
+                {event.gender ? MEET_GENDER_LABEL[event.gender] : "All entrants"}
+                {" · "}
+                {event.distance !== undefined && event.stroke !== undefined
+                  ? `${event.distance} m ${STROKE_LABEL[event.stroke]}`
+                  : "Not a tracked event"}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }

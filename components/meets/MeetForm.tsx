@@ -32,6 +32,18 @@ import type { Course } from "@/lib/swim";
   untouched on save, and the import sheet is how it changes.
 */
 
+/** Matches MAX_SPAN_DAYS in convex/meets.ts. */
+const MAX_SPAN_DAYS = 31;
+
+/** `iso` + n days, as ISO. Returns "" for an unparseable start. */
+function addDays(iso: string, days: number): string | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return undefined;
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return undefined;
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export type EditableMeet = {
   _id: Id<"meets">;
   name: string;
@@ -71,6 +83,10 @@ export function MeetForm({
   // "not set" must not be two ways of saying the same thing (the server drops a
   // matching end date for the same reason).
   const multiDay = endDate !== "" && endDate !== startDate;
+  // The server caps a meet at 31 days (a typo'd end year is not a 3-year gala).
+  // The picker enforces the same bound so the rule is visible, not discovered
+  // by being rejected after filling the form in.
+  const latestEnd = addDays(startDate, MAX_SPAN_DAYS);
   const datesValid =
     /^\d{4}-\d{2}-\d{2}$/.test(startDate) &&
     (endDate === "" || (/^\d{4}-\d{2}-\d{2}$/.test(endDate) && endDate >= startDate));
@@ -113,7 +129,7 @@ export function MeetForm({
           <SheetTitle>{editing ? "Edit meet" : "Add a meet"}</SheetTitle>
           <SheetDescription>
             {editing
-              ? "The meet's details. Its event list is changed by importing a programme."
+              ? "The meet's details. Its programme is loaded by importing one."
               : "Add a fixture to the season calendar. Import its programme afterwards."}
           </SheetDescription>
         </SheetHeader>
@@ -142,6 +158,7 @@ export function MeetForm({
             value={endDate}
             onChange={setEndDate}
             min={startDate}
+            max={latestEnd}
           />
 
           <Input

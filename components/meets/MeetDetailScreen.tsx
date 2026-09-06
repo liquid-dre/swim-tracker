@@ -98,11 +98,10 @@ export function MeetDetailScreen({
         actions={
           canEdit ? (
             <>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setImportOpen(true)}
-              >
+              {/* One primary, and it is the thing this page is for. Three
+                  identical secondary buttons would give the page no centre and
+                  make Delete look exactly like Edit. */}
+              <Button size="sm" onClick={() => setImportOpen(true)}>
                 <Upload className="size-4" aria-hidden />
                 Import programme
               </Button>
@@ -114,6 +113,7 @@ export function MeetDetailScreen({
                 variant="secondary"
                 size="sm"
                 onClick={() => setConfirmDelete(true)}
+                aria-label={`Delete ${meet.name}`}
               >
                 <Trash2 className="size-4" aria-hidden />
                 Delete
@@ -177,14 +177,19 @@ export function MeetDetailScreen({
               events: [...meet.events],
             }}
           />
+          {/* Locked to THIS meet: the page header already says which meet you
+              are on, so an import launched from here must never be able to
+              land on a neighbouring fixture. */}
           <ImportMeetSheet
             open={importOpen}
             onOpenChange={setImportOpen}
+            lockedMeetId={meet._id}
             meets={(allMeets ?? []).map((m) => ({
               _id: m._id,
               name: m.name,
               startDate: m.startDate,
               endDate: m.endDate,
+              venue: m.venue,
               eventCount: m.events.length,
             }))}
           />

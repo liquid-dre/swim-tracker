@@ -2,11 +2,12 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useMutation } from "convex/react";
-import { AlertTriangle, CheckCircle2, Upload } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Upload } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DateField } from "@/components/ui/DateField";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -35,7 +36,18 @@ import type { Course } from "@/lib/swim";
   is a NEW meet or a correction to an existing one. Nothing is auto-matched: the
   seeded "1st seeded" row sits on 12 Sep while the HAS programme says the 11th,
   so a date- or name-based rule would quietly create a near-duplicate rather than
-  fix the row. The screen suggests the nearest meet; the person decides.
+  fix the row.
+
+  WHERE THE SHEET WAS OPENED FROM DECIDES THE TARGET. From a meet's own page the
+  target IS that meet, fixed — the page header already says which meet you are
+  on, and a nearest-date suggestion that quietly aimed a wholesale replace at a
+  DIFFERENT meet would be the worst bug this feature could have. Only from the
+  meets list, where there is no such context, does the suggestion apply, and even
+  there it is a pre-selection the super-user can change.
+
+  Replacing a programme is the one irreversible act here, so it is gated like
+  one: a danger-variant confirmation naming the target and showing what changes,
+  field by field. Adding a new meet destroys nothing and is not gated.
 */
 
 /** How close a meet's date must be to the parsed one to be worth suggesting. */
@@ -46,19 +58,29 @@ type MeetOption = {
   name: string;
   startDate: string;
   endDate: string | null;
+  venue: string | null;
   eventCount: number;
 };
+
+/** One field the import would change on the meet it targets. */
+type Change = { label: string; from: string; to: string };
 
 export function ImportMeetSheet({
   open,
   onOpenChange,
   meets,
+  lockedMeetId,
   onImported,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Existing meets, for the "attach to" picker and its suggestion. */
+  /** Existing meets, for the "Save as" picker and its suggestion. */
   meets: MeetOption[];
+  /**
+   * Opened from a meet's own page: the import targets THAT meet and nothing
+   * else. No picker, no suggestion, no way to hit a neighbour by accident.
+   */
+  lockedMeetId?: Id<"meets">;
   onImported?: (meetId: Id<"meets">) => void;
 }) {
   const importMeet = useMutation(api.meets.importMeet);
@@ -68,6 +90,7 @@ export function ImportMeetSheet({
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState<{ created: boolean; eventCount: number } | null>(
     null,
   );
@@ -92,11 +115,10 @@ export function ImportMeetSheet({
   const startDate = dateEdit ?? draft?.startDate ?? "";
   const venue = venueEdit ?? draft?.venue ?? "";
 
-  // The nearest existing meet by date — a SUGGESTION only, pre-selected so the
-  // common case (re-importing over a seeded fixture) is one click, and freely
-  // overridden. Once the super-user has touched the picker we never move it.
+  // The nearest existing meet by date — only ever offered from the meets LIST.
+  // On a meet's own page `lockedMeetId` settles it and this never runs.
   const suggestion = useMemo(() => {
-    if (!startDate) return null;
+    if (lockedMeetId || !startDate) return null;
     let best: { meet: MeetOption; distance: number } | null = null;
     for (const meet of meets) {
       const distance = Math.abs(daysBetween(meet.startDate, startDate));
@@ -104,12 +126,46 @@ export function ImportMeetSheet({
       if (best === null || distance < best.distance) best = { meet, distance };
     }
     return best?.meet ?? null;
-  }, [meets, startDate]);
+  }, [meets, startDate, lockedMeetId]);
 
-  const effectiveTarget = targetTouched ? target : (suggestion?._id ?? "");
+  const effectiveTarget =
+    lockedMeetId ?? (targetTouched ? target : (suggestion?._id ?? ""));
   const targetMeet = meets.find((m) => m._id === effectiveTarget) ?? null;
 
-  function reset() {
+  /** Exactly what changes on the target meet, so nothing is renamed silently. */
+  const changes: Change[] = useMemo(() => {
+    if (!targetMeet) return [];
+    const out: Change[] = [];
+    const nextName = name.trim();
+    if (nextName !== "" && targetMeet.name !== nextName) {
+      out.push({ label: "Name", from: targetMeet.name, to: nextName });
+    }
+    if (startDate !== "" && targetMeet.startDate !== startDate) {
+      out.push({
+        label: "Date",
+        from: formatMeetDates(targetMeet),
+        to: formatMeetDates({ startDate }),
+      });
+    }
+    const nextVenue = venue.trim();
+    if (nextVenue !== "" && targetMeet.venue !== nextVenue) {
+      out.push({
+        label: "Venue",
+        from: targetMeet.venue ?? "Not set",
+        to: nextVenue,
+      });
+    }
+    if (draft && targetMeet.eventCount !== draft.events.length) {
+      out.push({
+        label: "Events",
+        from: targetMeet.eventCount === 0 ? "None" : String(targetMeet.eventCount),
+        to: String(draft.events.length),
+      });
+    }
+    return out;
+  }, [targetMeet, name, startDate, venue, draft]);
+
+  function clearInput() {
     setText("");
     setReadError(null);
     setDone(null);
@@ -125,7 +181,7 @@ export function ImportMeetSheet({
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    reset();
+    clearInput();
     setReading(true);
     try {
       if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
@@ -148,7 +204,7 @@ export function ImportMeetSheet({
     /^\d{4}-\d{2}-\d{2}$/.test(startDate) &&
     draft.events.length > 0;
 
-  async function onImport() {
+  async function runImport() {
     if (!canImport || importing || draft === null) return;
     setImporting(true);
     try {
@@ -171,30 +227,41 @@ export function ImportMeetSheet({
       );
       onImported?.(res.meetId);
     } catch (err) {
-      notify.error(err);
+      notify.error(errorMessage(err));
     } finally {
       setImporting(false);
     }
   }
 
+  // Replacing is irreversible, so it goes through the app's destructive
+  // confirmation. Adding a new meet destroys nothing and commits straight away.
+  function onSubmit() {
+    if (targetMeet) setConfirming(true);
+    else void runImport();
+  }
+
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) reset();
-        onOpenChange(next);
-      }}
-    >
+    <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="flex w-full flex-col sm:max-w-xl" side="right">
         <SheetHeader>
           <SheetTitle>Import a meet programme</SheetTitle>
           <SheetDescription>
-            A HY-TEK event list (PDF), a CSV, or pasted text. Nothing is saved
-            until you confirm what was read below.
+            {lockedMeetId && targetMeet ? (
+              <>
+                Loads the programme for{" "}
+                <span className="font-medium text-ink">{targetMeet.name}</span>.
+                Nothing is saved until you confirm what was read.
+              </>
+            ) : (
+              <>
+                A HY-TEK event list (PDF), a CSV, or pasted text. Nothing is saved
+                until you confirm what was read below.
+              </>
+            )}
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-1">
+        <div className="custom-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-1">
           {/* --- 1. the file ------------------------------------------------ */}
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -216,7 +283,7 @@ export function ImportMeetSheet({
             {text !== "" && (
               <button
                 type="button"
-                onClick={reset}
+                onClick={clearInput}
                 className="rounded-md px-2 py-1 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Clear
@@ -225,14 +292,17 @@ export function ImportMeetSheet({
           </div>
 
           {readError && (
-            <p className="rounded-lg border border-danger-subtle bg-danger-subtle px-3 py-2 text-sm text-danger-ink">
+            <p
+              role="alert"
+              className="rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2 text-sm text-danger-ink"
+            >
               {readError}
             </p>
           )}
 
           <div className="flex flex-col gap-1.5">
             <label htmlFor="meet-text" className="text-sm font-medium text-gray-700">
-              …or paste the event list
+              …or paste the programme
             </label>
             <textarea
               id="meet-text"
@@ -246,189 +316,210 @@ export function ImportMeetSheet({
               placeholder={"HAS 1st Seeded Gala 2026 - 11/9/2026\n101  Mixed 100 Freestyle\n103  Mixed 100 Breaststroke"}
               className="h-32 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-ink outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] placeholder:text-ink-faint hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
             />
+            <p className="text-xs text-ink-muted">
+              One event per line, as the programme prints it. A leading event
+              number is optional, and a CSV of{" "}
+              <span className="font-medium text-ink">event number, event name</span>{" "}
+              works the same way.
+            </p>
           </div>
 
           {/* --- 2. what was read ------------------------------------------ */}
-          {draft && !done && (
-            <>
-              {draft.warnings.length > 0 && (
-                <ul className="flex flex-col gap-1.5 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
-                  {draft.warnings.map((w, i) => (
-                    <li key={i} className="flex gap-2">
-                      <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
-                      <span>{w}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-2/60 p-3">
-                <p className="text-sm font-medium text-ink">
-                  Check the details before saving
-                </p>
-                <Input
-                  id="import-name"
-                  label="Meet name"
-                  value={name}
-                  onChange={(e) => setNameEdit(e.target.value)}
-                  maxLength={120}
-                />
-                <DateField
-                  id="import-date"
-                  label="Date"
-                  value={startDate}
-                  onChange={setDateEdit}
-                />
-                <Input
-                  id="import-venue"
-                  label="Venue"
-                  value={venue}
-                  onChange={(e) => setVenueEdit(e.target.value)}
-                  maxLength={120}
-                />
-                <div className="flex min-w-0 flex-col gap-1.5">
-                  <label
-                    htmlFor="import-course"
-                    className="text-sm font-medium text-gray-700"
-                  >
-                    Course
-                  </label>
-                  <Select
-                    id="import-course"
-                    value={course}
-                    onValueChange={setCourse}
-                    size="md"
-                    options={[
-                      { value: "", label: "Not set" },
-                      { value: "LCM", label: "Long course (50 m)" },
-                      { value: "SCM", label: "Short course (25 m)" },
-                    ]}
-                  />
-                  <p className="text-xs text-ink-muted">
-                    A programme doesn&rsquo;t state the course. Leave it unset
-                    rather than guessing.
-                  </p>
-                </div>
-              </div>
-
-              {/* --- 3. new meet, or a correction to an existing one -------- */}
-              <div className="flex min-w-0 flex-col gap-1.5">
-                <label
-                  htmlFor="import-target"
-                  className="text-sm font-medium text-gray-700"
-                >
-                  Save as
-                </label>
-                <Select
-                  id="import-target"
-                  value={effectiveTarget}
-                  onValueChange={(next) => {
-                    setTarget(next);
-                    setTargetTouched(true);
-                  }}
-                  size="md"
-                  options={[
-                    { value: "", label: "A new meet" },
-                    ...meets.map((m) => ({
-                      value: m._id,
-                      label: `${m.name} — ${formatMeetDates(m)}`,
-                    })),
-                  ]}
-                />
-                <p className="text-xs text-ink-muted">
-                  {targetMeet ? (
-                    <>
-                      Replaces <span className="font-medium">{targetMeet.name}</span>
-                      &rsquo;s details and its{" "}
-                      {targetMeet.eventCount === 0
-                        ? "(empty) programme"
-                        : `${targetMeet.eventCount}-event programme`}
-                      .{" "}
-                      {targetMeet.startDate !== startDate && (
-                        <>
-                          Its date changes from {formatMeetDates(targetMeet)} to the
-                          date above.
-                        </>
-                      )}
-                      {!targetTouched && " Suggested because the dates are close."}
-                    </>
-                  ) : (
-                    "Adds a new fixture to the calendar."
-                  )}
-                </p>
-              </div>
-
-              {/* --- 4. the programme itself ------------------------------- */}
-              <div className="flex flex-col gap-2">
-                <p className="text-sm font-medium text-ink">
-                  {draft.events.length} event
-                  {draft.events.length === 1 ? "" : "s"} read
-                </p>
-                <ul className="max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-white text-sm">
-                  {draft.events.map((event, i) => (
-                    <li
-                      key={i}
-                      className="flex items-baseline gap-2 px-3 py-1.5"
-                    >
-                      <span className="w-10 shrink-0 tabular-nums text-ink-faint">
-                        {event.eventNumber ?? "—"}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-ink">
-                        {event.rawLabel}
-                      </span>
-                      <span
-                        className={
-                          event.distance === undefined
-                            ? "shrink-0 text-2xs text-ink-faint"
-                            : "shrink-0 text-2xs text-ink-muted"
-                        }
-                      >
-                        {event.distance === undefined
-                          ? "not tracked"
-                          : meetEventLabel(event)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {draft.skipped.length > 0 && (
-                <details className="rounded-lg border border-border bg-white px-3 py-2 text-xs">
-                  <summary className="cursor-pointer text-ink-muted outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    {draft.skipped.length} line
-                    {draft.skipped.length === 1 ? "" : "s"} were not read as events
-                  </summary>
-                  <ul className="mt-2 flex flex-col gap-1">
-                    {draft.skipped.map((s, i) => (
+          {/* The parse result changes as you paste or type, so it is announced. */}
+          <div aria-live="polite" className="contents">
+            {draft && !done && (
+              <>
+                {draft.warnings.length > 0 && (
+                  <ul className="flex flex-col gap-1.5 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
+                    {draft.warnings.map((w, i) => (
                       <li key={i} className="flex gap-2">
-                        <span className="shrink-0 tabular-nums text-ink-faint">
-                          line {s.line}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-ink-muted">
-                          {s.text}
-                        </span>
-                        <span className="shrink-0 text-ink-faint">{s.reason}</span>
+                        <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                        <span>{w}</span>
                       </li>
                     ))}
                   </ul>
-                </details>
-              )}
-            </>
-          )}
+                )}
 
-          {/* --- 5. the outcome -------------------------------------------- */}
-          {done && (
-            <div className="flex items-start gap-2 rounded-lg border border-border bg-white px-3 py-2.5 text-sm">
-              <CheckCircle2
-                aria-hidden
-                className="mt-0.5 size-4 shrink-0 text-success-600"
-              />
-              <p className="text-ink">
-                {done.created ? "Meet added" : "Programme replaced"}:{" "}
-                {done.eventCount} event{done.eventCount === 1 ? "" : "s"}.
-              </p>
-            </div>
-          )}
+                <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-2/60 p-3">
+                  <p className="text-sm font-medium text-ink">
+                    Check the details before saving
+                  </p>
+                  <Input
+                    id="import-name"
+                    label="Meet name"
+                    value={name}
+                    onChange={(e) => setNameEdit(e.target.value)}
+                    maxLength={120}
+                  />
+                  <DateField
+                    id="import-date"
+                    label="Date"
+                    value={startDate}
+                    onChange={setDateEdit}
+                  />
+                  <Input
+                    id="import-venue"
+                    label="Venue"
+                    value={venue}
+                    onChange={(e) => setVenueEdit(e.target.value)}
+                    maxLength={120}
+                  />
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <label
+                      htmlFor="import-course"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Course
+                    </label>
+                    <Select
+                      id="import-course"
+                      value={course}
+                      onValueChange={setCourse}
+                      size="md"
+                      options={[
+                        { value: "", label: "Not set" },
+                        { value: "LCM", label: "Long course (50 m)" },
+                        { value: "SCM", label: "Short course (25 m)" },
+                      ]}
+                    />
+                    <p className="text-xs text-ink-muted">
+                      A programme doesn&rsquo;t state the course. Leave it unset
+                      rather than guessing.
+                    </p>
+                  </div>
+                </div>
+
+                {/* --- 3. new meet, or a correction to an existing one ------ */}
+                {lockedMeetId ? (
+                  targetMeet && (
+                    <ChangeSummary
+                      targetName={targetMeet.name}
+                      eventCount={targetMeet.eventCount}
+                      changes={changes}
+                    />
+                  )
+                ) : (
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <label
+                      htmlFor="import-target"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Save as
+                    </label>
+                    <Select
+                      id="import-target"
+                      value={effectiveTarget}
+                      onValueChange={(next) => {
+                        setTarget(next);
+                        setTargetTouched(true);
+                      }}
+                      size="md"
+                      options={[
+                        { value: "", label: "A new meet" },
+                        // Every other option destroys a programme, so each one
+                        // says "Replace" rather than reading as a plain filing
+                        // choice.
+                        ...meets.map((m) => ({
+                          value: m._id,
+                          label: `Replace — ${m.name} (${formatMeetDates(m)})`,
+                          textValue: m.name,
+                        })),
+                      ]}
+                    />
+                    {targetMeet ? (
+                      <>
+                        {!targetTouched && (
+                          <p className="text-xs text-ink-muted">
+                            Suggested because the dates are close. Choose{" "}
+                            <span className="font-medium text-ink">A new meet</span>{" "}
+                            to add a fixture instead.
+                          </p>
+                        )}
+                        <ChangeSummary
+                          targetName={targetMeet.name}
+                          eventCount={targetMeet.eventCount}
+                          changes={changes}
+                        />
+                      </>
+                    ) : (
+                      <p className="text-xs text-ink-muted">
+                        Adds a new fixture to the calendar.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* --- 4. the programme itself --------------------------- */}
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm font-medium text-ink">
+                    {draft.events.length} event
+                    {draft.events.length === 1 ? "" : "s"} read
+                  </p>
+                  <ul className="custom-scrollbar max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-white text-sm">
+                    {draft.events.map((event, i) => (
+                      <li key={i} className="flex items-baseline gap-2 px-3 py-1.5">
+                        <span className="w-10 shrink-0 tabular-nums text-ink-faint">
+                          {event.eventNumber ?? "—"}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-ink">
+                          {event.rawLabel}
+                        </span>
+                        {/* An unresolved line is the one a super-user needs to
+                            notice, so it is the LOUDER of the two, not quieter. */}
+                        <span
+                          className={
+                            event.distance === undefined
+                              ? "shrink-0 text-2xs font-medium text-warning-ink"
+                              : "shrink-0 text-2xs text-ink-muted"
+                          }
+                        >
+                          {event.distance === undefined
+                            ? "not tracked"
+                            : meetEventLabel(event)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {draft.skipped.length > 0 && (
+                  <details className="rounded-lg border border-border bg-white px-3 py-2 text-xs">
+                    <summary className="cursor-pointer text-ink-muted outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      {draft.skipped.length} line
+                      {draft.skipped.length === 1 ? "" : "s"} were not read as events
+                    </summary>
+                    <ul className="mt-2 flex flex-col gap-1">
+                      {draft.skipped.map((s, i) => (
+                        <li key={i} className="flex gap-2">
+                          <span className="shrink-0 tabular-nums text-ink-faint">
+                            line {s.line}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-ink-muted">
+                            {s.text}
+                          </span>
+                          <span className="shrink-0 text-ink-faint">{s.reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </>
+            )}
+
+            {/* --- 5. the outcome ----------------------------------------- */}
+            {done && (
+              <div className="flex items-start gap-2 rounded-lg border border-border bg-white px-3 py-2.5 text-sm">
+                <CheckCircle2
+                  aria-hidden
+                  className="mt-0.5 size-4 shrink-0 text-success-600"
+                />
+                <p className="text-ink">
+                  {done.created ? "Meet added" : "Programme replaced"}:{" "}
+                  {done.eventCount} event{done.eventCount === 1 ? "" : "s"} loaded.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <SheetFooter className="flex-row justify-end gap-2 border-t border-border">
@@ -436,13 +527,112 @@ export function ImportMeetSheet({
             {done ? "Done" : "Cancel"}
           </Button>
           {!done && (
-            <Button loading={importing} disabled={!canImport} onClick={onImport}>
+            // Replacing wears the destructive colour; adding a fixture does not.
+            <Button
+              variant={targetMeet ? "danger" : "primary"}
+              loading={importing}
+              disabled={!canImport}
+              onClick={onSubmit}
+            >
               {targetMeet ? "Replace programme" : "Add meet"}
             </Button>
           )}
         </SheetFooter>
+
+        {targetMeet && (
+          <ConfirmDialog
+            open={confirming}
+            onOpenChange={setConfirming}
+            title="Replace this programme?"
+            description={
+              <>
+                <span className="font-medium text-ink">{targetMeet.name}</span>
+                &rsquo;s{" "}
+                {targetMeet.eventCount === 0
+                  ? "empty programme"
+                  : `${targetMeet.eventCount}-event programme`}{" "}
+                will be replaced by the {draft?.events.length ?? 0} events read
+                from this file. This cannot be undone.
+                {changes.length > 0 && (
+                  <span className="mt-3 block">
+                    <span className="text-xs font-medium text-ink">
+                      It also changes:
+                    </span>
+                    <span className="mt-1 block">
+                      {changes.map((c) => (
+                        <ChangeRow key={c.label} change={c} />
+                      ))}
+                    </span>
+                  </span>
+                )}
+              </>
+            }
+            confirmLabel="Replace programme"
+            onConfirm={runImport}
+          />
+        )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * What the import will change on the meet it targets, field by field.
+ *
+ * Shown inline before the button AND inside the confirmation, because "replaces
+ * its details" is the vaguest possible way to tell someone their meet is about
+ * to be renamed. A rename here is usually CORRECT — the seeded row says "1st
+ * seeded" and the real programme says "HAS 1ST SEEDED GALA 2026" — which is
+ * exactly why it should be visible rather than a discovery afterwards.
+ */
+function ChangeSummary({
+  targetName,
+  eventCount,
+  changes,
+}: {
+  targetName: string;
+  eventCount: number;
+  changes: Change[];
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5">
+      <p className="text-sm text-warning-ink">
+        Replaces <span className="font-medium">{targetName}</span>&rsquo;s{" "}
+        {eventCount === 0 ? "empty programme" : `${eventCount}-event programme`}.
+      </p>
+      {changes.length === 0 ? (
+        <p className="text-xs text-warning-ink">
+          Its name, date and venue stay as they are.
+        </p>
+      ) : (
+        <dl className="flex flex-col gap-0.5 text-xs text-warning-ink">
+          {changes.map((c) => (
+            <div key={c.label} className="flex flex-wrap items-baseline gap-1.5">
+              <dt className="w-14 shrink-0 font-medium">{c.label}</dt>
+              <dd className="flex flex-wrap items-baseline gap-1.5">
+                <span className="line-through opacity-70">{c.from}</span>
+                <ArrowRight aria-hidden className="size-3 shrink-0 opacity-70" />
+                <span className="font-medium">{c.to}</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+/** One before → after line inside the confirmation dialog's prose. */
+function ChangeRow({ change }: { change: Change }) {
+  return (
+    <span className="flex flex-wrap items-baseline gap-1.5 py-0.5 text-xs">
+      <span className="w-14 shrink-0 font-medium text-ink-muted">
+        {change.label}
+      </span>
+      <span className="text-ink-muted line-through">{change.from}</span>
+      <ArrowRight aria-hidden className="size-3 shrink-0 text-ink-faint" />
+      <span className="font-medium text-ink">{change.to}</span>
+    </span>
   );
 }
 

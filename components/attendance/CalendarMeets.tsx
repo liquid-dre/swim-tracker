@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { Trophy } from "lucide-react";
+import { Award, Trophy } from "lucide-react";
 
 import type { Id } from "@/convex/_generated/dataModel";
 import { Badge } from "@/components/ui/badge";
@@ -27,17 +28,23 @@ import { cn } from "@/lib/utils";
   "illness, GALA, notified ahead". These pins make the gala that caused the
   excusal visible in the same grid.
 
-  A meet pin is deliberately NOT shaped like a session chip: it is a filled,
-  trophy-marked pill that spans the cell, so a competition can never be misread
-  as a training session at a glance. Selecting one opens its programme.
+  A meet pin is deliberately NOT shaped like a session chip: it is a filled dark
+  pill with a trophy, so a competition cannot be misread as a training session —
+  and the difference is VALUE, not hue, so it survives greyscale and sunlight.
+  It is deliberately not brand indigo either: the accent belongs to actions,
+  focus and the today-cell tint, and a meet is data. Selecting a pin opens its
+  programme.
 
   TWO kinds of pin, because there are two kinds of date and only one of them is
   load-bearing:
 
-    MEET      — a row in `meets`. Neutral chrome; carries a programme.
-    GALA TOUR — a `galas.tourDate`. Tier-coloured, because that date IS the
-                birthday rule every qualifying screen reads (§4.9); it has no
-                programme of its own.
+    MEET      — a row in `meets`. A dark pill with a TROPHY; carries a programme.
+    GALA TOUR — a `galas.tourDate`. Tier-coloured with an AWARD glyph, because
+                that date IS the birthday rule every qualifying screen reads
+                (§4.9); it has no programme of its own.
+
+  The two never rely on colour alone to tell them apart: different glyph,
+  different value, and the tour pin carries its gala's short code as text.
 
   A meet tagged with a gala code AND landing on that gala's tour date is ONE
   event in the world, so `mergeCalendarMeets` collapses the two into a single
@@ -106,30 +113,38 @@ export function MeetPinChip({
   onOpen,
 }: {
   pin: MeetPin;
+  /** Required: a pin that opens nothing must not render as a button at all. */
   onOpen: (pin: MeetPin) => void;
 }) {
-  const isMeet = pin.kind === "meet";
-  const label = isMeet ? pin.meet.name : (pin.tour.name ?? GALA_FULL[pin.tour.code]);
-  const title = isMeet
-    ? `${pin.meet.name} — ${formatMeetDates(pin.meet)}`
-    : `${GALA_FULL[pin.tour.code]} tour date`;
+  const Glyph = pin.kind === "meet" ? Trophy : Award;
+  const label =
+    pin.kind === "meet"
+      ? pin.meet.name
+      : (pin.tour.name ?? GALA_FULL[pin.tour.code]);
+  // The accessible name says WHICH kind of date this is, so the distinction
+  // never rests on the glyph or the colour alone.
+  const title =
+    pin.kind === "meet"
+      ? `${pin.meet.name} — ${formatMeetDates(pin.meet)}`
+      : `${GALA_FULL[pin.tour.code]} tour date`;
 
   return (
     <button
       type="button"
       onClick={() => onOpen(pin)}
       title={title}
+      aria-label={title}
       className={cn(
         "flex w-full items-center gap-1 rounded-md border px-1.5 py-1 text-2xs outline-none",
         "transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring sm:text-xs",
-        isMeet
-          ? "border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100"
+        pin.kind === "meet"
+          ? "border-gray-800 bg-gray-800 text-white hover:bg-gray-700"
           : tourPinClass(pin.tour.code),
       )}
     >
-      <Trophy aria-hidden className="size-3 shrink-0" strokeWidth={2.25} />
+      <Glyph aria-hidden className="size-3 shrink-0" strokeWidth={2.25} />
       <span className="min-w-0 flex-1 truncate text-left font-medium">{label}</span>
-      {!isMeet && (
+      {pin.kind === "tour" && (
         <span className="shrink-0 font-semibold">{GALA_SHORT[pin.tour.code]}</span>
       )}
     </button>
@@ -143,16 +158,18 @@ export function MeetPinChip({
  */
 function tourPinClass(code: GalaCode): string {
   switch (code) {
+    // Hover darkens the BORDER rather than filtering the fill: these tints are
+    // near-white, so a brightness step on them is invisible.
     case "SANS":
-      return "border-tier-sans-border bg-tier-sans-bg text-tier-sans-ink hover:brightness-95";
+      return "border-tier-sans-border bg-tier-sans-bg text-tier-sans-ink hover:border-tier-sans-ink";
     case "SANY":
-      return "border-tier-sany-border bg-tier-sany-bg text-tier-sany-ink hover:brightness-95";
+      return "border-tier-sany-border bg-tier-sany-bg text-tier-sany-ink hover:border-tier-sany-ink";
     case "SANJ":
-      return "border-tier-sanj-border bg-tier-sanj-bg text-tier-sanj-ink hover:brightness-95";
+      return "border-tier-sanj-border bg-tier-sanj-bg text-tier-sanj-ink hover:border-tier-sanj-ink";
     case "LEVEL_3":
-      return "border-tier-l3-border bg-tier-l3-bg text-tier-l3-ink hover:brightness-95";
+      return "border-tier-l3-border bg-tier-l3-bg text-tier-l3-ink hover:border-tier-l3-ink";
     case "LEVEL_2":
-      return "border-tier-l2-border bg-tier-l2-bg text-tier-l2-ink hover:brightness-95";
+      return "border-tier-l2-border bg-tier-l2-bg text-tier-l2-ink hover:border-tier-l2-ink";
   }
 }
 
@@ -161,11 +178,14 @@ export function MeetLegend() {
   return (
     <>
       <span className="flex items-center gap-1.5 text-xs text-ink-muted">
-        <Trophy aria-hidden className="size-3 text-brand-500" strokeWidth={2.25} />
+        <Trophy aria-hidden className="size-3 text-gray-800" strokeWidth={2.25} />
         Meet
       </span>
       <span className="flex items-center gap-1.5 text-xs text-ink-muted">
-        <Trophy aria-hidden className="size-3 text-tier-sanj-ink" strokeWidth={2.25} />
+        {/* Neutral ink, not one gala's colour: a tour pin takes the colour of
+            whichever gala it is, so a gold swatch here would match SANJ and
+            mislead about the other four. */}
+        <Award aria-hidden className="size-3 text-ink-muted" strokeWidth={2.25} />
         Gala tour date
       </span>
     </>
@@ -188,27 +208,34 @@ export function MeetPinSheet({
   meetsHref: string;
 }) {
   const open = pin !== null;
+  // Radix keeps the panel mounted through its exit animation, so rendering
+  // straight from `pin` would empty the sheet — title included — as it slides
+  // away. Holding the last pin keeps the content intact until it is gone, and
+  // guarantees the dialog always has a Title.
+  const [shown, setShown] = useState<MeetPin | null>(pin);
+  if (pin !== null && pin !== shown) setShown(pin);
+  const current = pin ?? shown;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="flex w-full flex-col sm:max-w-xl" side="right">
-        {pin?.kind === "meet" ? (
+        {current?.kind === "meet" ? (
           <>
             <SheetHeader>
-              <SheetTitle>{pin.meet.name}</SheetTitle>
+              <SheetTitle>{current.meet.name}</SheetTitle>
               <SheetDescription>
-                {formatMeetDates(pin.meet)}
-                {pin.meet.venue ? ` · ${pin.meet.venue}` : ""}
+                {formatMeetDates(current.meet)}
+                {current.meet.venue ? ` · ${current.meet.venue}` : ""}
                 {" · "}
-                {pin.meet.course ? COURSE_LABEL[pin.meet.course] : "Course not set"}
+                {current.meet.course ? COURSE_LABEL[current.meet.course] : "Course not set"}
               </SheetDescription>
             </SheetHeader>
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-1">
-              {pin.meet.galaCode && (
+              {current.meet.galaCode && (
                 <div>
                   <Badge
                     variant={
-                      GALA_TOKEN[pin.meet.galaCode] as
+                      GALA_TOKEN[current.meet.galaCode] as
                         | "sans"
                         | "sany"
                         | "sanj"
@@ -216,24 +243,24 @@ export function MeetPinSheet({
                         | "l2"
                     }
                   >
-                    {GALA_SHORT[pin.meet.galaCode]} tour
+                    {GALA_SHORT[current.meet.galaCode]} tour
                   </Badge>
                 </div>
               )}
-              <MeetProgrammeTable events={pin.meet.events} />
               <Link
-                href={`${meetsHref}/${pin.meet._id}`}
+                href={`${meetsHref}/${current.meet._id}`}
                 className={cn(buttonClasses("secondary", "sm"), "self-start")}
               >
                 Open meet
               </Link>
+              <MeetProgrammeTable events={current.meet.events} />
             </div>
           </>
-        ) : pin?.kind === "tour" ? (
+        ) : current?.kind === "tour" ? (
           <>
             <SheetHeader>
-              <SheetTitle>{pin.tour.name ?? GALA_FULL[pin.tour.code]}</SheetTitle>
-              <SheetDescription>{GALA_FULL[pin.tour.code]} tour date</SheetDescription>
+              <SheetTitle>{current.tour.name ?? GALA_FULL[current.tour.code]}</SheetTitle>
+              <SheetDescription>{GALA_FULL[current.tour.code]} tour date</SheetDescription>
             </SheetHeader>
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-1">
               <p className="text-sm text-ink-muted">

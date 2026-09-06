@@ -2,18 +2,20 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { CalendarPlus, MapPin, Upload } from "lucide-react";
+
+import { Badge } from "@/components/ui/badge";
 
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/Button";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { Select } from "@/components/ui/Select";
+import { Segmented } from "@/components/ui/Segmented";
 import { formatMeetDates, isUpcoming } from "@/lib/meets";
 import { trailForHref } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
-import { cn } from "@/lib/utils";
 import { COURSE_LABEL, GalaTag } from "./meetShared";
 import { ImportMeetSheet } from "./ImportMeetSheet";
 import { MeetForm } from "./MeetForm";
@@ -48,8 +50,8 @@ export function MeetsScreen({
   role: "coach" | "viewer";
   today: string;
 }) {
+  const router = useRouter();
   const isViewer = role === "viewer";
-  const href = isViewer ? "/me/meets" : "/meets";
   const base = isViewer ? "/me/meets" : "/meets";
 
   const meets = useQuery(api.meets.listMeets, {});
@@ -81,6 +83,7 @@ export function MeetsScreen({
         name: m.name,
         startDate: m.startDate,
         endDate: m.endDate,
+        venue: m.venue,
         eventCount: m.events.length,
       })),
     [meets],
@@ -90,7 +93,7 @@ export function MeetsScreen({
     <div className="flex flex-col gap-5">
       <PageHeader
         title="Meets"
-        breadcrumb={trailForHref(href)}
+        breadcrumb={trailForHref(base)}
         description={
           isViewer
             ? "The season's galas and what's on each programme."
@@ -119,11 +122,13 @@ export function MeetsScreen({
       <FilterBar
         primary={
           <FilterField label="Show">
-            <Select
-              aria-label="Which meets to show"
-              value={filter}
-              onValueChange={(v) => setFilter(v as Filter)}
+            {/* Three options fit a segmented control — a dropdown only became
+                right for the target-gala toggle once it had five plus "All". */}
+            <Segmented
               options={FILTER_OPTIONS.map((o) => ({ ...o }))}
+              value={filter}
+              onChange={setFilter}
+              ariaLabel="Which meets to show"
             />
           </FilterField>
         }
@@ -134,75 +139,115 @@ export function MeetsScreen({
       ) : shown.length === 0 ? (
         <EmptyState filter={filter} canEdit={canEdit} />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[36rem] text-sm">
-              <caption className="sr-only">
-                {FILTER_OPTIONS.find((o) => o.value === filter)?.label} meets,
-                {filter === "past" ? " most recent first" : " soonest first"}.
-              </caption>
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50 text-left text-2xs uppercase tracking-wide text-ink-faint">
-                  <th scope="col" className="px-4 py-2 font-semibold">
-                    Meet
-                  </th>
-                  <th scope="col" className="w-44 px-4 py-2 font-semibold">
-                    Dates
-                  </th>
-                  <th scope="col" className="w-40 px-4 py-2 font-semibold">
-                    Course
-                  </th>
-                  <th scope="col" className="w-24 px-4 py-2 text-right font-semibold">
-                    Events
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {shown.map((meet) => {
-                  const past = !isUpcoming(meet, today);
-                  return (
-                    <tr
-                      key={meet._id}
-                      className="transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-50/40"
-                    >
-                      <td className="px-4 py-2.5">
-                        <Link
-                          href={`${base}/${meet._id}`}
-                          className="rounded-sm font-medium text-ink outline-none hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {meet.name}
-                        </Link>
-                        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                          {meet.galaCode && <GalaTag code={meet.galaCode} />}
-                          {meet.venue && (
-                            <span className="inline-flex items-center gap-1 text-xs text-ink-muted">
-                              <MapPin aria-hidden className="size-3" />
-                              {meet.venue}
-                            </span>
-                          )}
-                        </span>
-                      </td>
-                      <td
-                        className={cn(
-                          "px-4 py-2.5 tabular-nums",
-                          past ? "text-ink-faint" : "text-ink",
-                        )}
+        <>
+          {/* Wide: one dense table. Narrow: stacked rows — a viewer meets this
+              screen on a phone, and a 36rem table would push the two columns
+              they came for (course, events) off the side. Same data, same
+              order; only the layout differs, exactly as AttendanceAgenda does
+              for the calendar. */}
+          <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm lg:block">
+            <div className="custom-scrollbar overflow-x-auto">
+              <table className="w-full min-w-[36rem] text-sm">
+                <caption className="sr-only">
+                  {captionFor(filter)}
+                </caption>
+                <thead>
+                  <tr className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+                    <th scope="col" className="px-4 py-2.5 font-medium">
+                      Meet
+                    </th>
+                    <th scope="col" className="w-44 px-4 py-2.5 font-medium">
+                      Dates
+                    </th>
+                    <th scope="col" className="w-40 px-4 py-2.5 font-medium">
+                      Course
+                    </th>
+                    <th scope="col" className="w-28 px-4 py-2.5 text-right font-medium">
+                      Events
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {shown.map((meet) => {
+                    const past = !isUpcoming(meet, today);
+                    return (
+                      <tr
+                        key={meet._id}
+                        className="relative transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-50/40 focus-within:bg-brand-50/40"
                       >
-                        {formatMeetDates(meet)}
-                      </td>
-                      <td className="px-4 py-2.5 text-ink-muted">
-                        {meet.course ? COURSE_LABEL[meet.course] : "Not set"}
-                      </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-ink-muted">
-                        {meet.events.length === 0 ? "—" : meet.events.length}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        <td className="px-4 py-2.5">
+                          {/* The link stretches over the whole row, so the row
+                              hover is a real affordance rather than a highlight
+                              that does nothing when clicked. */}
+                          <Link
+                            href={`${base}/${meet._id}`}
+                            className="font-medium text-ink outline-none after:absolute after:inset-0 after:rounded-sm hover:text-brand-600 focus-visible:after:ring-2 focus-visible:after:ring-ring"
+                          >
+                            {meet.name}
+                          </Link>
+                          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            {past && <PastBadge />}
+                            {meet.galaCode && <GalaTag code={meet.galaCode} />}
+                            {meet.venue && <VenueLabel venue={meet.venue} />}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 tabular-nums text-ink">
+                          {formatMeetDates(meet)}
+                        </td>
+                        <td className="px-4 py-2.5 text-ink-muted">
+                          {meet.course ? COURSE_LABEL[meet.course] : "Not set"}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-ink-muted">
+                          {meet.events.length === 0 ? "None yet" : meet.events.length}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+
+          <ul className="flex flex-col gap-2 lg:hidden">
+            {shown.map((meet) => {
+              const past = !isUpcoming(meet, today);
+              return (
+                <li
+                  key={meet._id}
+                  className="relative rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-theme-sm transition-colors [transition-duration:var(--dur-1)] focus-within:border-brand-300 hover:border-brand-300"
+                >
+                  <Link
+                    href={`${base}/${meet._id}`}
+                    className="font-medium text-ink outline-none after:absolute after:inset-0 after:rounded-2xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
+                  >
+                    {meet.name}
+                  </Link>
+                  <p className="mt-0.5 text-sm tabular-nums text-ink-muted">
+                    {formatMeetDates(meet)}
+                  </p>
+                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+                    {past && <PastBadge />}
+                    {meet.galaCode && <GalaTag code={meet.galaCode} />}
+                    <span>
+                      {meet.events.length === 0
+                        ? "No programme yet"
+                        : `${meet.events.length} events`}
+                    </span>
+                    <span aria-hidden>·</span>
+                    <span>
+                      {meet.course ? COURSE_LABEL[meet.course] : "Course not set"}
+                    </span>
+                  </p>
+                  {meet.venue && (
+                    <p className="mt-1">
+                      <VenueLabel venue={meet.venue} />
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
 
       {canEdit && (
@@ -213,15 +258,47 @@ export function MeetsScreen({
             onOpenChange={setAddOpen}
             today={today}
           />
+          {/* From the list there is no meet in context, so the sheet may
+              suggest one — and jumps to whatever it created or corrected. */}
           <ImportMeetSheet
             open={importOpen}
             onOpenChange={setImportOpen}
             meets={importOptions}
+            onImported={(meetId) => router.push(`${base}/${meetId}`)}
           />
         </>
       )}
     </div>
   );
+}
+
+/**
+ * "Past" as a WORD, not a grey date. In the All view the two kinds of meet are
+ * interleaved by date, and colour alone must never carry meaning (DESIGN.md §8).
+ */
+function PastBadge() {
+  return <Badge variant="secondary">Past</Badge>;
+}
+
+function VenueLabel({ venue }: { venue: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-ink-muted">
+      <MapPin aria-hidden className="size-3" />
+      {venue}
+    </span>
+  );
+}
+
+/** What the table is actually showing, for a screen reader. */
+function captionFor(filter: Filter): string {
+  switch (filter) {
+    case "upcoming":
+      return "Meets still to come, soonest first.";
+    case "past":
+      return "Meets already swum, most recent first.";
+    case "all":
+      return "Every meet on the calendar, earliest first. Past meets are labelled.";
+  }
 }
 
 function EmptyState({ filter, canEdit }: { filter: Filter; canEdit: boolean }) {
@@ -243,14 +320,23 @@ function EmptyState({ filter, canEdit }: { filter: Filter; canEdit: boolean }) {
   );
 }
 
+/** Echoes the real table, header row included, so nothing pops in on load. */
 function MeetsSkeleton() {
   return (
     <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
+      <div className="h-9 border-b border-gray-200 bg-gray-50" />
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4 border-b border-gray-100 px-4 py-3 last:border-b-0">
-          <div className="h-4 flex-1 animate-pulse rounded bg-gray-100" />
-          <div className="h-4 w-32 animate-pulse rounded bg-gray-100" />
-          <div className="h-4 w-24 animate-pulse rounded bg-gray-100" />
+        <div
+          key={i}
+          className="flex items-center gap-4 border-b border-gray-100 px-4 py-3 last:border-b-0"
+        >
+          <div className="flex flex-1 flex-col gap-1.5">
+            <div className="h-4 w-2/5 animate-pulse rounded bg-gray-100" />
+            <div className="h-3 w-1/5 animate-pulse rounded bg-gray-100" />
+          </div>
+          <div className="hidden h-4 w-32 animate-pulse rounded bg-gray-100 lg:block" />
+          <div className="hidden h-4 w-28 animate-pulse rounded bg-gray-100 lg:block" />
+          <div className="hidden h-4 w-10 animate-pulse rounded bg-gray-100 lg:block" />
         </div>
       ))}
     </div>

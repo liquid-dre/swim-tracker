@@ -73,9 +73,10 @@ export function AttendanceAgenda({
             )}
           </div>
           <div className="flex flex-col gap-1.5 p-2">
-            {(meetsByDate?.get(day.date) ?? []).map((pin) => (
-              <MeetPinChip key={pin.key} pin={pin} onOpen={onOpenMeet ?? (() => {})} />
-            ))}
+            {onOpenMeet &&
+              (meetsByDate?.get(day.date) ?? []).map((pin) => (
+                <MeetPinChip key={pin.key} pin={pin} onOpen={onOpenMeet} />
+              ))}
             {day.sessions.map((s) => (
               <SessionChip key={s.id} session={s} variant={variant} onOpen={onOpenSession} />
             ))}
