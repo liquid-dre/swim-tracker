@@ -181,6 +181,7 @@ export function MeetDetailScreen({
               are on, so an import launched from here must never be able to
               land on a neighbouring fixture. */}
           <ImportMeetSheet
+            key={importOpen ? `import-${meet._id}` : "import-closed"}
             open={importOpen}
             onOpenChange={setImportOpen}
             lockedMeetId={meet._id}
@@ -190,6 +191,7 @@ export function MeetDetailScreen({
               startDate: m.startDate,
               endDate: m.endDate,
               venue: m.venue,
+              course: m.course,
               eventCount: m.events.length,
             }))}
           />

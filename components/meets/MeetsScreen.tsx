@@ -59,12 +59,22 @@ export function MeetsScreen({
   const canEdit = !isViewer && profile?.role === "SUPER_USER";
 
   const [filter, setFilter] = useState<Filter>("upcoming");
+  const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
   const shown = useMemo(() => {
     if (!meets) return undefined;
+    const needle = search.trim().toLowerCase();
     const rows = meets.filter((m) => {
+      // Name or venue: a coach looking for "Les Brown" is looking for a meet.
+      if (
+        needle !== "" &&
+        !m.name.toLowerCase().includes(needle) &&
+        !(m.venue ?? "").toLowerCase().includes(needle)
+      ) {
+        return false;
+      }
       if (filter === "all") return true;
       const upcoming = isUpcoming(m, today);
       return filter === "upcoming" ? upcoming : !upcoming;
@@ -74,7 +84,7 @@ export function MeetsScreen({
     return filter === "past"
       ? [...rows].sort((a, b) => b.startDate.localeCompare(a.startDate))
       : rows;
-  }, [meets, filter, today]);
+  }, [meets, filter, today, search]);
 
   const importOptions = useMemo(
     () =>
@@ -84,6 +94,7 @@ export function MeetsScreen({
         startDate: m.startDate,
         endDate: m.endDate,
         venue: m.venue,
+        course: m.course,
         eventCount: m.events.length,
       })),
     [meets],
@@ -96,8 +107,8 @@ export function MeetsScreen({
         breadcrumb={trailForHref(base)}
         description={
           isViewer
-            ? "The season's galas and what's on each programme."
-            : "The season's galas and their event programmes. Times you log still record their own meet name."
+            ? "Every meet this season, and what's on each programme."
+            : "Every meet this season and its programme. A logged time still records its own meet name."
         }
         actions={
           canEdit ? (
@@ -132,12 +143,24 @@ export function MeetsScreen({
             />
           </FilterField>
         }
+        trailing={
+          <FilterField label="Find">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Meet or venue"
+              aria-label="Filter meets by name or venue"
+              className="h-11 w-44 rounded-lg border border-gray-300 bg-white px-3 text-sm text-ink outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] placeholder:text-gray-500 hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
+            />
+          </FilterField>
+        }
       />
 
       {shown === undefined ? (
         <MeetsSkeleton />
       ) : shown.length === 0 ? (
-        <EmptyState filter={filter} canEdit={canEdit} />
+        <EmptyState filter={filter} canEdit={canEdit} searching={search.trim() !== ""} />
       ) : (
         <>
           {/* Wide: one dense table. Narrow: stacked rows — a viewer meets this
@@ -185,7 +208,7 @@ export function MeetsScreen({
                           >
                             {meet.name}
                           </Link>
-                          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="relative mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                             {past && <PastBadge />}
                             {meet.galaCode && <GalaTag code={meet.galaCode} />}
                             {meet.venue && <VenueLabel venue={meet.venue} />}
@@ -208,7 +231,7 @@ export function MeetsScreen({
             </div>
           </div>
 
-          <ul className="flex flex-col gap-2 lg:hidden">
+          <ul aria-label={captionFor(filter)} className="flex flex-col gap-2 lg:hidden">
             {shown.map((meet) => {
               const past = !isUpcoming(meet, today);
               return (
@@ -225,7 +248,7 @@ export function MeetsScreen({
                   <p className="mt-0.5 text-sm tabular-nums text-ink-muted">
                     {formatMeetDates(meet)}
                   </p>
-                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+                  <p className="relative mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
                     {past && <PastBadge />}
                     {meet.galaCode && <GalaTag code={meet.galaCode} />}
                     <span>
@@ -261,6 +284,7 @@ export function MeetsScreen({
           {/* From the list there is no meet in context, so the sheet may
               suggest one — and jumps to whatever it created or corrected. */}
           <ImportMeetSheet
+            key={importOpen ? "import-open" : "import-closed"}
             open={importOpen}
             onOpenChange={setImportOpen}
             meets={importOptions}
@@ -301,7 +325,27 @@ function captionFor(filter: Filter): string {
   }
 }
 
-function EmptyState({ filter, canEdit }: { filter: Filter; canEdit: boolean }) {
+function EmptyState({
+  filter,
+  canEdit,
+  searching,
+}: {
+  filter: Filter;
+  canEdit: boolean;
+  searching: boolean;
+}) {
+  // "Nothing matched what you typed" and "there is nothing here" are different
+  // facts, and only one of them is the administrator's problem to fix.
+  if (searching) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-white p-10 text-center shadow-theme-sm">
+        <p className="text-sm font-medium text-ink">No meets match that.</p>
+        <p className="mx-auto mt-1 max-w-[48ch] text-sm text-ink-muted">
+          Try a shorter name, or switch to All to include past meets.
+        </p>
+      </div>
+    );
+  }
   const copy =
     filter === "upcoming"
       ? "No meets are coming up."

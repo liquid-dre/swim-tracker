@@ -63,6 +63,9 @@
   --color-warning-50: #fffaeb;
   --color-warning-500: #f79009;
   --color-warning-600: #dc6803;
+  /* Warning ink is read on --color-warning-50, where 600 lands at 3.3:1 and
+     fails AA for body text. 700 is the same hue at 7.2:1. */
+  --color-warning-700: #93370d;
   --color-blue-light-50: #f0f9ff;
   --color-blue-light-500: #0ba5ec;
   --color-blue-light-600: #0086c9;
@@ -210,7 +213,7 @@
   --success-fg: #ffffff;
   --success-ink: var(--color-success-600);
   --success-subtle: var(--color-success-50);
-  --warning-ink: var(--color-warning-600);
+  --warning-ink: var(--color-warning-700); /* AA on --warning-subtle (7.2:1) */
   --warning-subtle: var(--color-warning-50);
   --danger: var(--color-error-500);
   --danger-fg: #ffffff;

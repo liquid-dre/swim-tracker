@@ -43,6 +43,7 @@ don't strip the system to chase points.
   --color-success-50:#ecfdf3; --color-success-500:#12b76a; --color-success-600:#039855;
   --color-error-50:#fef3f2;   --color-error-500:#f04438;   --color-error-600:#d92d20;
   --color-warning-50:#fffaeb; --color-warning-500:#f79009; --color-warning-600:#dc6803;
+  --color-warning-700:#93370d; /* warning INK: 600 on warning-50 is 3.3:1 and fails AA; 700 is 7.2:1 */
   --color-blue-light-500:#0ba5ec; --color-blue-light-600:#0086c9;
 
   /* Soft layered shadows (the "TailAdmin" depth) */

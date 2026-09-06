@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { buildCalendar, toIso } from "@/components/ui/DateField";
@@ -125,6 +125,84 @@ function SwimmerStatuses({ session }: { session: CalendarSession }) {
   );
 }
 
+/** One cell's overflow toggle. Local state, because it is a per-cell view choice. */
+function DayCell({
+  date,
+  isToday,
+  sessions,
+  meets,
+  variant,
+  onOpenSession,
+  onOpenMeet,
+}: {
+  date: Date;
+  isToday: boolean;
+  sessions: CalendarSession[];
+  meets: MeetPin[];
+  variant: CalendarVariant;
+  onOpenSession?: (id: Id<"sessions">) => void;
+  onOpenMeet?: (pin: MeetPin) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Competitions take chip budget first: on a day with both, the gala is the
+  // thing a coach must not miss. Both lists are capped so a day carrying a
+  // multi-day champs, a tour date and training cannot stretch its row out of
+  // the grid — and the counter opens the rest rather than merely reporting it.
+  const shownMeets = expanded ? meets : meets.slice(0, MAX_MEET_PINS);
+  const sessionBudget = Math.max(1, MAX_CHIPS - shownMeets.length);
+  const shownSessions = expanded ? sessions : sessions.slice(0, sessionBudget);
+  const hidden =
+    sessions.length - shownSessions.length + (meets.length - shownMeets.length);
+
+  return (
+    <div
+      className={cn(
+        "min-h-24 border-b border-r border-gray-100 p-1.5 last:border-r-0",
+        isToday && "bg-brand-50/40",
+      )}
+    >
+      <div className="mb-1 flex items-center justify-between px-0.5">
+        <span
+          className={cn(
+            "inline-flex size-6 items-center justify-center rounded-full text-xs tabular-nums",
+            isToday ? "bg-brand-500 font-semibold text-white" : "text-ink-muted",
+          )}
+        >
+          {date.getDate()}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1">
+        {onOpenMeet &&
+          shownMeets.map((pin) => (
+            <MeetPinChip key={pin.key} pin={pin} onOpen={onOpenMeet} />
+          ))}
+        {shownSessions.map((s) => (
+          <SessionChip key={s.id} session={s} variant={variant} onOpen={onOpenSession} />
+        ))}
+        {hidden > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="rounded px-1 text-left text-2xs text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            +{hidden} more
+          </button>
+        )}
+        {expanded && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="rounded px-1 text-left text-2xs text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Show less
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function AttendanceMonthGrid({
   year,
   month,
@@ -173,51 +251,17 @@ export function AttendanceMonthGrid({
             return <div key={i} aria-hidden className="min-h-24 border-b border-r border-gray-100 bg-gray-50/40" />;
           }
           const iso = toIso(date);
-          const sessions = byDate.get(iso) ?? [];
-          const meets = meetsByDate?.get(iso) ?? [];
-          const isToday = iso === today;
-          // Competitions take chip budget first: on a day with both, the gala is
-          // the thing a coach must not miss. Both lists are capped, so a day
-          // carrying a multi-day champs, a tour date and training cannot stretch
-          // its row out of the grid.
-          const shownMeets = meets.slice(0, MAX_MEET_PINS);
-          const shown = sessions.slice(0, Math.max(1, MAX_CHIPS - shownMeets.length));
-          // One counter for everything hidden — a "+2 more" that silently
-          // excluded a gala would be worse than no counter at all.
-          const overflow =
-            sessions.length - shown.length + (meets.length - shownMeets.length);
-
           return (
-            <div
+            <DayCell
               key={i}
-              className={cn(
-                "min-h-24 border-b border-r border-gray-100 p-1.5 last:border-r-0",
-                isToday && "bg-brand-50/40",
-              )}
-            >
-              <div className="mb-1 flex items-center justify-between px-0.5">
-                <span
-                  className={cn(
-                    "inline-flex size-6 items-center justify-center rounded-full text-xs tabular-nums",
-                    isToday ? "bg-brand-500 font-semibold text-white" : "text-ink-muted",
-                  )}
-                >
-                  {date.getDate()}
-                </span>
-              </div>
-              <div className="flex flex-col gap-1">
-                {onOpenMeet &&
-                  shownMeets.map((pin) => (
-                    <MeetPinChip key={pin.key} pin={pin} onOpen={onOpenMeet} />
-                  ))}
-                {shown.map((s) => (
-                  <SessionChip key={s.id} session={s} variant={variant} onOpen={onOpenSession} />
-                ))}
-                {overflow > 0 && (
-                  <span className="px-1 text-2xs text-ink-faint">+{overflow} more</span>
-                )}
-              </div>
-            </div>
+              date={date}
+              isToday={iso === today}
+              sessions={byDate.get(iso) ?? []}
+              meets={meetsByDate?.get(iso) ?? []}
+              variant={variant}
+              onOpenSession={onOpenSession}
+              onOpenMeet={onOpenMeet}
+            />
           );
         })}
       </div>

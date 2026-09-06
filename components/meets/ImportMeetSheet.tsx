@@ -23,6 +23,7 @@ import { errorMessage, notify } from "@/lib/notify";
 import { formatMeetDates, meetEventLabel } from "@/lib/meets";
 import { parseMeetProgramme, type MeetDraft } from "@/lib/meetImport";
 import type { Course } from "@/lib/swim";
+import { COURSE_LABEL } from "./meetShared";
 
 /*
   Import a meet programme (super-user only; `importMeet` enforces that).
@@ -59,6 +60,7 @@ type MeetOption = {
   startDate: string;
   endDate: string | null;
   venue: string | null;
+  course: Course | null;
   eventCount: number;
 };
 
@@ -130,7 +132,17 @@ export function ImportMeetSheet({
 
   const effectiveTarget =
     lockedMeetId ?? (targetTouched ? target : (suggestion?._id ?? ""));
+  // `isReplace` is derived from the id this sheet will actually SEND, never from
+  // a lookup into `meets`. That list is a separate subscription: while it is
+  // still resolving (or has dropped on a reconnect) the lookup returns null
+  // even though a locked target is set, and gating on it would render a plain
+  // "Add meet" button that quietly replaced a programme. Everything
+  // user-visible — the button, the confirmation, the summary — reads this.
+  const isReplace = effectiveTarget !== "";
   const targetMeet = meets.find((m) => m._id === effectiveTarget) ?? null;
+  // A replace we cannot describe is a replace we must not offer: without the
+  // target's row there is no name and no diff to confirm against.
+  const targetUnresolved = isReplace && targetMeet === null;
 
   /** Exactly what changes on the target meet, so nothing is renamed silently. */
   const changes: Change[] = useMemo(() => {
@@ -155,6 +167,13 @@ export function ImportMeetSheet({
         to: nextVenue,
       });
     }
+    if (course !== "" && targetMeet.course !== course) {
+      out.push({
+        label: "Course",
+        from: targetMeet.course ? COURSE_LABEL[targetMeet.course] : "Not set",
+        to: COURSE_LABEL[course as Course],
+      });
+    }
     if (draft && targetMeet.eventCount !== draft.events.length) {
       out.push({
         label: "Events",
@@ -163,7 +182,7 @@ export function ImportMeetSheet({
       });
     }
     return out;
-  }, [targetMeet, name, startDate, venue, draft]);
+  }, [targetMeet, name, startDate, venue, course, draft]);
 
   function clearInput() {
     setText("");
@@ -202,9 +221,15 @@ export function ImportMeetSheet({
     draft !== null &&
     name.trim() !== "" &&
     /^\d{4}-\d{2}-\d{2}$/.test(startDate) &&
-    draft.events.length > 0;
+    draft.events.length > 0 &&
+    !targetUnresolved;
 
-  async function runImport() {
+  /**
+   * Commit. `rethrow` is set when the caller is the confirmation dialog, which
+   * has its own error slot and must stay open on failure — closing a modal on a
+   * failed write loses the context the decision was made in.
+   */
+  async function runImport(rethrow = false) {
     if (!canImport || importing || draft === null) return;
     setImporting(true);
     try {
@@ -227,6 +252,9 @@ export function ImportMeetSheet({
       );
       onImported?.(res.meetId);
     } catch (err) {
+      // The confirmation dialog renders the failure inline, where the decision
+      // was made — a toast as well would report the same thing twice.
+      if (rethrow) throw err;
       notify.error(errorMessage(err));
     } finally {
       setImporting(false);
@@ -236,7 +264,7 @@ export function ImportMeetSheet({
   // Replacing is irreversible, so it goes through the app's destructive
   // confirmation. Adding a new meet destroys nothing and commits straight away.
   function onSubmit() {
-    if (targetMeet) setConfirming(true);
+    if (isReplace) setConfirming(true);
     else void runImport();
   }
 
@@ -529,6 +557,12 @@ export function ImportMeetSheet({
           </>
         </div>
 
+        {targetUnresolved && (
+          <p className="px-4 pb-1 text-xs text-ink-muted" role="status">
+            Loading this meet&rsquo;s details…
+          </p>
+        )}
+
         <SheetFooter className="flex-row justify-end gap-2 border-t border-border">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {done ? "Done" : "Cancel"}
@@ -536,17 +570,17 @@ export function ImportMeetSheet({
           {!done && (
             // Replacing wears the destructive colour; adding a fixture does not.
             <Button
-              variant={targetMeet ? "danger" : "primary"}
+              variant={isReplace ? "danger" : "primary"}
               loading={importing}
               disabled={!canImport}
               onClick={onSubmit}
             >
-              {targetMeet ? "Replace programme" : "Add meet"}
+              {isReplace ? "Replace programme" : "Add meet"}
             </Button>
           )}
         </SheetFooter>
 
-        {targetMeet && (
+        {isReplace && targetMeet && (
           <ConfirmDialog
             open={confirming}
             onOpenChange={setConfirming}
@@ -575,7 +609,7 @@ export function ImportMeetSheet({
               </>
             }
             confirmLabel="Replace programme"
-            onConfirm={runImport}
+            onConfirm={() => runImport(true)}
           />
         )}
       </SheetContent>
@@ -591,6 +625,11 @@ export function ImportMeetSheet({
  * to be renamed. A rename here is usually CORRECT — the seeded row says "1st
  * seeded" and the real programme says "HAS 1ST SEEDED GALA 2026" — which is
  * exactly why it should be visible rather than a discovery afterwards.
+ *
+ * Deliberately NOT the warning skin the parse warnings above it wear. Those say
+ * "the parser struggled with this"; this says "here is what the write will do to
+ * your data", and it gates a destructive button — so it takes that button's
+ * colour, not the one already on screen meaning something else.
  */
 function ChangeSummary({
   targetName,
@@ -602,24 +641,26 @@ function ChangeSummary({
   changes: Change[];
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5">
-      <p className="text-sm text-warning-ink">
+    <div className="flex flex-col gap-2 rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2.5">
+      <p className="text-sm text-danger-ink">
         Replaces <span className="font-medium">{targetName}</span>&rsquo;s{" "}
         {eventCount === 0 ? "empty programme" : `${eventCount}-event programme`}.
       </p>
       {changes.length === 0 ? (
-        <p className="text-xs text-warning-ink">
-          Its name, date and venue stay as they are.
+        <p className="text-xs text-ink-muted">
+          Its name, date, venue and course stay as they are.
         </p>
       ) : (
-        <dl className="flex flex-col gap-0.5 text-xs text-warning-ink">
+        <dl className="flex flex-col gap-0.5 text-xs text-ink">
           {changes.map((c) => (
             <div key={c.label} className="flex flex-wrap items-baseline gap-1.5">
-              <dt className="w-14 shrink-0 font-medium">{c.label}</dt>
+              <dt className="w-14 shrink-0 font-medium text-ink-muted">{c.label}</dt>
               <dd className="flex flex-wrap items-baseline gap-1.5">
-                <span className="line-through opacity-70">{c.from}</span>
-                <ArrowRight aria-hidden className="size-3 shrink-0 opacity-70" />
-                <span className="font-medium">{c.to}</span>
+                {/* No opacity on the old value: it is struck through, which is
+                    the signal, and fading it as well drops it below AA. */}
+                <span className="text-ink-muted line-through">{c.from}</span>
+                <ArrowRight aria-hidden className="size-3 shrink-0 text-ink-faint" />
+                <span className="font-medium text-ink">{c.to}</span>
               </dd>
             </div>
           ))}

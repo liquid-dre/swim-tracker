@@ -72,7 +72,13 @@ export function MeetProgrammeTable({ events }: { events: ReadonlyArray<MeetEvent
     : `The meet programme, ordered by distance and stroke. ${ordered.length} events.`;
 
   return (
-    <>
+    <section className="flex flex-col gap-2">
+      <h2 className="text-sm font-semibold text-ink">
+        Programme{" "}
+        <span className="font-normal tabular-nums text-ink-muted">
+          ({ordered.length})
+        </span>
+      </h2>
       <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm sm:block">
         <div className="custom-scrollbar overflow-x-auto">
           <table className="w-full min-w-[30rem] text-sm">
@@ -138,7 +144,10 @@ export function MeetProgrammeTable({ events }: { events: ReadonlyArray<MeetEvent
       {/* Narrow: one line per event. A parent checking "what is my swimmer in"
           reads this on a phone, where a five-column table would hide the stroke
           off the right-hand edge. */}
-      <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm sm:hidden">
+      <ul
+        aria-label={caption}
+        className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm sm:hidden"
+      >
         {ordered.map((event, i) => (
           <li
             key={`${event.eventNumber ?? "x"}-${i}`}
@@ -164,6 +173,6 @@ export function MeetProgrammeTable({ events }: { events: ReadonlyArray<MeetEvent
           </li>
         ))}
       </ul>
-    </>
+    </section>
   );
 }
