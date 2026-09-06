@@ -71,7 +71,7 @@ export function ImportMeetSheet({
   open,
   onOpenChange,
   meets,
-  lockedMeetId,
+  lockedMeet,
   onImported,
 }: {
   open: boolean;
@@ -81,14 +81,21 @@ export function ImportMeetSheet({
   /**
    * Opened from a meet's own page: the import targets THAT meet and nothing
    * else. No picker, no suggestion, no way to hit a neighbour by accident.
+   *
+   * The whole ROW, not an id: the caller already has it, so the sheet never
+   * waits on a second subscription to learn the name it is about to overwrite.
    */
-  lockedMeetId?: Id<"meets">;
+  lockedMeet?: MeetOption;
   onImported?: (meetId: Id<"meets">) => void;
 }) {
   const importMeet = useMutation(api.meets.importMeet);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [text, setText] = useState("");
+  /** Set when a PDF was longer than the reader's page cap. */
+  const [truncated, setTruncated] = useState<{ read: number; total: number } | null>(
+    null,
+  );
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -118,9 +125,9 @@ export function ImportMeetSheet({
   const venue = venueEdit ?? draft?.venue ?? "";
 
   // The nearest existing meet by date — only ever offered from the meets LIST.
-  // On a meet's own page `lockedMeetId` settles it and this never runs.
+  // On a meet's own page `lockedMeet` settles it and this never runs.
   const suggestion = useMemo(() => {
-    if (lockedMeetId || !startDate) return null;
+    if (lockedMeet || !startDate) return null;
     let best: { meet: MeetOption; distance: number } | null = null;
     for (const meet of meets) {
       const distance = Math.abs(daysBetween(meet.startDate, startDate));
@@ -128,10 +135,10 @@ export function ImportMeetSheet({
       if (best === null || distance < best.distance) best = { meet, distance };
     }
     return best?.meet ?? null;
-  }, [meets, startDate, lockedMeetId]);
+  }, [meets, startDate, lockedMeet]);
 
   const effectiveTarget =
-    lockedMeetId ?? (targetTouched ? target : (suggestion?._id ?? ""));
+    lockedMeet?._id ?? (targetTouched ? target : (suggestion?._id ?? ""));
   // `isReplace` is derived from the id this sheet will actually SEND, never from
   // a lookup into `meets`. That list is a separate subscription: while it is
   // still resolving (or has dropped on a reconnect) the lookup returns null
@@ -139,7 +146,11 @@ export function ImportMeetSheet({
   // "Add meet" button that quietly replaced a programme. Everything
   // user-visible — the button, the confirmation, the summary — reads this.
   const isReplace = effectiveTarget !== "";
-  const targetMeet = meets.find((m) => m._id === effectiveTarget) ?? null;
+  // The locked row comes from the caller, so a locked target is ALWAYS
+  // resolved — there is no loading state to explain and no second subscription
+  // to wait on.
+  const targetMeet =
+    lockedMeet ?? meets.find((m) => m._id === effectiveTarget) ?? null;
   // A replace we cannot describe is a replace we must not offer: without the
   // target's row there is no name and no diff to confirm against.
   const targetUnresolved = isReplace && targetMeet === null;
@@ -147,11 +158,19 @@ export function ImportMeetSheet({
   // A chosen target that has left the calendar (deleted in another tab) is
   // dropped rather than displayed as a selection the sheet cannot honour —
   // otherwise the picker would read "A new meet" while the button still said
-  // "Replace programme". Only the freely-chosen selection is cleared; a locked
-  // target is the caller's, and its row is simply still loading.
-  if (!lockedMeetId && targetTouched && targetUnresolved && meets.length > 0) {
+  // "Replace programme".
+  if (targetTouched && targetUnresolved && meets.length > 0) {
     setTarget("");
   }
+
+  // Mirrors the guard in `importMeet`: a start date past the target's stored end
+  // would leave the meet dated backwards, and `isUpcoming` reads the END date,
+  // so a meet still to come would start reading as Past. Caught here so the
+  // super-user learns it BEFORE confirming a destructive dialog, not after.
+  const datesConflict =
+    targetMeet?.endDate != null &&
+    startDate !== "" &&
+    startDate > targetMeet.endDate;
 
   /** Exactly what changes on the target meet, so nothing is renamed silently. */
   const changes: Change[] = useMemo(() => {
@@ -161,7 +180,8 @@ export function ImportMeetSheet({
     if (nextName !== "" && targetMeet.name !== nextName) {
       out.push({ label: "Name", from: targetMeet.name, to: nextName });
     }
-    if (startDate !== "" && targetMeet.startDate !== startDate) {
+    // A conflicting date is reported as a blocker below, not as a change.
+    if (!datesConflict && startDate !== "" && targetMeet.startDate !== startDate) {
       out.push({
         label: "Date",
         from: formatMeetDates(targetMeet),
@@ -194,10 +214,11 @@ export function ImportMeetSheet({
       });
     }
     return out;
-  }, [targetMeet, name, startDate, venue, course, draft]);
+  }, [targetMeet, name, startDate, venue, course, draft, datesConflict]);
 
   function clearInput() {
     setText("");
+    setTruncated(null);
     setReadError(null);
     setDone(null);
     setNameEdit(null);
@@ -218,7 +239,14 @@ export function ImportMeetSheet({
       if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
         // pdf.js is ~350 KB — loaded only now, by someone who chose a PDF.
         const { extractPdfText } = await import("@/lib/pdfText");
-        setText(await extractPdfText(file));
+        const read = await extractPdfText(file);
+        setText(read.text);
+        // A programme cut short by the page cap must SAY so — a short event
+        // list presented as a complete one is the failure this whole sheet is
+        // built to prevent.
+        if (read.pagesRead < read.totalPages) {
+          setTruncated({ read: read.pagesRead, total: read.totalPages });
+        }
       } else {
         setText(await file.text());
       }
@@ -231,6 +259,7 @@ export function ImportMeetSheet({
 
   const canImport =
     draft !== null &&
+    !datesConflict &&
     name.trim() !== "" &&
     /^\d{4}-\d{2}-\d{2}$/.test(startDate) &&
     draft.events.length > 0 &&
@@ -286,10 +315,10 @@ export function ImportMeetSheet({
         <SheetHeader>
           <SheetTitle>Import a meet programme</SheetTitle>
           <SheetDescription>
-            {lockedMeetId && targetMeet ? (
+            {lockedMeet ? (
               <>
                 Loads the programme for{" "}
-                <span className="font-medium text-ink">{targetMeet.name}</span>.
+                <span className="font-medium text-ink">{lockedMeet.name}</span>.
                 Nothing is saved until you confirm what was read.
               </>
             ) : (
@@ -351,6 +380,7 @@ export function ImportMeetSheet({
                 setText(e.target.value);
                 setDone(null);
                 setReadError(null);
+                setTruncated(null);
               }}
               spellCheck={false}
               placeholder={"HAS 1st Seeded Gala 2026 - 11/9/2026\n101  Mixed 100 Freestyle\n103  Mixed 100 Breaststroke"}
@@ -376,6 +406,28 @@ export function ImportMeetSheet({
           <>
             {draft && !done && (
               <>
+                {truncated && (
+                  <p className="flex gap-2 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
+                    <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      Only the first {truncated.read} of {truncated.total} pages
+                      were read. Export just the event list, or paste the rest.
+                    </span>
+                  </p>
+                )}
+                {datesConflict && targetMeet && (
+                  <p
+                    role="alert"
+                    className="flex gap-2 rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2.5 text-sm text-danger-ink"
+                  >
+                    <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      This programme is dated after {targetMeet.name}&rsquo;s end
+                      date ({formatMeetDates(targetMeet)}). Fix that meet&rsquo;s
+                      dates first, or save this as a new meet.
+                    </span>
+                  </p>
+                )}
                 {draft.warnings.length > 0 && (
                   <ul className="flex flex-col gap-1.5 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
                     {draft.warnings.map((w, i) => (
@@ -424,20 +476,31 @@ export function ImportMeetSheet({
                       onValueChange={setCourse}
                       size="md"
                       options={[
-                        { value: "", label: "Not set" },
+                        {
+                          // Absent means KEEP on a replace and "unknown" on a
+                          // new meet. One control, two truths, so it says which.
+                          value: "",
+                          label: targetMeet
+                            ? targetMeet.course
+                              ? `Keep ${COURSE_LABEL[targetMeet.course].toLowerCase()}`
+                              : "Keep unset"
+                            : "Not set",
+                        },
                         { value: "LCM", label: "Long course (50 m)" },
                         { value: "SCM", label: "Short course (25 m)" },
                       ]}
                     />
                     <p className="text-xs text-ink-muted">
-                      A programme doesn&rsquo;t state the course. Leave it unset
-                      rather than guessing.
+                      A programme doesn&rsquo;t state the course.{" "}
+                      {targetMeet
+                        ? "Leaving this alone keeps what the meet already has."
+                        : "Leave it unset rather than guessing."}
                     </p>
                   </div>
                 </div>
 
                 {/* --- 3. new meet, or a correction to an existing one ------ */}
-                {lockedMeetId ? (
+                {lockedMeet ? (
                   targetMeet && (
                     <ChangeSummary
                       targetName={targetMeet.name}
@@ -571,9 +634,8 @@ export function ImportMeetSheet({
 
         {targetUnresolved && (
           <p className="px-4 pb-1 text-xs text-ink-muted" role="status">
-            {lockedMeetId
-              ? "Loading this meet\u2019s details\u2026"
-              : "That meet is no longer on the calendar. Choose another, or save this as a new meet."}
+            That meet is no longer on the calendar. Choose another, or save this
+            as a new meet.
           </p>
         )}
 

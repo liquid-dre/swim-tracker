@@ -102,7 +102,7 @@ export function MeetProgrammeTable({
                   Name
                 </th>
                 <th scope="col" className="w-24 px-3 py-2.5 font-medium">
-                  Entrants
+                  For
                 </th>
                 <th scope="col" className="w-28 px-3 py-2.5 font-medium">
                   Distance
@@ -125,7 +125,7 @@ export function MeetProgrammeTable({
                     )}
                     <td className="px-3 py-2 font-medium text-ink">{event.rawLabel}</td>
                     <td className="px-3 py-2 text-ink-muted">
-                      {event.gender ? MEET_GENDER_LABEL[event.gender] : "—"}
+                      {event.gender ? MEET_GENDER_LABEL[event.gender] : "All entrants"}
                     </td>
                     {resolved ? (
                       <>

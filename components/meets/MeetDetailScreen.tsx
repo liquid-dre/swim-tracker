@@ -185,7 +185,15 @@ export function MeetDetailScreen({
             key={importOpen ? `import-${meet._id}` : "import-closed"}
             open={importOpen}
             onOpenChange={setImportOpen}
-            lockedMeetId={meet._id}
+            lockedMeet={{
+              _id: meet._id,
+              name: meet.name,
+              startDate: meet.startDate,
+              endDate: meet.endDate,
+              venue: meet.venue,
+              course: meet.course,
+              eventCount: meet.events.length,
+            }}
             meets={(allMeets ?? []).map((m) => ({
               _id: m._id,
               name: m.name,

@@ -26,6 +26,13 @@ const MAX_PAGES = 20;
 
 type Fragment = { x: number; y: number; width: number; text: string };
 
+/** What was read, and — the point of this shape — what was NOT. */
+export type PdfText = {
+  text: string;
+  pagesRead: number;
+  totalPages: number;
+};
+
 /**
  * Extract a PDF's text with layout preserved as newlines.
  *
@@ -33,8 +40,13 @@ type Fragment = { x: number; y: number; width: number; text: string };
  * (not a PDF, encrypted, image-only). A scanned programme yields no text at
  * all — we say so rather than returning an empty draft, because "we could not
  * read this file" and "this file has no events" are different facts.
+ *
+ * The page cap is REPORTED, never silent. A HY-TEK "Meet Program" (as opposed
+ * to an event list) can run well past 20 pages, and returning its first 20 as
+ * though they were the whole programme would be the one failure this module
+ * exists to prevent — the caller surfaces `pagesRead < totalPages` as a warning.
  */
-export async function extractPdfText(file: File): Promise<string> {
+export async function extractPdfText(file: File): Promise<PdfText> {
   if (file.size > MAX_BYTES) {
     throw new Error("That PDF is larger than 8 MB — export just the event list.");
   }
@@ -79,7 +91,7 @@ export async function extractPdfText(file: File): Promise<string> {
         "No text in that PDF — it looks scanned. Paste the event list instead.",
       );
     }
-    return text;
+    return { text, pagesRead: pageCount, totalPages: doc.numPages };
   } finally {
     await doc.destroy();
   }

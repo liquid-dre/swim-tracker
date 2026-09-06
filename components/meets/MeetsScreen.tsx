@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { CalendarPlus, MapPin, Search, Upload } from "lucide-react";
 
@@ -51,6 +51,8 @@ export function MeetsScreen({
   today: string;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const isViewer = role === "viewer";
   const base = isViewer ? "/me/meets" : "/meets";
 
@@ -58,7 +60,28 @@ export function MeetsScreen({
   const profile = useCurrentProfile();
   const canEdit = !isViewer && profile?.role === "SUPER_USER";
 
-  const [filter, setFilter] = useState<Filter>("upcoming");
+  // WHICH meets lives in the URL — the pattern the profile tabs already set —
+  // so a refresh, a back-navigation, or a link sent to another coach all keep
+  // the view. An unknown `?show=` falls back to Upcoming rather than erroring.
+  const requested = searchParams.get("show");
+  const filter: Filter = FILTER_OPTIONS.some((o) => o.value === requested)
+    ? (requested as Filter)
+    : "upcoming";
+
+  function setFilter(value: Filter) {
+    // Merge rather than overwrite: `show` is one param among whatever else the
+    // URL carries. replace, not push — a filter toggle must not bury the page
+    // the coach came from.
+    const next = new URLSearchParams(searchParams);
+    if (value === "upcoming") next.delete("show");
+    else next.set("show", value);
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  // The search box stays local: it changes on every keystroke, and a router
+  // navigation per character is a cost with no matching benefit — nobody shares
+  // a link to a half-typed query.
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -224,7 +247,7 @@ export function MeetsScreen({
                           >
                             {meet.name}
                           </Link>
-                          <span className="relative mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                             {past && <PastBadge />}
                             {meet.galaCode && <GalaTag code={meet.galaCode} />}
                             {meet.venue && <VenueLabel venue={meet.venue} />}
