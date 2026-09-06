@@ -1,21 +1,16 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { assertMayWriteResult, requireSignedIn } from "./authz";
 import { recordResultDeletion } from "./audit";
+import { computeAge } from "../lib/swim";
+import { galaCodeValidator } from "./galas";
 import {
-  computeAge,
-  fastestMeetSwim,
-  galaResolutionAges,
-  highestGalaMet,
-  isValidEvent,
-  parseTime,
-  pickApplicableStandardsPerGala,
-  type Course,
-  type GalaCode,
-} from "../lib/swim";
-import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
+  assertValidEvent,
+  cleanSwimDate,
+  describeMeetSwim,
+  parseTimeBounded,
+} from "./resultsShared";
 
 // Result logging (BRD §6, Step 5) — the core data-entry flow. Every write goes
 // through the same domain gates: whitelisted event + valid course, a bulletproof-
@@ -52,61 +47,11 @@ const swimType = v.union(
   v.literal("SCHOOL_GALA"), // parent-entered, unofficial (§R15)
 );
 
-// A time above an hour is not a real pool swim (the slowest 1500 is well under
-// half that). Bound defensively so a fat-fingered entry fails loudly.
-const MAX_TIME_MS = 3_600_000;
-
-// ---------------------------------------------------------------------------
-// Validation helpers
-// ---------------------------------------------------------------------------
-
-/** parseTime + range guard. Throws a clear message the form surfaces inline. */
-function parseTimeBounded(input: string): number {
-  const ms = parseTime(input); // throws on anything ambiguous / out of range
-  if (ms > MAX_TIME_MS) {
-    throw new ConvexError("That time looks too long — check the minutes.");
-  }
-  return ms;
-}
-
-/** A swim date must be a real ISO day, on or after the swimmer's DOB, not future. */
-function cleanSwimDate(input: string, dob: string): string {
-  const trimmed = input.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    throw new ConvexError("Swim date must be YYYY-MM-DD.");
-  }
-  const date = new Date(`${trimmed}T00:00:00Z`);
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== trimmed) {
-    throw new ConvexError("That is not a real date.");
-  }
-  const today = new Date().toISOString().slice(0, 10);
-  if (trimmed > today) {
-    throw new ConvexError("Swim date cannot be in the future.");
-  }
-  if (computeAge(dob, trimmed) < 0) {
-    throw new ConvexError("Swim date is before the swimmer's date of birth.");
-  }
-  return trimmed;
-}
-
 /** Trim an optional free-text field; empty → undefined so it's not stored blank. */
 function cleanOptional(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed === "" ? undefined : trimmed;
-}
-
-/** Assert (distance, stroke, course) is on the active whitelist (§4.3). */
-async function assertValidEvent(
-  ctx: MutationCtx,
-  d: number,
-  s: string,
-  c: string,
-): Promise<void> {
-  const events = await ctx.db.query("events").take(200);
-  if (!isValidEvent(d, s, c, events)) {
-    throw new ConvexError(`${d} ${s} is not a valid ${c} event.`);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -151,72 +96,17 @@ export const logResult = mutation({
     const timeMs = parseTimeBounded(args.timeInput);
     const ageAtSwim = computeAge(swimmer.dob, swimDate);
 
-    // The previous headline on this event+course (fastest MEET, §4.6) — read
-    // BEFORE inserting so we can say whether this swim beat it.
-    let prevBestMs: number | null = null;
-    if (args.swimType === "MEET") {
-      const siblings = await ctx.db
-        .query("results")
-        .withIndex("by_event", (q) =>
-          q
-            .eq("swimmerId", args.swimmerId)
-            .eq("distance", args.distance)
-            .eq("stroke", args.stroke)
-            .eq("course", args.course),
-        )
-        .take(1000);
-      prevBestMs = fastestMeetSwim(siblings)?.timeMs ?? null;
-    }
-    const newPb =
-      args.swimType === "MEET" && (prevBestMs === null || timeMs < prevBestMs);
-
-    // A new PB in EITHER course may be the first time a qualifying cut is met —
-    // the one moment worth naming over "Time saved". Both courses are valid for
-    // entry (§4.2), so a short-course PB earns the celebration too, but only
-    // against a short-course cut. Judged at the age the swimmer is FOR THE
-    // COMPETITION (tour date, else current age) — the same rule the qualification
-    // screens use — so the toast never claims a cut those screens won't show.
-    let newlyMetGala: GalaCode | null = null;
-    if (newPb) {
-      const course = args.course as Course;
-      const galas = await loadGalas(ctx);
-      const galaRefs = toGalaRefs(galas);
-      const codeById = new Map(galas.map((g) => [g._id, g.code as GalaCode]));
-      const rows = await ctx.db
-        .query("standards")
-        .withIndex("by_event", (q) =>
-          q
-            .eq("gender", swimmer.gender)
-            .eq("distance", args.distance)
-            .eq("stroke", args.stroke),
-        )
-        .take(1000);
-      const ageToday = computeAge(
-        swimmer.dob,
-        new Date().toISOString().slice(0, 10),
-      );
-      // Only THIS course's cuts — a long-course time never earns a celebration
-      // for beating a short-course standard.
-      const cuts = pickApplicableStandardsPerGala(
-        rows.flatMap((r) => {
-          if (r.galaId === undefined || r.course !== course) return [];
-          const gala = codeById.get(r.galaId);
-          return gala === undefined ? [] : [{ ...r, gala, age: r.age ?? null }];
-        }),
-        galaRefs,
-        galaResolutionAges(swimmer.dob, ageToday, galaRefs),
-      );
-      const byCourse =
-        course === "LCM"
-          ? { LCM: cuts, SCM: {} }
-          : { LCM: {}, SCM: cuts };
-      const galaNow = highestGalaMet({ [course]: timeMs }, byCourse, course)?.gala ?? null;
-      const galaBefore =
-        prevBestMs === null
-          ? null
-          : highestGalaMet({ [course]: prevBestMs }, byCourse, course)?.gala ?? null;
-      if (galaNow !== null && galaNow !== galaBefore) newlyMetGala = galaNow;
-    }
+    // What this swim MEANT — PB and newly-met cut — through the one seam both
+    // doors into `results` share, so a time typed on the meet sheet is judged
+    // exactly as one typed here.
+    const { newPb, newlyMetGala } = await describeMeetSwim(ctx, {
+      swimmer,
+      distance: args.distance,
+      stroke: args.stroke,
+      course: args.course,
+      timeMs,
+      swimType: args.swimType,
+    });
 
     const resultId = await ctx.db.insert("results", {
       swimmerId: args.swimmerId,

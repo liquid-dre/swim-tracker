@@ -30,6 +30,7 @@ import type * as migrations_meets from "../migrations/meets.js";
 import type * as personalBests from "../personalBests.js";
 import type * as profiles from "../profiles.js";
 import type * as results from "../results.js";
+import type * as resultsShared from "../resultsShared.js";
 import type * as sessionPatterns from "../sessionPatterns.js";
 import type * as sessions from "../sessions.js";
 import type * as settings from "../settings.js";
@@ -70,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   personalBests: typeof personalBests;
   profiles: typeof profiles;
   results: typeof results;
+  resultsShared: typeof resultsShared;
   sessionPatterns: typeof sessionPatterns;
   sessions: typeof sessions;
   settings: typeof settings;
