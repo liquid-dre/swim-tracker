@@ -21,6 +21,7 @@ import {
   Target,
   Timer,
   Trash2,
+  Trophy,
   TrendingUp,
   UserCheck,
   Users,
@@ -106,6 +107,16 @@ export const NAV: NavNode[] = [
       { label: "Standards", href: "/me/standards", icon: Ruler },
     ],
   },
+  // The season's fixtures. A single screen, so a bare item rather than a group
+  // of one. Read-only for everyone: only the SUPER_USER adds, edits or imports,
+  // and every meets mutation enforces that server-side (convex/meets.ts).
+  {
+    kind: "item",
+    label: "Meets",
+    href: "/me/meets",
+    icon: Trophy,
+    roles: ["VIEWER"],
+  },
   {
     kind: "item",
     label: "Dashboard",
@@ -149,6 +160,17 @@ export const NAV: NavNode[] = [
       { label: "Gala qualification", href: "/qualification", icon: Plane },
       { label: "Standards", href: "/standards", icon: Ruler },
     ],
+  },
+  // Meets (§R19) — the dated competitions on the season calendar, with each
+  // meet's programme of events. Sits beside Attendance because the two are the
+  // app's calendar surfaces; the attendance grid draws meet pins alongside its
+  // session chips. Distinct from the five qualifying GALAS under Qualifying.
+  {
+    kind: "item",
+    label: "Meets",
+    href: "/meets",
+    icon: Trophy,
+    roles: ["COACH"],
   },
   // Session attendance (§R18). Coach-owned: the calendar (view + mark), the
   // recurring schedule, and season insights. Any club coach manages it; server-

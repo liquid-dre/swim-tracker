@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { buildCalendar, toIso } from "@/components/ui/DateField";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { CalendarDay, CalendarSession, CalendarVariant } from "./types";
+import { MeetPinChip, type MeetPin } from "./CalendarMeets";
 import {
   STATUS_META,
   WEEKDAY_SHORT,
@@ -19,6 +20,11 @@ import {
   attendance count (coach, unfiltered), "swimmer" colours by per-swimmer status
   (coach single-swimmer + viewer). Tapping a chip fires `onOpenSession` when the
   caller is a coach; a viewer passes none, so chips read as static status.
+
+  Competitions (§R19) ride on the same grid via `meetsByDate`. They are drawn
+  ABOVE the session chips and in a different shape, because a gala is what a
+  session gets cancelled or excused FOR — reading the two as the same kind of
+  thing is exactly the mistake to prevent.
 */
 
 const MAX_CHIPS = 4;
@@ -124,6 +130,8 @@ export function AttendanceMonthGrid({
   days,
   variant,
   onOpenSession,
+  meetsByDate,
+  onOpenMeet,
 }: {
   year: number;
   month: number;
@@ -131,6 +139,9 @@ export function AttendanceMonthGrid({
   days: CalendarDay[];
   variant: CalendarVariant;
   onOpenSession?: (id: Id<"sessions">) => void;
+  /** Competitions keyed by ISO date; a multi-day meet appears on each of its days. */
+  meetsByDate?: Map<string, MeetPin[]>;
+  onOpenMeet?: (pin: MeetPin) => void;
 }) {
   const weeks = useMemo(() => buildCalendar(year, month), [year, month]);
   const byDate = useMemo(() => {
@@ -161,8 +172,11 @@ export function AttendanceMonthGrid({
           }
           const iso = toIso(date);
           const sessions = byDate.get(iso) ?? [];
+          const meets = meetsByDate?.get(iso) ?? [];
           const isToday = iso === today;
-          const shown = sessions.slice(0, MAX_CHIPS);
+          // Competitions take chip budget first: on a day with both, the gala is
+          // the thing a coach must not miss.
+          const shown = sessions.slice(0, Math.max(1, MAX_CHIPS - meets.length));
           const overflow = sessions.length - shown.length;
 
           return (
@@ -184,6 +198,13 @@ export function AttendanceMonthGrid({
                 </span>
               </div>
               <div className="flex flex-col gap-1">
+                {meets.map((pin) => (
+                  <MeetPinChip
+                    key={pin.key}
+                    pin={pin}
+                    onOpen={onOpenMeet ?? (() => {})}
+                  />
+                ))}
                 {shown.map((s) => (
                   <SessionChip key={s.id} session={s} variant={variant} onOpen={onOpenSession} />
                 ))}

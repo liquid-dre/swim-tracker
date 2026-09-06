@@ -122,6 +122,65 @@ export default defineSchema({
     tourName: v.optional(v.string()), // display-only ("SANJ Nationals")
   }).index("by_code", ["code"]),
 
+  // Meets — the dated competitions on the season calendar (§R19).
+  //
+  // NOT the same thing as `galas`. A gala is one of the five QUALIFYING standard
+  // sets (SANS/SANY/SANJ/L3/L2) with cuts and entry windows; a meet is one dated
+  // competition you actually swim at, with a programme of events — the word the
+  // app already uses in `results.meetName` and `swimType: "MEET"`.
+  //
+  // Global reference data, exactly like `galas` and `standards`: the SUPER_USER
+  // maintains it (by hand or by importing a HY-TEK programme) and every role
+  // reads it. No `clubId` — a seeded gala is a regional fixture that swimmers
+  // from any club enter, and one correct season calendar beats a copy per club.
+  //
+  // `endDate` absent = a single-day meet. `course` absent = NOT KNOWN: meet
+  // programmes do not state it, and a guessed course would silently compare a
+  // PB against the wrong table (§4.2), so it stays unset until someone says.
+  //
+  // `galaCode` is a DISPLAY-ONLY tag ("this meet is the SANJ tour") that lets
+  // the calendar collapse a meet and that gala's tour pin into one. It is NEVER
+  // authoritative: `galas.tourDate` remains the sole input to the birthday rule
+  // every qualifying surface depends on (§4.9).
+  //
+  // `events` is the programme, stored inline: it is small (tens of rows), read
+  // only ever together with its meet, and never queried across meets — so a
+  // separate table would buy nothing but joins.
+  meets: defineTable({
+    name: v.string(),
+    startDate: v.string(), // ISO YYYY-MM-DD
+    endDate: v.optional(v.string()), // ISO; absent = single day
+    venue: v.optional(v.string()),
+    course: v.optional(course),
+    galaCode: v.optional(
+      v.union(
+        v.literal("SANS"),
+        v.literal("SANY"),
+        v.literal("SANJ"),
+        v.literal("LEVEL_3"),
+        v.literal("LEVEL_2"),
+      ),
+    ),
+    // One programme line. `rawLabel` is the source document's own words, kept
+    // verbatim and always displayed; `distance`/`stroke` are set ONLY when the
+    // line resolved to a whitelisted event, so a relay or a 25 m sprint still
+    // appears without being mistaken for something the app can score.
+    events: v.array(
+      v.object({
+        eventNumber: v.optional(v.number()),
+        rawLabel: v.string(),
+        gender: v.optional(
+          v.union(v.literal("M"), v.literal("F"), v.literal("MIXED")),
+        ),
+        distance: v.optional(distance),
+        stroke: v.optional(stroke),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+    updatedBy: v.optional(v.id("profiles")),
+  }).index("by_startDate", ["startDate"]),
+
   // DEPRECATED — superseded by galas.tourDate / galas.tourName.
   // Retained ONLY so `migrations.migrateToGalas` can copy the super-user-entered
   // dates across; dropped in the narrowing deploy once that has run. Nothing

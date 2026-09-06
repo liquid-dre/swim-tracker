@@ -18,6 +18,13 @@ import { AttendanceMonthGrid } from "./AttendanceMonthGrid";
 import { AttendanceHeatmap } from "./AttendanceHeatmap";
 import { AttendanceAgenda } from "./AttendanceAgenda";
 import { SessionForm } from "./SessionForm";
+import {
+  MeetLegend,
+  MeetPinSheet,
+  mergeCalendarMeets,
+  type CalendarGalaTour,
+  type MeetPin,
+} from "./CalendarMeets";
 import type { CalendarDay, CalendarSession } from "./types";
 import {
   STATUS_META,
@@ -34,18 +41,25 @@ import {
   hands off to the presentational grid/agenda. A coach can filter by squad and by
   swimmer; filtering to one swimmer recolours the cells by that swimmer's status —
   the same per-swimmer view a viewer sees (§R18).
+
+  It also draws the season's COMPETITIONS (§R19) — meets and gala tour dates —
+  over the same month, because training and racing are one calendar: `EXCUSED` is
+  defined as "illness, gala, notified ahead", and this is where the gala that
+  caused it becomes visible. Meets are global reference data, so both roles read
+  the same query and neither can edit from here.
 */
 
+/** Attendance statuses. A fragment, so it shares one legend row with MeetLegend. */
 function StatusLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+    <>
       {STATUS_ORDER.map((s) => (
         <span key={s} className="flex items-center gap-1.5 text-xs text-ink-muted">
           <span className={cn("size-2.5 rounded-full", STATUS_META[s].dot)} />
           {STATUS_META[s].label}
         </span>
       ))}
-    </div>
+    </>
   );
 }
 
@@ -82,6 +96,7 @@ export function AttendanceCalendarScreen({
   const [squadId, setSquadId] = useState<string>(initialSquadId ?? "");
   const [swimmerId, setSwimmerId] = useState<string>(initialSwimmerId ?? "");
   const [newOpen, setNewOpen] = useState(false);
+  const [openPin, setOpenPin] = useState<MeetPin | null>(null);
 
   const { from, to } = useMemo(() => monthBounds(view.year, view.month), [view]);
 
@@ -107,6 +122,12 @@ export function AttendanceCalendarScreen({
     api.attendance.getViewerCalendar,
     isCoach ? "skip" : { from, to },
   );
+
+  // Competitions over the month in view. Global reference data, so the same
+  // query serves coach and viewer; a multi-day meet is returned for any month it
+  // touches, not only the one it starts in.
+  const meets = useQuery(api.meets.listMeetsInRange, { from, to });
+  const galas = useQuery(api.galas.listGalas, {});
 
   // The season strip reads its OWN window — the whole season, not the month in
   // view — from a query built for range reads rather than session chips.
@@ -181,6 +202,19 @@ export function AttendanceCalendarScreen({
     }
     return [...byDate.entries()].map(([date, sessions]) => ({ date, sessions }));
   }, [isCoach, coachData, viewerData, swimmerId, swimmerName]);
+
+  // Gala tour dates are pins too — that date IS the birthday rule every
+  // qualifying screen reads, so it belongs on the calendar. A meet tagged with
+  // the same gala on the same day absorbs it (mergeCalendarMeets), so a
+  // championship is never drawn twice.
+  const meetsByDate = useMemo(() => {
+    const tours: CalendarGalaTour[] = (galas ?? [])
+      .filter((g) => g.tourDate !== null)
+      .map((g) => ({ code: g.code, date: g.tourDate!, name: g.tourName }));
+    return mergeCalendarMeets(meets ?? [], tours);
+  }, [meets, galas]);
+
+  const hasMeets = meetsByDate.size > 0;
 
   const loading = days === undefined;
   const viewerSwimmers = viewerData?.swimmers ?? [];
@@ -310,6 +344,8 @@ export function AttendanceCalendarScreen({
               days={days!}
               variant={variant}
               onOpenSession={isCoach ? onOpenSession : undefined}
+              meetsByDate={meetsByDate}
+              onOpenMeet={setOpenPin}
             />
           </div>
           <div className="lg:hidden">
@@ -318,12 +354,25 @@ export function AttendanceCalendarScreen({
               days={days!}
               variant={variant}
               onOpenSession={isCoach ? onOpenSession : undefined}
+              meetsByDate={meetsByDate}
+              onOpenMeet={setOpenPin}
             />
           </div>
         </>
       )}
 
-      <StatusLegend />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        <StatusLegend />
+        {hasMeets && <MeetLegend />}
+      </div>
+
+      <MeetPinSheet
+        pin={openPin}
+        onOpenChange={(open) => {
+          if (!open) setOpenPin(null);
+        }}
+        meetsHref={isCoach ? "/meets" : "/me/meets"}
+      />
 
       {isCoach && (
         <SessionForm
