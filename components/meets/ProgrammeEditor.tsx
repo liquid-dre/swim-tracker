@@ -36,9 +36,9 @@ import {
   addCustomLine,
   addWhitelistLine,
   canMoveLine,
-  courseMismatches,
   eventFitsCourse,
   eventOptions,
+  moveWouldNumber,
   reorderBlockedReason,
   moveLine,
   removeLine,
@@ -89,6 +89,7 @@ export function ProgrammeEditor({
   onChange,
   entryCounts,
   problems = [],
+  mismatched = [],
   focusLine = null,
   onFocused,
 }: {
@@ -105,6 +106,9 @@ export function ProgrammeEditor({
   entryCounts?: Map<string, number>;
   /** Everything blocking the save, so every offending line can say so itself. */
   problems?: ReadonlyArray<ProgrammeProblem>;
+  /** Lines whose event this meet's pool cannot run. Computed by the caller,
+   *  which also shows the count on the Details tab where the course is set. */
+  mismatched?: ReadonlyArray<number>;
   /** A line to scroll to and focus, set when the footer says "go to it". */
   focusLine?: number | null;
   onFocused?: () => void;
@@ -130,16 +134,29 @@ export function ProgrammeEditor({
     for (const p of problems) {
       if (p.index === null) continue;
       const already = out.get(p.index);
-      out.set(p.index, already === undefined ? p.message : `${already} ${p.message}`);
+      out.set(
+        p.index,
+        already === undefined ? p.message : `${already} ${p.message}`,
+      );
     }
     return out;
   }, [problems]);
 
   const reorderBlocked = reorderBlockedReason(lines);
-  // Not a save-blocker (the server does not check it), but a coach on the
-  // Details tab would otherwise never learn that two of their events cannot be
-  // swum in the pool they just chose.
-  const mismatched = courseMismatches(lines, course);
+
+  // A row that is about to unmount cannot hold focus, so the row that will take
+  // its place is asked to. Merged with the caller's own focus request.
+  const [focusAfter, setFocusAfter] = useState<number | null>(null);
+  const focusTarget = focusLine ?? focusAfter;
+
+  const clearFocusAfter = useCallback(() => setFocusAfter(null), []);
+  // After a delete the neighbour takes focus: the row below, or the row above
+  // when the last one goes.
+  const rememberFocusAfterRemove = useCallback(
+    (index: number, remaining: number) =>
+      setFocusAfter(remaining === 0 ? null : Math.min(index, remaining - 1)),
+    [],
+  );
 
   const on = useMemo<LineHandlers>(
     () => ({
@@ -169,13 +186,26 @@ export function ProgrammeEditor({
         {announcement}
       </p>
 
+      {/* Facts about the LIST, above the list. Putting either inside row 0 —
+          which an earlier pass did — attributes them to one event and hides
+          them from a coach working at row 40. */}
       {mismatched.length > 0 && (
-        <p role="status" className="text-xs text-warning-ink">
+        <p className="text-xs text-warning-ink">
           {mismatched.length === 1
             ? "One event here can't be swum in this meet's course."
             : `${mismatched.length} events here can't be swum in this meet's course.`}{" "}
           They will save, but no time can be recorded against them until the
           event or the meet&rsquo;s course changes.
+        </p>
+      )}
+      {reorderBlocked !== null && (
+        <p className="text-xs text-warning-ink">{reorderBlocked}</p>
+      )}
+      {moveWouldNumber(lines) && (
+        <p className="text-xs text-ink-muted">
+          These events have no numbers. Moving one will number them all in their
+          current order, because the number is what a meet&rsquo;s running order
+          is.
         </p>
       )}
 
@@ -204,9 +234,11 @@ export function ProgrammeEditor({
                     : (entryCounts.get(line.id) ?? 0)
               }
               problem={problemsByLine.get(i) ?? null}
-              reorderBlocked={reorderBlocked}
-              focusMe={focusLine === i}
+              mismatched={mismatched.includes(i)}
+              focusMe={focusTarget === i}
               onFocused={onFocused}
+              onFocusedLocal={clearFocusAfter}
+              onRemoved={rememberFocusAfterRemove}
               canMoveUp={canMoveLine(lines, i, -1)}
               canMoveDown={canMoveLine(lines, i, 1)}
               on={on}
@@ -255,7 +287,7 @@ function AddEvent({
   // Typing the name of a real event and pressing the free-text button beside it
   // would make a line that can never take a time. Say so instead.
   const exactMatch = options.find(
-    (o) => o.allowed && o.label.toLowerCase() === search.trim().toLowerCase(),
+    (o) => o.label.toLowerCase() === search.trim().toLowerCase(),
   );
 
   function add(option: { distance: Distance; stroke: Stroke; label: string }) {
@@ -315,6 +347,7 @@ function AddEvent({
               open && options[active] ? `programme-opt-${active}` : undefined
             }
             value={search}
+            maxLength={120}
             placeholder="100 free, 200 IM…"
             onChange={(e) => {
               setSearch(e.target.value);
@@ -351,9 +384,7 @@ function AddEvent({
             className={`${MENU_PANEL} stagger-menu absolute left-0 right-0 top-full mt-1 max-h-64 overflow-y-auto`}
           >
             {options.length === 0 && (
-              <li
-                className="px-2 py-1.5 text-sm text-ink-muted"
-              >
+              <li className="px-2 py-1.5 text-sm text-ink-muted">
                 No event matches that. &ldquo;Add as written&rdquo; puts it on
                 the programme anyway.
               </li>
@@ -392,8 +423,12 @@ function AddEvent({
           is disabled and therefore cannot describe itself to a screen reader. */}
       <p role="status" className="text-xs text-ink-muted">
         {exactMatch
-          ? `${exactMatch.label} is a real event, so add it from the list — a line typed by hand can never take a time.`
-          : "Every event is Mixed unless you say otherwise. Split one into Boys and Girls with the split button on its row."}
+          ? exactMatch.allowed
+            ? `${exactMatch.label} is a real event, so add it from the list — a line typed by hand can never take a time.`
+            : `${exactMatch.reason} Change the meet's course, or add it as a different event.`
+          : options.length === 0 && search.trim() !== ""
+            ? "No event matches that. \u201cAdd as written\u201d puts it on the programme anyway, where it will show but take no times."
+            : "Every event is Mixed unless you say otherwise. Split one into Boys and Girls with the split button on its row."}
       </p>
     </div>
   );
@@ -406,11 +441,13 @@ const ProgrammeLine = memo(function ProgrammeLine({
   course,
   entered,
   problem,
+  mismatched,
   focusMe,
   onFocused,
+  onFocusedLocal,
+  onRemoved,
   canMoveUp,
   canMoveDown,
-  reorderBlocked,
   on,
 }: {
   line: MeetEvent;
@@ -421,8 +458,12 @@ const ProgrammeLine = memo(function ProgrammeLine({
   entered: number | undefined;
   /** Why the save is blocked on THIS line, or null. */
   problem: string | null;
+  /** This line's event cannot be swum in the meet's course. */
+  mismatched: boolean;
   focusMe: boolean;
   onFocused?: () => void;
+  onFocusedLocal: () => void;
+  onRemoved: (index: number, remaining: number) => void;
   /**
    * A numbered line cannot swap with an unnumbered one: the number decides the
    * running order and one of the pair has not got one, so the move would be
@@ -430,8 +471,6 @@ const ProgrammeLine = memo(function ProgrammeLine({
    */
   canMoveUp: boolean;
   canMoveDown: boolean;
-  /** Why this programme cannot be reordered at all, or null. */
-  reorderBlocked: string | null;
   on: LineHandlers;
 }) {
   const resolved = line.distance !== undefined && line.stroke !== undefined;
@@ -444,10 +483,18 @@ const ProgrammeLine = memo(function ProgrammeLine({
   // cursor in it, so the reason Save is grey becomes the thing you are editing.
   useEffect(() => {
     if (!focusMe) return;
-    rowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    rowRef.current?.scrollIntoView({
+      block: "center",
+      // PRODUCT.md's reduced-motion rule applies to scrolling too; `Tabs` makes
+      // the same check for the same reason.
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
     labelRef.current?.focus();
     onFocused?.();
-  }, [focusMe, onFocused]);
+    onFocusedLocal();
+  }, [focusMe, onFocused, onFocusedLocal]);
 
   const name =
     line.rawLabel.trim() === "" ? `event ${index + 1}` : line.rawLabel;
@@ -545,7 +592,9 @@ const ProgrammeLine = memo(function ProgrammeLine({
               // The button about to be pressed disables itself at the top of
               // the list, so move focus before it leaves the tab order.
               if (index - 1 === 0) downRef.current?.focus();
-              on.move(index, -1, `${name} moved earlier.`);
+              // The POSITION, not just "moved": an identical announcement on a
+              // second press is announced as nothing at all.
+              on.move(index, -1, `${name} moved to ${index} of ${total}.`);
             }}
           >
             <ArrowUp aria-hidden className="size-4" />
@@ -556,7 +605,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
             disabled={!canMoveDown}
             onClick={() => {
               if (index + 1 === total - 1) upRef.current?.focus();
-              on.move(index, 1, `${name} moved later.`);
+              on.move(index, 1, `${name} moved to ${index + 2} of ${total}.`);
             }}
           >
             <ArrowDown aria-hidden className="size-4" />
@@ -574,12 +623,12 @@ const ProgrammeLine = memo(function ProgrammeLine({
             // waits until it knows whether there are any.
             disabled={entered === undefined}
             onClick={() => {
-              // The row is about to unmount, taking the focused button with
-              // it. Hand focus to the row that will take its place before it
-              // goes, rather than letting it fall to the document.
-              const next = index === total - 1 ? upRef : downRef;
-              next.current?.focus();
+              // Focusing a sibling BUTTON here would be pointless: every one of
+              // them is inside the row that is unmounting. The surviving
+              // neighbour is asked for focus instead, through the same channel
+              // the footer's "go to it" uses.
               on.remove(index, `${name} removed.`);
+              onRemoved(index, total - 1);
             }}
           >
             <Trash2 aria-hidden className="size-4" />
@@ -592,11 +641,11 @@ const ProgrammeLine = memo(function ProgrammeLine({
           {problem}
         </p>
       )}
-      {/* A disabled button carries neither a tooltip (pointer events are off)
-          nor its label (it is out of the tab order), so the reason has to be
-          text. Shown once, on the first row, not sixty times. */}
-      {reorderBlocked !== null && index === 0 && (
-        <p className="mt-2 text-xs text-warning-ink">{reorderBlocked}</p>
+      {mismatched && (
+        <p className="mt-2 text-xs text-warning-ink">
+          Not swum in this meet&rsquo;s course, so no time can be recorded
+          against it.
+        </p>
       )}
       {!resolved && (
         <p className="mt-2 text-xs text-ink-muted">
@@ -666,42 +715,49 @@ function EventPair({
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <Select
-        aria-label={`Distance for ${name}`}
-        value={distance === undefined ? "" : String(distance)}
-        onValueChange={(value) =>
-          value === ""
-            ? onClear()
-            : pick({ distance: Number(value) as Distance })
-        }
-        size="sm"
-        options={[
-          { value: "", label: "Not a tracked event" },
-          ...DISTANCE_ORDER.map((d) => ({
-            value: String(d),
-            label: `${d} m`,
-            disabled: stroke === undefined ? false : !possible(d, stroke),
-          })),
-        ]}
-      />
-      <Select
-        aria-label={`Stroke for ${name}`}
-        value={stroke ?? ""}
-        onValueChange={(value) =>
-          value === "" ? onClear() : pick({ stroke: value as Stroke })
-        }
-        size="sm"
-        options={[
-          // The same words as the distance's own clear option: both do the same
-          // thing, which is to stop the line claiming an event at all.
-          { value: "", label: "Not a tracked event" },
-          ...STROKE_ORDER.map((st) => ({
-            value: st,
-            label: STROKE_LABEL[st],
-            disabled: distance === undefined ? false : !possible(distance, st),
-          })),
-        ]}
-      />
+      {/* Sized wrappers: a Select trigger is `w-full`, so dropped bare into a
+          flex row each one would claim the whole line and wrap. */}
+      <div className="w-40">
+        <Select
+          aria-label={`Distance for ${name}`}
+          value={distance === undefined ? "" : String(distance)}
+          onValueChange={(value) =>
+            value === ""
+              ? onClear()
+              : pick({ distance: Number(value) as Distance })
+          }
+          size="sm"
+          options={[
+            { value: "", label: "Not a tracked event" },
+            ...DISTANCE_ORDER.map((d) => ({
+              value: String(d),
+              label: `${d} m`,
+              disabled: stroke === undefined ? false : !possible(d, stroke),
+            })),
+          ]}
+        />
+      </div>
+      <div className="w-32">
+        <Select
+          aria-label={`Stroke for ${name}`}
+          value={stroke ?? ""}
+          onValueChange={(value) =>
+            value === "" ? onClear() : pick({ stroke: value as Stroke })
+          }
+          size="sm"
+          options={[
+            // The same words as the distance's own clear option: both do the same
+            // thing, which is to stop the line claiming an event at all.
+            { value: "", label: "Not a tracked event" },
+            ...STROKE_ORDER.map((st) => ({
+              value: st,
+              label: STROKE_LABEL[st],
+              disabled:
+                distance === undefined ? false : !possible(distance, st),
+            })),
+          ]}
+        />
+      </div>
       {distance !== undefined && stroke !== undefined && conflict === null && (
         <span className="text-xs text-ink-muted">
           {eventLabel(distance, stroke)}

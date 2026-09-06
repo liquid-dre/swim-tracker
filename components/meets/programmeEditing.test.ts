@@ -266,7 +266,10 @@ describe("validateLines", () => {
         line({ rawLabel: "a", eventNumber: 4 }),
         line({ rawLabel: "b", eventNumber: 4 }),
       ]),
+      // BOTH rows are named, because both are at fault: marking only the
+      // second would leave the coach looking at one row for a problem about two.
     ).toEqual([
+      { message: expect.stringMatching(/both numbered 4/), index: 0 },
       { message: expect.stringMatching(/both numbered 4/), index: 1 },
     ]);
   });

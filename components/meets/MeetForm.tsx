@@ -21,10 +21,10 @@ import {
 } from "@/components/ui/sheet";
 import { GALA_FULL, GALA_ORDER, type GalaCode } from "@/lib/galas";
 import { errorMessage, notify } from "@/lib/notify";
-import type { MeetEvent } from "@/lib/meets";
+import { compareMeetEvents, type MeetEvent } from "@/lib/meets";
 import type { Course } from "@/lib/swim";
 import { ProgrammeEditor } from "./ProgrammeEditor";
-import { validateLines } from "./programmeEditing";
+import { courseMismatches, validateLines } from "./programmeEditing";
 
 /*
   Add or edit one meet (super-user only; convex/meets.ts enforces that regardless
@@ -91,7 +91,14 @@ export function MeetForm({
     meet === undefined ? "LCM" : (meet.course ?? ""),
   );
   const [galaCode, setGalaCode] = useState<string>(meet?.galaCode ?? "");
-  const [events, setEvents] = useState<MeetEvent[]>(meet?.events ?? []);
+  // Seeded in the order READERS see, not the order the array happens to be in.
+  // The meet page, the sign-up sheet and the viewer's list all sort with
+  // `compareMeetEvents`; if the editor listed a different order, moving a line
+  // down here could move it up there — which is the same class of bug as an
+  // array-only reorder, one layer further in.
+  const [events, setEvents] = useState<MeetEvent[]>(() =>
+    [...(meet?.events ?? [])].sort(compareMeetEvents),
+  );
   const [tab, setTab] = useState("details");
   // The line the blocked reason is about, so the footer can take the coach to
   // it instead of naming an event number they then have to hunt for.
@@ -136,6 +143,10 @@ export function MeetForm({
     (endDate === "" ||
       (/^\d{4}-\d{2}-\d{2}$/.test(endDate) && endDate >= startDate));
   const programmeProblems = validateLines(events);
+  // Computed HERE, not inside the Events tab: the course is chosen on Details,
+  // and `Tabs` unmounts the panel that is not showing — so a warning living in
+  // the editor could not be seen from the tab that causes it.
+  const mismatched = courseMismatches(events, (course || null) as Course | null);
   const firstProblem = programmeProblems[0] ?? null;
   const valid =
     name.trim() !== "" && datesValid && programmeProblems.length === 0;
@@ -156,7 +167,10 @@ export function MeetForm({
     venue !== (meet?.venue ?? "") ||
     course !== (meet === undefined ? "LCM" : (meet.course ?? "")) ||
     galaCode !== (meet?.galaCode ?? "") ||
-    JSON.stringify(events) !== JSON.stringify(meet?.events ?? []);
+    // Against the SEEDED order, so merely opening a meet whose array was stored
+    // out of reading order does not count as an edit.
+    JSON.stringify(events) !==
+      JSON.stringify([...(meet?.events ?? [])].sort(compareMeetEvents));
 
   function requestClose(next: boolean) {
     if (next) return;
@@ -282,6 +296,15 @@ export function MeetForm({
                           { value: "SCM", label: "Short course (25 m)" },
                         ]}
                       />
+                      {mismatched.length > 0 && (
+                        <p role="status" className="text-xs text-warning-ink">
+                          {mismatched.length === 1
+                            ? "One event on the programme can't be swum in this course."
+                            : `${mismatched.length} events on the programme can't be swum in this course.`}{" "}
+                          They will save, but no time can be recorded against
+                          them.
+                        </p>
+                      )}
                     </SelectField>
 
                     <SelectField
@@ -313,9 +336,11 @@ export function MeetForm({
                 // is carried by the label instead, which is a channel a count
                 // cannot compete for.
                 label:
-                  programmeProblems.length === 0
-                    ? "Events"
-                    : `Events · ${programmeProblems.length} to fix`,
+                  programmeProblems.length > 0
+                    ? `Events · ${programmeProblems.length} to fix`
+                    : mismatched.length > 0
+                      ? `Events · ${mismatched.length} to check`
+                      : "Events",
                 badge: events.length,
                 content: (
                   <div className="pt-4">
@@ -325,6 +350,7 @@ export function MeetForm({
                       onChange={setEvents}
                       entryCounts={entryCounts}
                       problems={programmeProblems}
+                      mismatched={mismatched}
                       focusLine={focusLine}
                       onFocused={clearFocusLine}
                     />

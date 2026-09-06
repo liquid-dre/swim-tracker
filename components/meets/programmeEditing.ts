@@ -204,10 +204,10 @@ function numbering(lines: ReadonlyArray<MeetEvent>): "all" | "none" | "mixed" {
  * `nextEventNumber` deliberately refuses to invent numbers when a line is
  * merely ADDED — a running order the source document never stated is a claim,
  * not a convenience. Asking to reorder is different: it is the coach stating
- * one. So this is reachable only from `moveLine`, and only on a programme that
- * has no numbers at all.
+ * one. Private, because that distinction is the only thing keeping the two
+ * apart, and an exported helper would invite it to be crossed.
  */
-export function numberAll(lines: ReadonlyArray<MeetEvent>): MeetEvent[] {
+function numberAll(lines: ReadonlyArray<MeetEvent>): MeetEvent[] {
   return lines.map((line, i) => ({ ...line, eventNumber: i + 1 }));
 }
 
@@ -300,6 +300,11 @@ export function canMoveLine(
   return numbering(lines) !== "mixed";
 }
 
+/** Would a move number this programme for the first time? */
+export function moveWouldNumber(lines: ReadonlyArray<MeetEvent>): boolean {
+  return lines.length > 0 && numbering(lines) === "none";
+}
+
 /** Why reordering is unavailable on this programme, or null. */
 export function reorderBlockedReason(
   lines: ReadonlyArray<MeetEvent>,
@@ -378,7 +383,7 @@ export function validateLines(
   }
 
   const out: ProgrammeProblem[] = [];
-  const seenNumbers = new Set<number>();
+  const seenNumbers = new Map<number, number>();
   for (const [i, line] of lines.entries()) {
     const where =
       line.eventNumber === undefined
@@ -395,12 +400,16 @@ export function validateLines(
     // An event number IS the running order, so two lines cannot share one:
     // every read surface sorts by it and would order the pair arbitrarily.
     if (line.eventNumber !== undefined) {
-      if (seenNumbers.has(line.eventNumber)) {
-        say(
-          `Two events are both numbered ${line.eventNumber}. Give one of them a different number.`,
-        );
+      const first = seenNumbers.get(line.eventNumber);
+      if (first !== undefined) {
+        // BOTH rows are at fault, so both are named: marking only the second
+        // would leave the coach looking at one row for a problem about two.
+        const message = `Two events are both numbered ${line.eventNumber}. Give one of them a different number.`;
+        out.push({ message, index: first });
+        say(message);
+      } else {
+        seenNumbers.set(line.eventNumber, i);
       }
-      seenNumbers.add(line.eventNumber);
     }
 
     const hasDistance = line.distance !== undefined;
