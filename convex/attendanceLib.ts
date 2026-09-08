@@ -116,6 +116,47 @@ export function resolveSeasonEnd(
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * The window session GENERATION runs over — and it is NOT the season window the
+ * rates and heatmap read.
+ *
+ * Those look BACKWARDS: with no custom season set they run from a rolling start
+ * a year before today to today, which is the right shape for "this season's
+ * attendance so far". Generation only ever writes FORWARD, so handing it that
+ * window is what empties the calendar — its end lands on today, no future date
+ * is ever produced, and every clean future session then sits outside the window
+ * and is deleted as "no longer produced by the pattern".
+ *
+ * So generation resolves its own window:
+ *
+ *   start = today, or the season start when a coach has set one still to come.
+ *           A session is never written into the past, and `setSeasonStart`
+ *           refuses a future date, so in practice this is always today.
+ *   end   = the coach's season end when set, else a year past that start — the
+ *           horizon the Schedule screen already promises.
+ *
+ * A season end that has already passed returns an INVERTED window (end < start).
+ * That is not an empty schedule to write; it means the season is over, and the
+ * caller must leave the existing sessions alone rather than treat every one of
+ * them as dropped.
+ */
+export function resolveGenerationWindow(
+  todayIso: string,
+  seasonStartIso: string | null,
+  seasonEndIso: string | null,
+): { start: string; end: string } {
+  const today = cleanIsoDate(todayIso);
+  if (today === null) throw new Error(`resolveGenerationWindow: invalid date "${todayIso}"`);
+  const seasonStart = cleanIsoDate(seasonStartIso ?? undefined);
+  const start = seasonStart !== null && seasonStart > today ? seasonStart : today;
+  return { start, end: resolveSeasonEnd(start, seasonEndIso) };
+}
+
+/** True when a generation window has no days in it — the season has ended. */
+export function isSeasonOver(window: { start: string; end: string }): boolean {
+  return window.end < window.start;
+}
+
 /** Union of several id lists, de-duplicated, order-preserving (multi-squad roster). */
 export function dedupeSwimmerIds<T extends string>(idLists: ReadonlyArray<ReadonlyArray<T>>): T[] {
   const seen = new Set<T>();

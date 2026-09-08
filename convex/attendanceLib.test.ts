@@ -6,9 +6,11 @@ import {
   datesForPattern,
   dedupeSwimmerIds,
   formatHHMM,
+  isSeasonOver,
   isValidMinuteOfDay,
   isValidWeekdays,
   parseHHMM,
+  resolveGenerationWindow,
   resolveSeasonEnd,
   weekdayOf,
 } from "./attendanceLib";
@@ -99,6 +101,46 @@ describe("resolveSeasonEnd", () => {
   test("caps an open-ended season at one year past the start", () => {
     expect(resolveSeasonEnd("2026-07-23", null)).toBe("2027-07-23");
     expect(resolveSeasonEnd("2026-07-23", "garbage")).toBe("2027-07-23");
+  });
+});
+
+describe("resolveGenerationWindow", () => {
+  test("starts at today and runs to the season end when one is set", () => {
+    expect(resolveGenerationWindow("2026-09-08", "2025-09-01", "2027-03-31")).toEqual({
+      start: "2026-09-08",
+      end: "2027-03-31",
+    });
+  });
+  test("runs a year AHEAD of today when no season end is set", () => {
+    // The bug this exists to prevent: the rolling analysis window starts a year
+    // BEFORE today, so its end lands on today and generation — which only ever
+    // writes forward — produced nothing at all.
+    const window = resolveGenerationWindow("2026-09-08", null, null);
+    expect(window).toEqual({ start: "2026-09-08", end: "2027-09-08" });
+    expect(datesForPattern([1], window.start, window.end).length).toBeGreaterThan(50);
+  });
+  test("a season start already behind us never drags the start backwards", () => {
+    expect(resolveGenerationWindow("2026-09-08", "2025-09-01", null).start).toBe("2026-09-08");
+  });
+  test("a season start still to come is honoured as the start", () => {
+    expect(resolveGenerationWindow("2026-09-08", "2026-10-01", null)).toEqual({
+      start: "2026-10-01",
+      end: "2027-10-01",
+    });
+  });
+  test("an unreadable season end falls back to the year-ahead horizon", () => {
+    expect(resolveGenerationWindow("2026-09-08", null, "garbage").end).toBe("2027-09-08");
+  });
+  test("refuses a today it cannot read", () => {
+    expect(() => resolveGenerationWindow("nope", null, null)).toThrow();
+  });
+});
+
+describe("isSeasonOver", () => {
+  test("true only once the window's end is behind its start", () => {
+    expect(isSeasonOver(resolveGenerationWindow("2026-09-08", null, "2026-09-01"))).toBe(true);
+    expect(isSeasonOver(resolveGenerationWindow("2026-09-08", null, "2026-09-08"))).toBe(false);
+    expect(isSeasonOver(resolveGenerationWindow("2026-09-08", null, null))).toBe(false);
   });
 });
 

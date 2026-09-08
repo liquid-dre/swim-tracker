@@ -91,6 +91,13 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   own tier-coloured pin, absorbed when a meet carries that gala's tag on the same day. Selecting a
   pin opens the programme in a sheet, not a navigation — a coach checking a clash must not lose the
   month they were reading.
+- **Two season windows, and they point opposite ways.** Attendance rates, the heatmap and season
+  improvement read a rolling window that looks a year **back** from today. Session GENERATION reads
+  its own (`resolveGenerationWindow`): today through the coach's season end, or a year **ahead** when
+  none is set. Never feed the first to the second — its end lands on today, so no future session is
+  ever produced and every clean future one is then deleted as "no longer produced by the pattern",
+  which is exactly how the calendar emptied itself once. An ended season (an inverted window) is a
+  **no-op**, not an empty programme: it stops extending the schedule, it never culls it.
 - **Dropdowns:** one shared styled menu component (white rounded panel, soft shadow, brand-indigo hover
   items, rotating chevron, subtle staggered entrance) for every select / picker / action menu.
 - **Collapsed sidebar:** the icon rail still reaches every subcategory — groups reveal a flyout of their
@@ -160,9 +167,16 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   `rawLabel` verbatim and always renders; `distance`/`stroke` are set only when the line resolves to
   a whitelisted event, and a relay never resolves (a relay time is a team's). Nothing is guessed: a
   programme states no course, so `course` stays unset and the UI says "Not set"; an ambiguous printed
-  date (`11/9/2026`) is read day-first **and flagged** for the importer to confirm. The parser is
-  pure and lives in `lib/meetImport.ts` — PDF, CSV and paste all become text first (`lib/pdfText.ts`
-  reassembles a PDF's positioned fragments into lines) so there is one set of rules and one test.
+  date (`11/9/2026`) is read day-first **and flagged** for the importer to confirm, and a course the
+  document states in words ("Short Course") is **reported as a warning, never applied** — the person
+  confirming the import still sets it. Nor is a name taken from a file's top line: no dated title
+  line means no name, and the sheet holds its button until one is typed. The parser is pure and
+  lives in `lib/meetImport.ts` — PDF, **spreadsheet**, CSV and paste all become text first
+  (`lib/pdfText.ts` reassembles a PDF's positioned fragments into lines; `lib/sheetText.ts` unzips
+  an `.xlsx` and joins each row's cells with **tabs**, which is the column break a CSV row already
+  uses) so there is one set of rules and one test. A four-column programme is why the age band is
+  stripped before the distance is read: "Boys 25 years | 100 | Free" has two bare numbers and 25 is
+  a real racing distance.
 - **A programme LINE has an identity, and sign-ups point at it.** Every `meets.events[]` object
   carries a stable `id`, minted in `cleanEvents` (the one seam every programme write passes through)
   and preserved across edits and re-imports by `reconcileLines` — by the line's own id first, then by
