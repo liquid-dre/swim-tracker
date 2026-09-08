@@ -28,9 +28,11 @@ import { COURSE_LABEL } from "./meetShared";
 /*
   Import a meet programme (super-user only; `importMeet` enforces that).
 
-  Three inputs, ONE parser. A HY-TEK PDF is turned into text by `lib/pdfText.ts`
-  and then goes down the same path as a CSV or a paste, so there is a single set
-  of rules to reason about and to test (`lib/meetImport.test.ts`).
+  Four inputs, ONE parser. A HY-TEK PDF (`lib/pdfText.ts`) and an Excel workbook
+  (`lib/sheetText.ts`) are each turned into text and then go down the same path
+  as a CSV or a paste, so there is a single set of rules to reason about and to
+  test (`lib/meetImport.test.ts`). Both readers are loaded on demand — a coach
+  who never imports anything pays for neither.
 
   The step this sheet exists for is the CONFIRMATION. The parser reads a name, a
   date, a venue and a programme; the super-user checks them and says whether this
@@ -92,10 +94,15 @@ export function ImportMeetSheet({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [text, setText] = useState("");
-  /** Set when a PDF was longer than the reader's page cap. */
+  /**
+   * Set when a file was longer than its reader's cap — a PDF past the page cap,
+   * a workbook past the sheet cap. `unit` names what was counted, because
+   * "2 of 5 pages" and "2 of 5 sheets" are different things to go and fix.
+   */
   const [truncated, setTruncated] = useState<{
     read: number;
     total: number;
+    unit: "pages" | "sheets";
   } | null>(null);
   const [reading, setReading] = useState(false);
   const [readError, setReadError] = useState<string | null>(null);
@@ -265,7 +272,23 @@ export function ImportMeetSheet({
         // list presented as a complete one is the failure this whole sheet is
         // built to prevent.
         if (read.pagesRead < read.totalPages) {
-          setTruncated({ read: read.pagesRead, total: read.totalPages });
+          setTruncated({ read: read.pagesRead, total: read.totalPages, unit: "pages" });
+        }
+      } else if (/\.xlsx?$|\.xlsm$/i.test(file.name)) {
+        // A workbook is a ZIP of XML: unreadable as text, and readable as a
+        // table. Its rows become tab-separated lines — the same shape a CSV
+        // already arrives in — so the parser below is unchanged. The older
+        // binary `.xls` matches too, so that the reader can name it and say
+        // which export to take instead.
+        const { extractSheetText } = await import("@/lib/sheetText");
+        const read = await extractSheetText(file);
+        setText(read.text);
+        if (read.sheetsRead.length < read.totalSheets) {
+          setTruncated({
+            read: read.sheetsRead.length,
+            total: read.totalSheets,
+            unit: "sheets",
+          });
         }
       } else {
         setText(await file.text());
@@ -374,8 +397,8 @@ export function ImportMeetSheet({
               </>
             ) : (
               <>
-                A HY-TEK event list (PDF), a CSV, or pasted text. Nothing is
-                saved until you confirm what was read below.
+                A HY-TEK event list (PDF), an Excel programme, a CSV, or pasted
+                text. Nothing is saved until you confirm what was read below.
               </>
             )}
           </SheetDescription>
@@ -387,7 +410,7 @@ export function ImportMeetSheet({
             <input
               ref={fileRef}
               type="file"
-              accept=".pdf,application/pdf,.csv,text/csv,.txt,text/plain"
+              accept=".pdf,application/pdf,.xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.csv,text/csv,.txt,text/plain"
               onChange={onFile}
               className="sr-only"
               id="meet-file"
@@ -444,11 +467,11 @@ export function ImportMeetSheet({
             />
             <p className="text-xs text-ink-muted">
               One event per line, as the programme prints it. A leading event
-              number is optional, and a CSV of{" "}
+              number is optional, and a CSV — or a spreadsheet column layout of{" "}
               <span className="font-medium text-ink">
-                event number, event name
+                event number, age group, distance, event
               </span>{" "}
-              works the same way.
+              — works the same way.
             </p>
           </div>
 
@@ -471,8 +494,9 @@ export function ImportMeetSheet({
                       className="mt-0.5 size-4 shrink-0"
                     />
                     <span>
-                      Only the first {truncated.read} of {truncated.total} pages
-                      were read. Export just the event list, or paste the rest.
+                      Only the first {truncated.read} of {truncated.total}{" "}
+                      {truncated.unit} were read. Export just the event list, or
+                      paste the rest.
                     </span>
                   </p>
                 )}

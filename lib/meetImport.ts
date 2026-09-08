@@ -1,15 +1,17 @@
 // lib/meetImport.ts — read a meet programme out of whatever the coach has.
 //
-// Pure and framework-free: text in, a draft out. The three accepted inputs —
-// a HY-TEK Meet Manager PDF, a CSV, and pasted text — all become plain text
-// before they reach here (`lib/pdfText.ts` does the PDF), so there is exactly
-// ONE parser to reason about and to test.
+// Pure and framework-free: text in, a draft out. The four accepted inputs — a
+// HY-TEK Meet Manager PDF, an Excel workbook, a CSV, and pasted text — all
+// become plain text before they reach here (`lib/pdfText.ts` does the PDF,
+// `lib/sheetText.ts` the workbook), so there is exactly ONE parser to reason
+// about and to test.
 //
 // Two principles, both learned from `parseStandardsCsv`:
 //
 //   NOTHING IS GUESSED. A date it cannot read is left unset for the super-user
 //   to supply, never inferred from a filename or "probably this season". Course
-//   is never inferred at all — the source documents do not state it.
+//   is never SET here at all: where a document states one in words the draft
+//   says so in a warning and leaves the choice to the person confirming it.
 //
 //   NOTHING VANISHES. Every line the parser skipped comes back in `skipped`, so
 //   the preview can show that it read 8 of the 8 lines that mattered and say
@@ -105,6 +107,30 @@ function isRealDate(iso: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// A stated course
+// ---------------------------------------------------------------------------
+
+/**
+ * The course a document says it is swum in, when it says so in words.
+ *
+ * This is REPORTED, never applied: `MeetDraft` still carries no course, and the
+ * import sheet still opens its course control on the same default it always
+ * did. A programme's own header ("Short Course") is a fact worth putting in
+ * front of the person confirming the import — filing a 25 m junior gala as long
+ * course is the one mistake nothing downstream would ever flag — but it is the
+ * person, not the parser, who sets it (§4.2).
+ */
+export function statedCourse(text: string): { label: string; course: "SCM" | "LCM" } | null {
+  const short = /\bshort[\s-]?course\b|\bSCM\b|\b25\s?m(?:etre|eter)?\s+pool\b/i.exec(text);
+  const long = /\blong[\s-]?course\b|\bLCM\b|\b50\s?m(?:etre|eter)?\s+pool\b/i.exec(text);
+  // Both, or neither, is not a statement — a programme that mentions each is
+  // describing something we cannot read off a single word.
+  if ((short === null) === (long === null)) return null;
+  const found = short ?? long!;
+  return { label: found[0], course: short ? "SCM" : "LCM" };
+}
+
+// ---------------------------------------------------------------------------
 // The parser
 // ---------------------------------------------------------------------------
 
@@ -125,8 +151,10 @@ const EVENT_ISH =
  *
  * The meet's identity comes from the first non-furniture line carrying a date —
  * HY-TEK prints `HAS 1ST SEEDED GALA 2026 - 11/9/2026` — with the text before
- * the date taken as the name, verbatim. A venue is recognised from a pool or
- * aquatic-club line above it. Everything else is scanned for programme lines.
+ * the date taken as the name, verbatim. With no such line there is no name: a
+ * top line is not a title just because it is at the top. A venue is recognised
+ * from a pool or aquatic-club line above it. Everything else is scanned for
+ * programme lines.
  */
 export function parseMeetProgramme(text: string): MeetDraft {
   const draft: MeetDraft = {
@@ -179,7 +207,20 @@ export function parseMeetProgramme(text: string): MeetDraft {
     draft.warnings.push("No date found — set the meet's date below before saving.");
   }
   if (draft.name === "") {
+    // Deliberately NOT filled from the top line. A spreadsheet does title cell
+    // A1 — but so does a pasted list that opens "Warm-up from 07:00", and a
+    // prefilled wrong name is committable while a blank one holds the button
+    // until a person types it. The line is still reported under `skipped`.
     draft.warnings.push("No meet name found — enter one below before saving.");
+  }
+
+  const stated = statedCourse(text);
+  if (stated) {
+    draft.warnings.push(
+      `This programme says "${stated.label}" — set the course below to ${
+        stated.course === "SCM" ? "short" : "long"
+      } course. Nothing here sets it for you.`,
+    );
   }
 
   // --- programme ------------------------------------------------------------

@@ -392,6 +392,95 @@ describe("generation and freeze", () => {
   });
 });
 
+describe("the generation window", () => {
+  /** Drop the fixture's far-future season dates — the real-world default. */
+  async function clearSeasonDates(t: Awaited<ReturnType<typeof setup>>["t"]) {
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("settings").first();
+      if (row) await ctx.db.patch(row._id, { seasonStart: undefined, seasonEnd: undefined });
+    });
+  }
+
+  test("with no season dates set, a pattern materialises a year of sessions ahead of today", async () => {
+    const { asCoachA, ids, t } = await setup();
+    await clearSeasonDates(t);
+
+    // The regression: generation used to run over the ROLLING window the
+    // attendance rates read — a year BEFORE today through today — so it could
+    // never produce a future date, and every clean future session it already
+    // had then read as "dropped" and was deleted.
+    const { generated } = await asCoachA.mutation(api.sessionPatterns.createPattern, {
+      name: "Evening",
+      weekdays: [1], // Mondays
+      startMin: 990,
+      endMin: 1080,
+      squadIds: [ids.squadX],
+    });
+    expect(generated).toBeGreaterThan(50); // ~52 Mondays in the year ahead
+
+    const today = new Date().toISOString().slice(0, 10);
+    const horizon = new Date();
+    horizon.setUTCFullYear(horizon.getUTCFullYear() + 1);
+    const horizonIso = horizon.toISOString().slice(0, 10);
+
+    const dates = await t.run(async (ctx) =>
+      (await ctx.db.query("sessions").take(500)).map((s) => s.date),
+    );
+    expect(dates.length).toBe(generated);
+    expect(dates.every((d) => d >= today && d <= horizonIso)).toBe(true);
+  });
+
+  test("re-running generation is a no-op, not a cull", async () => {
+    const { asCoachA, ids, t } = await setup();
+    await clearSeasonDates(t);
+    await asCoachA.mutation(api.sessionPatterns.createPattern, {
+      name: "Evening",
+      weekdays: [1],
+      startMin: 990,
+      endMin: 1080,
+      squadIds: [ids.squadX],
+    });
+    const before = await t.run(async (ctx) => (await ctx.db.query("sessions").take(500)).length);
+
+    const result = await asCoachA.mutation(api.sessionPatterns.regenerateSeason, {});
+    expect(result.generated).toBe(0);
+    expect(result.seasonOver).toBe(false);
+    expect(result.horizon).toBe("default");
+
+    const after = await t.run(async (ctx) => (await ctx.db.query("sessions").take(500)).length);
+    expect(after).toBe(before);
+  });
+
+  test("a season end that has already passed stops generating without deleting anything", async () => {
+    const { asCoachA, ids, t } = await setup();
+    await clearSeasonDates(t);
+    await asCoachA.mutation(api.sessionPatterns.createPattern, {
+      name: "Evening",
+      weekdays: [1],
+      startMin: 990,
+      endMin: 1080,
+      squadIds: [ids.squadX],
+    });
+    const before = await t.run(async (ctx) => (await ctx.db.query("sessions").take(500)).length);
+    expect(before).toBeGreaterThan(50);
+
+    // The season end drifts into the past. "The season is over" is not an
+    // instruction to delete the sessions that are still on the calendar.
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("settings").first();
+      await ctx.db.patch(row!._id, { seasonEnd: PAST_DATE });
+    });
+
+    const result = await asCoachA.mutation(api.sessionPatterns.regenerateSeason, {});
+    expect(result.seasonOver).toBe(true);
+    expect(result.generated).toBe(0);
+    expect(result.horizon).toBe("seasonEnd");
+
+    const after = await t.run(async (ctx) => (await ctx.db.query("sessions").take(500)).length);
+    expect(after).toBe(before);
+  });
+});
+
 describe("viewer note-stripping", () => {
   test("a viewer sees status but not a private note unless flagged visible", async () => {
     const { asCoachA, asViewer, ids } = await setup();

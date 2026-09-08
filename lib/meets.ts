@@ -190,8 +190,17 @@ const DISTANCES = new Set<number>([25, 50, 100, 200, 400, 800, 1500]);
 /** A relay leg count ("4x50", "4 x 100", "4X50 Free Relay"). */
 const RELAY = /\b\d\s*[x×]\s*\d{2,4}\b|\brelays?\b/i;
 
-/** An age band the meet groups by ("11-12", "13 & over", "10&U", "Open"). */
-const AGE_BAND = /\b\d{1,2}\s*(?:-|–|&|and)\s*(?:\d{1,2}|u|under|over|older)\b/i;
+/**
+ * An age band the meet groups by, in every shape they print it: "11-12",
+ * "13 & over", "10&U", "9/U", "11 years".
+ *
+ * Stripped before the distance is read, because a band and a distance are both
+ * bare numbers and the band comes FIRST. That is not a theoretical clash — a
+ * spreadsheet programme puts the age group in its own column ("Boys 25 years |
+ * 100 | Free"), and 25 is a real racing distance.
+ */
+const AGE_BAND =
+  /\b\d{1,2}\s*(?:-|–|&|and|\/)\s*(?:\d{1,2}|u|under|over|older)\b|\b\d{1,2}\s*(?:years?|yrs?)\b/gi;
 
 /**
  * Read one programme line into a `MeetEvent`.

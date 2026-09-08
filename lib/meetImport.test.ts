@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseMeetProgramme, parsePrintedDate } from "./meetImport";
+import { parseMeetProgramme, parsePrintedDate, statedCourse } from "./meetImport";
 import {
   compareMeetEvents,
   formatMeetDates,
@@ -203,6 +203,29 @@ describe("parseProgrammeLine", () => {
   });
 });
 
+describe("an age band never becomes a distance", () => {
+  it("a spreadsheet's age column is stripped before the distance is read", () => {
+    // The hazard a four-column programme creates: the age group and the distance
+    // are both bare numbers, and the age comes first.
+    expect(parseProgrammeLine("Boys 25 years 100 Free")).toMatchObject({
+      distance: 100,
+      stroke: "FREE",
+    });
+    expect(parseProgrammeLine("Girls 9/U years 25 Freestyle")).toMatchObject({
+      distance: 25,
+      stroke: "FREE",
+    });
+    expect(parseProgrammeLine("Boys 50 yrs 200 Breaststroke")).toMatchObject({
+      distance: 200,
+      stroke: "BREAST",
+    });
+  });
+  it("the bands it already read still work", () => {
+    expect(parseProgrammeLine("Girls 11-12 100 Free")).toMatchObject({ distance: 100 });
+    expect(parseProgrammeLine("Boys 10&U 50 Back")).toMatchObject({ distance: 50 });
+  });
+});
+
 describe("parseMeetProgramme — other inputs", () => {
   it("reads a CSV of event number and name", () => {
     const draft = parseMeetProgramme(
@@ -253,6 +276,55 @@ describe("parseMeetProgramme — other inputs", () => {
     const draft = parseMeetProgramme("");
     expect(draft.events).toEqual([]);
     expect(draft.warnings.join(" ")).toContain("No events");
+  });
+});
+
+describe("statedCourse", () => {
+  it("reads a course a document states in words", () => {
+    expect(statedCourse("1st Junior Gala\nShort Course")?.course).toBe("SCM");
+    expect(statedCourse("Long Course Championships")?.course).toBe("LCM");
+    expect(statedCourse("Held in the 25m pool")?.course).toBe("SCM");
+  });
+  it("says nothing when the document says nothing, or says both", () => {
+    expect(statedCourse("HAS 1st Seeded Gala - 11/9/2026")).toBeNull();
+    // A 50 m event on a line is not a statement about the pool.
+    expect(statedCourse("101 Mixed 50 Freestyle")).toBeNull();
+    expect(statedCourse("Short course day 1, long course day 2")).toBeNull();
+  });
+});
+
+describe("a spreadsheet-shaped programme", () => {
+  // What `lib/sheetText.ts` hands over: one tab-separated line per row.
+  const TEXT = [
+    "1st Junior Gala",
+    "Short Course",
+    "Event #\tAge Group\tDistance\tEvent",
+    "1\tBoys 11 years\t50\tBackstroke",
+    "2\tGirls 9/U years\t25\tFreestyle",
+    "3\tMixed 11 years\t100\tFreestyle relay",
+  ].join("\n");
+
+  it("reads a column layout as numbered programme lines", () => {
+    const draft = parseMeetProgramme(TEXT);
+    expect(draft.events.map((e) => [e.eventNumber, e.distance, e.stroke])).toEqual([
+      [1, 50, "BACK"],
+      [2, 25, "FREE"],
+      [3, undefined, undefined], // a relay never resolves
+    ]);
+  });
+
+  it("reports the course the file states without ever setting it", () => {
+    const draft = parseMeetProgramme(TEXT);
+    expect(draft.warnings.join(" ")).toContain("Short Course");
+    // The draft carries no course of its own — the person confirming decides.
+    expect(Object.keys(draft)).not.toContain("course");
+  });
+
+  it("treats the spreadsheet's column heading row as furniture", () => {
+    const draft = parseMeetProgramme(TEXT);
+    expect(draft.skipped.map((k) => k.text)).not.toContain(
+      "Event #\tAge Group\tDistance\tEvent",
+    );
   });
 });
 

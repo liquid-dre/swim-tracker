@@ -6,12 +6,12 @@ import { requireCoach } from "./authz";
 import { assertManagesClub } from "./attendanceShared";
 import {
   datesForPattern,
+  isSeasonOver,
   isValidMinuteOfDay,
   isValidWeekdays,
-  resolveSeasonEnd,
+  resolveGenerationWindow,
   todayIso,
 } from "./attendanceLib";
-import { rollingSeasonStart } from "../lib/swim";
 
 /*
   Recurring session patterns (§R18). A coach defines named weekly templates
@@ -75,24 +75,36 @@ async function cleanSquadIds(
   return unique;
 }
 
-/** The season window generation runs over: coach start (or rolling default), capped end. */
-async function seasonWindow(
+/**
+ * The window generation runs over: today through the coach's season end, or a
+ * year ahead when none is set (`resolveGenerationWindow`). Deliberately NOT the
+ * rolling season window the attendance rates read — that one looks a year back
+ * from today, and generating against it produces no future session at all.
+ */
+async function generationWindow(
   ctx: QueryCtx | MutationCtx,
-): Promise<{ start: string; end: string; source: "custom" | "rolling" }> {
+): Promise<{ start: string; end: string; horizon: "seasonEnd" | "default" }> {
   const row = await ctx.db
     .query("settings")
     .withIndex("by_key", (q) => q.eq("key", "app"))
     .unique();
-  const today = todayIso();
-  const start = row?.seasonStart ?? rollingSeasonStart(today);
-  const end = resolveSeasonEnd(start, row?.seasonEnd ?? null);
-  return { start, end, source: row?.seasonStart ? "custom" : "rolling" };
+  const seasonEnd = row?.seasonEnd ?? null;
+  return {
+    ...resolveGenerationWindow(todayIso(), row?.seasonStart ?? null, seasonEnd),
+    horizon: seasonEnd ? "seasonEnd" : "default",
+  };
 }
 
 /**
  * Materialise/refresh a pattern's future sessions across [start, end]. Returns how
  * many NEW rows were inserted. Idempotent: running it twice with no changes is a
  * no-op. Never inserts a date before today and never mutates a frozen row.
+ *
+ * An ended season (an inverted window) is a NO-OP, not an empty programme. The
+ * difference matters: every remaining future session would otherwise read as
+ * "no longer produced by the pattern" and be deleted, so a season end drifting
+ * into the past would silently wipe the calendar rather than simply stop
+ * extending it.
  */
 async function generateSessionsForPattern(
   ctx: MutationCtx,
@@ -100,6 +112,7 @@ async function generateSessionsForPattern(
   actorId: Id<"profiles">,
   window: { start: string; end: string },
 ): Promise<number> {
+  if (isSeasonOver(window)) return 0;
   const today = todayIso();
   const targetDates = new Set(
     pattern.active ? datesForPattern(pattern.weekdays, window.start, window.end) : [],
@@ -199,7 +212,7 @@ export const createPattern = mutation({
       createdAt: Date.now(),
     });
     const pattern = (await ctx.db.get(patternId))!;
-    const window = await seasonWindow(ctx);
+    const window = await generationWindow(ctx);
     const generated = await generateSessionsForPattern(ctx, pattern, profile._id, window);
     return { patternId, generated };
   },
@@ -245,7 +258,7 @@ export const updatePattern = mutation({
 
     await ctx.db.patch(args.patternId, patch);
     const updated = (await ctx.db.get(args.patternId))!;
-    const window = await seasonWindow(ctx);
+    const window = await generationWindow(ctx);
     const generated = await generateSessionsForPattern(ctx, updated, profile._id, window);
     return { generated };
   },
@@ -285,9 +298,13 @@ export const deletePattern = mutation({
 });
 
 /**
- * Re-materialise every active pattern across the current season window. The
+ * Re-materialise every active pattern across the current generation window. The
  * "Generate season" action on the Schedule screen and the entry point to run
  * after the season dates change. Idempotent.
+ *
+ * `from`/`to` are the window it actually ran over, and `seasonOver` says the end
+ * is already behind us — so the screen can report "the season ended on X"
+ * instead of the flatly untrue "schedule up to date".
  */
 export const regenerateSeason = mutation({
   args: {},
@@ -296,7 +313,9 @@ export const regenerateSeason = mutation({
     patternsRun: v.number(),
     from: v.string(),
     to: v.string(),
-    seasonSource: v.union(v.literal("custom"), v.literal("rolling")),
+    /** Where `to` came from: the coach's season end, or the default year ahead. */
+    horizon: v.union(v.literal("seasonEnd"), v.literal("default")),
+    seasonOver: v.boolean(),
   }),
   handler: async (ctx) => {
     const profile = await requireCoach(ctx);
@@ -305,7 +324,7 @@ export const regenerateSeason = mutation({
         "You aren't assigned to a club yet. Ask an admin to add you to one.",
       );
     }
-    const window = await seasonWindow(ctx);
+    const window = await generationWindow(ctx);
     const patterns = await ctx.db
       .query("sessionPatterns")
       .withIndex("by_club", (q) => q.eq("clubId", profile.clubId!))
@@ -322,7 +341,8 @@ export const regenerateSeason = mutation({
       patternsRun,
       from: window.start,
       to: window.end,
-      seasonSource: window.source,
+      horizon: window.horizon,
+      seasonOver: isSeasonOver(window),
     };
   },
 });

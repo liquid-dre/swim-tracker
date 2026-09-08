@@ -36,7 +36,7 @@ type Pattern = {
   active: boolean;
 };
 
-export function ScheduleScreen() {
+export function ScheduleScreen({ today }: { today: string }) {
   const patterns = useQuery(api.sessionPatterns.listPatterns, {});
   const squads = useQuery(api.squads.listSquads, {});
   const settings = useQuery(api.settings.getAppSettings, {});
@@ -57,9 +57,14 @@ export function ScheduleScreen() {
       await notify.promise(regenerate({}), {
         loading: "Generating sessions…",
         success: (r) =>
-          r.generated === 0
-            ? "Schedule up to date — no new sessions"
-            : `${r.generated} session${r.generated === 1 ? "" : "s"} generated through ${formatShortDate(r.to)}`,
+          // "Nothing generated" has two very different causes, and reporting the
+          // second as the first is what hid an empty calendar: a season whose end
+          // has passed produces no sessions no matter how many patterns are active.
+          r.seasonOver
+            ? `The season ended on ${formatShortDate(r.to)} — nothing generated. Set a later season end.`
+            : r.generated === 0
+              ? "Schedule up to date — no new sessions"
+              : `${r.generated} session${r.generated === 1 ? "" : "s"} generated through ${formatShortDate(r.to)}`,
       });
     } catch {
       // notify surfaces the server message
@@ -77,12 +82,19 @@ export function ScheduleScreen() {
     setFormOpen(true);
   }
 
+  // A season end in the past is the one state that silently produces nothing, so
+  // it is said out loud rather than left for the coach to infer from an empty
+  // calendar.
+  const endedOn =
+    settings?.seasonEnd != null && settings.seasonEnd < today ? settings.seasonEnd : null;
   const seasonNote =
     settings == null
       ? null
-      : settings.seasonEnd
-        ? `Sessions generate through the season end, ${formatShortDate(settings.seasonEnd)}.`
-        : "No season end is set — sessions generate up to a year ahead. Set a season end to bound the schedule.";
+      : endedOn !== null
+        ? `The season ended on ${formatShortDate(endedOn)} — no new sessions will generate until the season end moves. The sessions already on the calendar stay.`
+        : settings.seasonEnd
+          ? `Sessions generate from today through the season end, ${formatShortDate(settings.seasonEnd)}.`
+          : "No season end is set — sessions generate up to a year ahead. Set a season end to bound the schedule.";
 
   return (
     <div className="flex flex-col gap-5">
@@ -104,7 +116,17 @@ export function ScheduleScreen() {
         }
       />
 
-      {seasonNote && <p className="text-sm text-ink-muted">{seasonNote}</p>}
+      {seasonNote && (
+        <p
+          className={
+            endedOn !== null
+              ? "text-sm font-medium text-warning-ink"
+              : "text-sm text-ink-muted"
+          }
+        >
+          {seasonNote}
+        </p>
+      )}
 
       {patterns === undefined ? (
         <div className="h-40 animate-pulse rounded-2xl border border-gray-200 bg-white shadow-theme-sm" />
