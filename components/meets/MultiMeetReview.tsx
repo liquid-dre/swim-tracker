@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Check, Info } from "lucide-react";
+import { AlertTriangle, Check, Info, Undo2, X } from "lucide-react";
 import { useMutation } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
@@ -63,12 +63,29 @@ type RowEdits = {
   course: string;
   /** "" = create a new meet; otherwise the id of the meet to replace. */
   target: string;
+  /**
+   * Left out of this import.
+   *
+   * A file is not a decision: a club's season workbook holds every fixture it
+   * runs, and a coach importing it may only want half of them — the Seeded
+   * Galas but not the Junior League, or the four they have not already entered
+   * by hand. Without this the only way to refuse a row was to import it and
+   * delete the meet afterwards.
+   *
+   * A skipped row is dimmed IN PLACE rather than removed from the list. The
+   * parser's own rule is that nothing vanishes (`lib/meetImport.ts`) — a row
+   * that disappeared would read as something the parser lost, and there would
+   * be nothing left to click to change your mind.
+   */
+  skip: boolean;
 };
 
 type RowOutcome =
   | { status: "pending" }
   | { status: "saved"; created: boolean; eventCount: number }
-  | { status: "failed"; message: string };
+  | { status: "failed"; message: string }
+  /** Deliberately left out — a decision, not a failure, and worded as one. */
+  | { status: "skipped" };
 
 /**
  * The course a programme's own events imply, when they imply one at all.
@@ -81,7 +98,9 @@ type RowOutcome =
  *
  * This is a SUGGESTION, surfaced with its reason and applied only on a click.
  */
-function impliedCourse(draft: MeetDraft): { course: Course; reason: string } | null {
+function impliedCourse(
+  draft: MeetDraft,
+): { course: Course; reason: string } | null {
   const longBad = courseMismatches(draft.events, "LCM").length;
   const shortBad = courseMismatches(draft.events, "SCM").length;
   if (longBad > 0 && shortBad === 0) {
@@ -122,7 +141,8 @@ export function MultiMeetReview({
     return (draft: MeetDraft): ExistingMeet | null =>
       draft.startDate === null
         ? null
-        : (byKey.get(`${normaliseMeetName(draft.name)}|${draft.startDate}`) ?? null);
+        : (byKey.get(`${normaliseMeetName(draft.name)}|${draft.startDate}`) ??
+          null);
   }, [meets]);
 
   const [rows, setRows] = useState<RowEdits[]>(() =>
@@ -133,6 +153,7 @@ export function MultiMeetReview({
       venue: d.venue ?? "",
       course: "",
       target: matchFor(d)?._id ?? "",
+      skip: false,
     })),
   );
   const [outcomes, setOutcomes] = useState<RowOutcome[]>(() =>
@@ -152,20 +173,37 @@ export function MultiMeetReview({
   function acceptAllSuggestions() {
     setRows((prev) =>
       prev.map((r, i) =>
-        r.course === "" && suggestions[i] !== null
+        !r.skip && r.course === "" && suggestions[i] !== null
           ? { ...r, course: suggestions[i]!.course }
           : r,
       ),
     );
   }
 
+  // Every gate below counts only the rows that will actually be written. A
+  // skipped row must never hold the import up: being blocked on a missing
+  // course for a meet you have just said you do not want would make skipping
+  // it pointless.
+  const included = rows.filter((r) => !r.skip);
+  const skipped = rows.length - included.length;
+
+  /** Undo every exclusion at once — a mis-click on row nine is cheap to fix. */
+  function includeAll() {
+    setRows((prev) => prev.map((r) => ({ ...r, skip: false })));
+  }
   const suggestable = suggestions.filter(
-    (s, i) => s !== null && rows[i].course === "",
+    (s, i) => s !== null && !rows[i].skip && rows[i].course === "",
   ).length;
-  const missingCourse = rows.filter((r) => r.course === "").length;
-  const rowsValid = rows.every((r) => r.name.trim() !== "" && ISO.test(r.startDate));
+  const missingCourse = included.filter((r) => r.course === "").length;
+  const rowsValid = included.every(
+    (r) => r.name.trim() !== "" && ISO.test(r.startDate),
+  );
   const canImport =
-    !importing && !finished && rowsValid && (missingCourse === 0 || allowNoCourse);
+    !importing &&
+    !finished &&
+    included.length > 0 &&
+    rowsValid &&
+    (missingCourse === 0 || allowNoCourse);
 
   async function runAll() {
     if (!canImport) return;
@@ -180,6 +218,10 @@ export function MultiMeetReview({
     for (let i = 0; i < rows.length; i += 1) {
       if (next[i].status === "saved") continue; // a retry skips what already landed
       const row = rows[i];
+      if (row.skip) {
+        next[i] = { status: "skipped" };
+        continue;
+      }
       try {
         const res = await importMeet({
           meetId: row.target ? (row.target as Id<"meets">) : undefined,
@@ -200,17 +242,28 @@ export function MultiMeetReview({
         next[i] = {
           status: "failed",
           message:
-            err instanceof Error ? err.message : "That meet could not be saved.",
+            err instanceof Error
+              ? err.message
+              : "That meet could not be saved.",
         };
       }
       setOutcomes([...next]);
     }
 
     setImporting(false);
-    setFinished(next.every((o) => o.status === "saved"));
+    // Done means nothing is left to write — a row deliberately left out counts
+    // as settled, not as outstanding work. Checking only for "saved" here would
+    // leave the button offering to import again the moment anything was
+    // skipped, which is the one case this screen now exists to support.
+    const left = next.filter((o) => o.status === "skipped").length;
     const failed = next.filter((o) => o.status === "failed").length;
+    setFinished(failed === 0);
+
     if (failed === 0) {
-      notify.success(`${saved} meet${saved === 1 ? "" : "s"} imported`);
+      notify.success(
+        `${saved} meet${saved === 1 ? "" : "s"} imported` +
+          (left > 0 ? `, ${left} left out` : ""),
+      );
       onDone?.();
     } else {
       notify.error(
@@ -225,9 +278,23 @@ export function MultiMeetReview({
         <p>
           This file holds{" "}
           <span className="font-medium text-ink">{drafts.length} meets</span>.
-          Check each one below, then import them together. Nothing is saved until
-          you do.
+          Check each one below, then import them together. Nothing is saved
+          until you do — and a meet you don&rsquo;t want can be left out.
         </p>
+        {skipped > 0 && (
+          <p className="mt-1">
+            <span className="font-medium text-ink">{skipped} left out</span>,{" "}
+            {included.length} will be imported.{" "}
+            <button
+              type="button"
+              onClick={includeAll}
+              disabled={importing || finished}
+              className="rounded-sm font-medium text-brand-500 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            >
+              Put them all back
+            </button>
+          </p>
+        )}
       </div>
 
       {/* Course is the one field with real downstream consequences, so it gets
@@ -240,7 +307,11 @@ export function MultiMeetReview({
             course set. A meet without one cannot take times.
           </p>
           {suggestable > 0 && (
-            <Button variant="secondary" size="sm" onClick={acceptAllSuggestions}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={acceptAllSuggestions}
+            >
               Use suggested course for {suggestable}
             </Button>
           )}
@@ -258,6 +329,7 @@ export function MultiMeetReview({
             target={meets.find((m) => m._id === rows[i].target) ?? null}
             meets={meets}
             disabled={importing}
+            frozen={finished}
             onChange={(patch) => patchRow(i, patch)}
           />
         ))}
@@ -273,9 +345,9 @@ export function MultiMeetReview({
             disabled={importing}
           />
           <span>
-            Save the {missingCourse} meet{missingCourse === 1 ? "" : "s"} without
-            a course. They will show &ldquo;Not set&rdquo; and cannot take times
-            until one is chosen on the meet itself.
+            Save the {missingCourse} meet{missingCourse === 1 ? "" : "s"}{" "}
+            without a course. They will show &ldquo;Not set&rdquo; and cannot
+            take times until one is chosen on the meet itself.
           </span>
         </label>
       )}
@@ -287,14 +359,22 @@ export function MultiMeetReview({
           disabled={!canImport}
           loading={importing}
         >
+          {/* The count is what will actually be WRITTEN, so leaving a meet out
+              is visible on the button before it is pressed. */}
           {finished
             ? "Imported"
-            : `Import ${drafts.length} meet${drafts.length === 1 ? "" : "s"}`}
+            : `Import ${included.length} meet${included.length === 1 ? "" : "s"}`}
         </Button>
-        {!rowsValid && (
+        {included.length === 0 ? (
           <span className="text-sm text-ink-muted">
-            Every meet needs a name and a date.
+            Every meet is left out — put at least one back to import.
           </span>
+        ) : (
+          !rowsValid && (
+            <span className="text-sm text-ink-muted">
+              Every meet needs a name and a date.
+            </span>
+          )
         )}
       </div>
     </div>
@@ -309,6 +389,7 @@ function MeetRow({
   target,
   meets,
   disabled,
+  frozen,
   onChange,
 }: {
   draft: MeetDraft;
@@ -318,111 +399,167 @@ function MeetRow({
   target: ExistingMeet | null;
   meets: ExistingMeet[];
   disabled: boolean;
+  /** The import has finished; the list is a record now, not a form. */
+  frozen: boolean;
   onChange: (patch: Partial<RowEdits>) => void;
 }) {
   const saved = outcome.status === "saved";
+  const locked = disabled || saved || row.skip;
+  const title = row.name.trim() === "" ? "Untitled meet" : row.name;
 
   return (
-    <li className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-theme-sm">
+    <li
+      className={`flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-theme-sm transition-colors [transition-duration:var(--dur-1)] ${
+        row.skip ? "border-dashed border-gray-300" : "border-gray-200"
+      }`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="min-w-0 truncate text-sm font-medium text-ink">
-          {row.name.trim() === "" ? "Untitled meet" : row.name}
+        <p
+          className={`min-w-0 truncate text-sm font-medium ${
+            row.skip ? "text-ink-faint line-through" : "text-ink"
+          }`}
+        >
+          {title}
         </p>
-        <span className="shrink-0 text-xs text-ink-faint tabular-nums">
-          {draft.events.length === 0
-            ? "No events yet"
-            : `${draft.events.length} events`}
-        </span>
-      </div>
-
-      {/* Two tracks on a phone, four on a laptop: the fields are short and
-          belong together, and a one-per-row stack would make twelve meets an
-          endless scroll. */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Input
-          label="Name"
-          value={row.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          disabled={disabled || saved}
-          error={row.name.trim() === "" ? "Required" : undefined}
-        />
-        <DateField
-          label="Date"
-          aria-label={`${row.name} date`}
-          value={row.startDate}
-          onChange={(iso) => onChange({ startDate: iso })}
-          disabled={disabled || saved}
-        />
-        <Input
-          label="Starts at"
-          type="time"
-          value={row.startTime}
-          onChange={(e) => onChange({ startTime: e.target.value })}
-          disabled={disabled || saved}
-        />
-        <Input
-          label="Venue"
-          value={row.venue}
-          onChange={(e) => onChange({ venue: e.target.value })}
-          disabled={disabled || saved}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Course</label>
-          <Select
-            value={row.course}
-            onValueChange={(v) => onChange({ course: v })}
-            disabled={disabled || saved}
-            aria-label={`${row.name} course`}
-            options={[
-              { value: "", label: "Not set" },
-              { value: "LCM", label: "Long course (50 m)" },
-              { value: "SCM", label: "Short course (25 m)" },
-            ]}
-          />
-          {/* The suggestion states its REASON and stays a button: the programme
-              proves the pool, but a person still decides (§4.2). */}
-          {row.course === "" && suggestion && (
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="text-xs tabular-nums text-ink-faint">
+            {draft.events.length === 0
+              ? "No events yet"
+              : `${draft.events.length} events`}
+          </span>
+          {/* Leaving a meet out is reversible and costs nothing, so it is a
+              plain toggle rather than a destructive-looking delete: the file is
+              not being edited, only this import's scope. Gone once the import
+              has run, when the row is a record of what happened. */}
+          {!saved && !frozen && (
             <button
               type="button"
-              onClick={() => onChange({ course: suggestion.course })}
-              disabled={disabled || saved}
-              className="self-start rounded-sm text-left text-2xs text-brand-500 outline-none hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onChange({ skip: !row.skip })}
+              disabled={disabled}
+              className="rounded-md p-1.5 text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-ink focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              aria-label={
+                row.skip
+                  ? `Include ${title} in this import`
+                  : `Leave ${title} out of this import`
+              }
             >
-              {suggestion.reason} — use{" "}
-              {suggestion.course === "SCM" ? "short" : "long"} course
+              {row.skip ? (
+                <Undo2 aria-hidden className="size-4" />
+              ) : (
+                <X aria-hidden className="size-4" />
+              )}
             </button>
           )}
         </div>
+      </div>
 
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <label className="text-sm font-medium text-gray-700">Save as</label>
-          <Select
-            value={row.target}
-            onValueChange={(v) => onChange({ target: v })}
-            disabled={disabled || saved}
-            aria-label={`${row.name} target`}
-            options={[
-              { value: "", label: "A new meet" },
-              ...meets.map((m) => ({
-                value: m._id as string,
-                label: `Replace ${m.name}`,
-              })),
-            ]}
+      {row.skip && (
+        <p className="text-xs text-ink-muted">
+          Left out — this meet won&rsquo;t be imported. Nothing in the file
+          changes; use the arrow to put it back.
+        </p>
+      )}
+
+      {/* The fields stay on screen while a row is skipped, dimmed and disabled:
+          what you are declining is the point, and hiding it would leave a bare
+          strikethrough to judge the decision by. */}
+      <div
+        className={
+          row.skip ? "pointer-events-none select-none opacity-40" : undefined
+        }
+        aria-hidden={row.skip}
+      >
+        {/* Two tracks on a phone, four on a laptop: the fields are short and
+          belong together, and a one-per-row stack would make twelve meets an
+          endless scroll. */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Input
+            label="Name"
+            value={row.name}
+            onChange={(e) => onChange({ name: e.target.value })}
+            disabled={locked}
+            error={row.name.trim() === "" ? "Required" : undefined}
           />
-          {target && (
-            <p className="text-2xs text-ink-faint">
-              <Info aria-hidden className="mr-1 inline size-3" />
-              Same name and date — this replaces its programme
-              {target.eventCount > 0 && ` (${target.eventCount} events today)`}.
-            </p>
-          )}
+          <DateField
+            label="Date"
+            aria-label={`${row.name} date`}
+            value={row.startDate}
+            onChange={(iso) => onChange({ startDate: iso })}
+            disabled={locked}
+          />
+          <Input
+            label="Starts at"
+            type="time"
+            value={row.startTime}
+            onChange={(e) => onChange({ startTime: e.target.value })}
+            disabled={locked}
+          />
+          <Input
+            label="Venue"
+            value={row.venue}
+            onChange={(e) => onChange({ venue: e.target.value })}
+            disabled={locked}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <label className="text-sm font-medium text-gray-700">Course</label>
+            <Select
+              value={row.course}
+              onValueChange={(v) => onChange({ course: v })}
+              disabled={locked}
+              aria-label={`${row.name} course`}
+              options={[
+                { value: "", label: "Not set" },
+                { value: "LCM", label: "Long course (50 m)" },
+                { value: "SCM", label: "Short course (25 m)" },
+              ]}
+            />
+            {/* The suggestion states its REASON and stays a button: the programme
+              proves the pool, but a person still decides (§4.2). */}
+            {row.course === "" && suggestion && (
+              <button
+                type="button"
+                onClick={() => onChange({ course: suggestion.course })}
+                disabled={locked}
+                className="self-start rounded-sm text-left text-2xs text-brand-500 outline-none hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {suggestion.reason} — use{" "}
+                {suggestion.course === "SCM" ? "short" : "long"} course
+              </button>
+            )}
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <label className="text-sm font-medium text-gray-700">Save as</label>
+            <Select
+              value={row.target}
+              onValueChange={(v) => onChange({ target: v })}
+              disabled={locked}
+              aria-label={`${row.name} target`}
+              options={[
+                { value: "", label: "A new meet" },
+                ...meets.map((m) => ({
+                  value: m._id as string,
+                  label: `Replace ${m.name}`,
+                })),
+              ]}
+            />
+            {target && (
+              <p className="text-2xs text-ink-faint">
+                <Info aria-hidden className="mr-1 inline size-3" />
+                Same name and date — this replaces its programme
+                {target.eventCount > 0 &&
+                  ` (${target.eventCount} events today)`}
+                .
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
-      {draft.warnings.length > 0 && !saved && (
+      {draft.warnings.length > 0 && !saved && !row.skip && (
         <ul className="flex flex-col gap-1 text-2xs text-ink-muted">
           {draft.warnings.map((w) => (
             <li key={w}>{w}</li>
@@ -435,6 +572,11 @@ function MeetRow({
           <Check aria-hidden className="size-3.5" />
           {outcome.created ? "Added" : "Programme replaced"} —{" "}
           {outcome.eventCount} event{outcome.eventCount === 1 ? "" : "s"}
+        </p>
+      )}
+      {outcome.status === "skipped" && (
+        <p className="text-2xs font-medium text-ink-faint">
+          Left out of this import.
         </p>
       )}
       {outcome.status === "failed" && (
