@@ -24,6 +24,7 @@ import {
 import {
   computeMatrixCell,
   formatTime,
+  uniformPb,
   type GalaCode,
   type RingScale,
 } from "@/lib/swim";
@@ -133,7 +134,15 @@ function deriveAllRows(bars: AllBar[], scale: RingScale): AllRow[] {
     for (const c of b.cuts) cutsByTier[c.gala] = c.timeMs;
     // The stroke-profile data is long course, so judge it as long course — a
     // borrowed cut would be exactly the bug this view exists to avoid.
-    const cell = computeMatrixCell({ LCM: b.pbMs }, { LCM: cutsByTier, SCM: {} }, "LCM");
+    //
+    // `uniformPb` is safe here and nowhere else in this file: `getStrokeProfile`
+    // already computed `pbMs` over the INTERSECTION of every gala's qualifying
+    // window, so this one number is legitimately valid for all of them (§4.9).
+    const cell = computeMatrixCell(
+      uniformPb({ LCM: b.pbMs }),
+      { LCM: cutsByTier, SCM: {} },
+      "LCM",
+    );
     return {
       ...b,
       cutsByTier,

@@ -212,12 +212,18 @@ export function LogScreen({
       // never a generic cheer (PRODUCT.md).
       const firstName = (selectedSwimmer?.name ?? "Swimmer").split(" ")[0];
       const eventName = `${distance} ${STROKE_LABEL[stroke]}`;
+      // A cut beaten OUTSIDE the gala's qualifying window is still worth
+      // saying — a coach back-filling last season wants to know the swim was
+      // that fast — but it is a near-miss, not a qualification, and the wording
+      // has to carry that difference (§4.9). Only `newlyMetGala` ever claims one.
       notify.success(
         saved.newlyMetGala
-          ? `Meets the ${GALA_FULL[saved.newlyMetGala]} cut — ${firstName}'s new ${eventName} PB`
-          : saved.newPb
-            ? `New ${eventName} PB for ${firstName}`
-            : "Time saved",
+          ? `Qualifies for ${GALA_FULL[saved.newlyMetGala]} — ${firstName}'s new ${eventName} PB`
+          : saved.cutBeatenOutsideWindow
+            ? `Under the ${GALA_FULL[saved.cutBeatenOutsideWindow]} cut, but outside this season's qualifying window — ${firstName}'s new ${eventName} PB`
+            : saved.newPb
+              ? `New ${eventName} PB for ${firstName}`
+              : "Time saved",
       );
       // A brief on-button confirmation at the point of action.
       setJustSaved(true);

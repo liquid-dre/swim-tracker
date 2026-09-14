@@ -2,11 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { Search } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Select } from "@/components/ui/Select";
 import {
@@ -90,6 +95,33 @@ export function MeetEntriesSheet({
   const [selected, setSelected] = useState<Id<"swimmers">[]>([]);
   const [confirmRemove, setConfirmRemove] = useState<EntryRow | null>(null);
 
+  /**
+   * Whether the add-picker is open. `null` = nobody has said, so it follows the
+   * event: an event with NOBODY entered exists to be filled, and making that
+   * first add a second click would be worse than the crowding this collapse
+   * exists to fix. Once somebody is entered the roster is the thing you came
+   * for, so the picker folds away and the list takes the panel.
+   */
+  const [addOpenChoice, setAddOpenChoice] = useState<boolean | null>(null);
+  const addOpen = addOpenChoice ?? entered.size === 0;
+
+  // Everything in this sheet is about ONE event, so a new event starts clean.
+  // Without this a selection made on event 101 and never committed is still
+  // sitting in the picker when event 103 is opened, one click from entering
+  // three swimmers in the wrong race.
+  //
+  // Done during render rather than in an effect: this is React's "adjust state
+  // when a prop changes" pattern, which re-renders before anything is painted —
+  // an effect would show one frame of the previous event's selection first.
+  const [lastLineId, setLastLineId] = useState(lineId);
+  if (lineId !== lastLineId) {
+    setLastLineId(lineId);
+    setSelected([]);
+    setSearch("");
+    setSquadFilter("");
+    setAddOpenChoice(null);
+  }
+
   function toggle(id: Id<"swimmers">) {
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
@@ -113,6 +145,10 @@ export function MeetEntriesSheet({
       if (result.added > 0) {
         setSelected([]);
         setSearch("");
+        // Hand the panel back to the roster: the swimmers just added are now in
+        // it, and seeing them land is the confirmation that the toast only
+        // describes. `null` rather than `false` so the rule above decides.
+        setAddOpenChoice(null);
       }
     } catch {
       // notify.promise has already surfaced the server's own message.
@@ -141,7 +177,7 @@ export function MeetEntriesSheet({
 
   return (
     <Sheet open={lineId !== null} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-full flex-col sm:max-w-xl" side="right">
+      <SheetContent className="w-full sm:max-w-xl" side="right">
         <SheetHeader>
           <SheetTitle>
             {line?.eventNumber !== null && line?.eventNumber !== undefined
@@ -157,9 +193,14 @@ export function MeetEntriesSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-2">
+        {/* The body does NOT scroll. Exactly one thing in this panel does — the
+            entered roster — so it can take every pixel the banners and the add
+            control leave behind. Scrolling here as well (which this sheet used
+            to do) is what let a ~400px add block push the roster out of view;
+            SquadMembersSheet has always been arranged this way. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-2">
           {signups !== undefined && !signups.courseKnown && (
-            <p className="rounded-xl border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-ink">
+            <p className="shrink-0 rounded-xl border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-ink">
               This meet has no course set, so times can&rsquo;t be recorded yet.
               A time in the wrong pool can never be compared with anything. Set
               it on the meet&rsquo;s Details tab.
@@ -167,129 +208,166 @@ export function MeetEntriesSheet({
           )}
 
           {line !== null && !line.resolved && (
-            <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-ink-muted">
+            <p className="shrink-0 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-ink-muted">
               This isn&rsquo;t an event the app tracks, so no time can be
               recorded against it. A relay time belongs to the team.
             </p>
           )}
 
-          <EntryRosterTable
-            rows={(line?.entries ?? []).map((e) => ({
-              ...e,
-              _id: String(e._id),
-              resultId: e.resultId === null ? null : String(e.resultId),
-            }))}
-            days={signups?.days ?? []}
-            courseKnown={signups?.courseKnown ?? false}
-            resolved={line?.resolved ?? false}
-            busyId={busyId}
-            onRecordTime={(entryId, timeInput) =>
-              run(
-                entryId,
-                recordEntryTime({
-                  entryId: entryId as Id<"meetEntries">,
-                  timeInput,
-                }).then((r) => {
-                  if (r.newlyMetGala !== null) {
-                    notify.success(
-                      `That time meets the ${GALA_FULL[r.newlyMetGala]} standard.`,
-                    );
-                  }
-                  return r;
-                }),
-                "Saving time…",
-                "Time saved",
-              )
-            }
-            onSetDay={(entryId, swimDate) =>
-              run(
-                entryId,
-                setEntryDay({
-                  entryId: entryId as Id<"meetEntries">,
-                  swimDate,
-                }),
-                "Moving…",
-                "Day changed",
-              )
-            }
-            onRemove={(entryId) =>
-              setConfirmRemove(
-                (line?.entries ?? [])
-                  .map((e) => ({
-                    ...e,
-                    _id: String(e._id),
-                    resultId: e.resultId === null ? null : String(e.resultId),
-                  }))
-                  .find((e) => e._id === entryId) ?? null,
-              )
-            }
-          />
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <EntryRosterTable
+              rows={(line?.entries ?? []).map((e) => ({
+                ...e,
+                _id: String(e._id),
+                resultId: e.resultId === null ? null : String(e.resultId),
+              }))}
+              days={signups?.days ?? []}
+              courseKnown={signups?.courseKnown ?? false}
+              resolved={line?.resolved ?? false}
+              busyId={busyId}
+              onRecordTime={(entryId, timeInput) =>
+                run(
+                  entryId,
+                  recordEntryTime({
+                    entryId: entryId as Id<"meetEntries">,
+                    timeInput,
+                  }).then((r) => {
+                    // Same distinction the log form makes: only `newlyMetGala` is
+                    // a qualification. A cut beaten outside the window is said
+                    // plainly as the near-miss it is (§4.9).
+                    if (r.newlyMetGala !== null) {
+                      notify.success(
+                        `That time qualifies for ${GALA_FULL[r.newlyMetGala]}.`,
+                      );
+                    } else if (r.cutBeatenOutsideWindow !== null) {
+                      notify.success(
+                        `That time is under the ${GALA_FULL[r.cutBeatenOutsideWindow]} cut, but was swum outside this season's qualifying window.`,
+                      );
+                    }
+                    return r;
+                  }),
+                  "Saving time…",
+                  "Time saved",
+                )
+              }
+              onSetDay={(entryId, swimDate) =>
+                run(
+                  entryId,
+                  setEntryDay({
+                    entryId: entryId as Id<"meetEntries">,
+                    swimDate,
+                  }),
+                  "Moving…",
+                  "Day changed",
+                )
+              }
+              onRemove={(entryId) =>
+                setConfirmRemove(
+                  (line?.entries ?? [])
+                    .map((e) => ({
+                      ...e,
+                      _id: String(e._id),
+                      resultId: e.resultId === null ? null : String(e.resultId),
+                    }))
+                    .find((e) => e._id === entryId) ?? null,
+                )
+              }
+            />
+          </div>
 
-          <section className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-3">
-            <h3 className="text-sm font-semibold text-ink">Add swimmers</h3>
-
-            <div className="flex flex-wrap gap-2">
-              <div className="relative min-w-[10rem] flex-1">
-                <Search
-                  aria-hidden
-                  className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-faint"
-                />
-                <input
-                  type="search"
-                  aria-label="Find a swimmer"
-                  placeholder="Find a swimmer"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-8 pr-2 text-sm text-gray-800 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
-                />
-              </div>
-              {squads.length > 0 && (
-                <Select
-                  aria-label="Filter by squad"
-                  value={squadFilter}
-                  onValueChange={setSquadFilter}
-                  size="sm"
-                  options={[
-                    { value: "", label: "Any squad" },
-                    ...squads.map((q) => ({ value: q._id, label: q.name })),
-                  ]}
-                />
+          {/* Below the roster, and closed by default once anyone is entered:
+              adding is the occasional job, reading who is in is the constant
+              one. `shrink-0` so opening it squeezes the roster rather than
+              itself — open, the picker IS the task. */}
+          <Collapsible
+            open={addOpen}
+            onOpenChange={setAddOpenChoice}
+            className="shrink-0 rounded-xl border border-gray-200 bg-white"
+          >
+            <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-ink outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
+              <span className="flex-1 text-left">Add swimmers</span>
+              {!addOpen && roster !== undefined && (
+                <span className="text-xs font-normal tabular-nums text-ink-faint">
+                  {candidates.length === 0
+                    ? "none available"
+                    : `${candidates.length} available`}
+                </span>
               )}
-            </div>
+              <ChevronDown
+                aria-hidden
+                className={`size-4 shrink-0 text-ink-faint transition-transform [transition-duration:var(--dur-1)] ${
+                  addOpen ? "rotate-180" : ""
+                }`}
+              />
+            </CollapsibleTrigger>
 
-            {roster === undefined ? (
-              <p className="text-sm text-ink-muted">Loading the roster…</p>
-            ) : candidates.length === 0 ? (
-              <p className="text-sm text-ink-muted">
-                {entered.size > 0
-                  ? "Everyone who can swim this event is already entered."
-                  : "No swimmer matches. Check the search, or the squad filter."}
-              </p>
-            ) : (
-              <ul className="max-h-56 overflow-y-auto">
-                {candidates.map((swimmer) => (
-                  <li key={swimmer._id}>
-                    <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-primary">
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(swimmer._id)}
-                        onChange={() => toggle(swimmer._id)}
-                        className="size-4 rounded border-gray-300 text-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
-                      />
-                      <span className="min-w-0 flex-1">{swimmer.name}</span>
-                      <span className="tabular-nums text-xs text-ink-faint">
-                        {swimmer.age}
-                      </span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+            <CollapsibleContent className="flex flex-col gap-3 px-3 pb-3">
+              <div className="flex flex-wrap gap-2">
+                <div className="relative min-w-[10rem] flex-1">
+                  <Search
+                    aria-hidden
+                    className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-faint"
+                  />
+                  <input
+                    type="search"
+                    aria-label="Find a swimmer"
+                    placeholder="Find a swimmer"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-8 pr-2 text-sm text-gray-800 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
+                  />
+                </div>
+                {squads.length > 0 && (
+                  <Select
+                    aria-label="Filter by squad"
+                    value={squadFilter}
+                    onValueChange={setSquadFilter}
+                    size="sm"
+                    options={[
+                      { value: "", label: "Any squad" },
+                      ...squads.map((q) => ({ value: q._id, label: q.name })),
+                    ]}
+                  />
+                )}
+              </div>
+
+              {roster === undefined ? (
+                <p className="text-sm text-ink-muted">Loading the roster…</p>
+              ) : candidates.length === 0 ? (
+                <p className="text-sm text-ink-muted">
+                  {entered.size > 0
+                    ? "Everyone who can swim this event is already entered."
+                    : "No swimmer matches. Check the search, or the squad filter."}
+                </p>
+              ) : (
+                <ul className="max-h-56 overflow-y-auto">
+                  {candidates.map((swimmer) => (
+                    <li key={swimmer._id}>
+                      <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-primary">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(swimmer._id)}
+                          onChange={() => toggle(swimmer._id)}
+                          className="size-4 rounded border-gray-300 text-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
+                        />
+                        <span className="min-w-0 flex-1">{swimmer.name}</span>
+                        <span className="tabular-nums text-xs text-ink-faint">
+                          {swimmer.age}
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
         </div>
 
+        {/* The counter and the Add button belong to the picker, so they come
+            and go with it. A closed picker leaving a permanently disabled
+            "Add to this event" in the footer would read as something broken. */}
         <SheetFooter className="flex-row items-center justify-end gap-2 border-t border-border">
-          {selected.length > 0 && (
+          {addOpen && selected.length > 0 && (
             <p className="mr-auto text-xs text-ink-muted">
               {selected.length === 1
                 ? "1 swimmer"
@@ -300,13 +378,15 @@ export function MeetEntriesSheet({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Done
           </Button>
-          <Button
-            loading={adding}
-            disabled={selected.length === 0}
-            onClick={onAdd}
-          >
-            Add to this event
-          </Button>
+          {addOpen && (
+            <Button
+              loading={adding}
+              disabled={selected.length === 0}
+              onClick={onAdd}
+            >
+              Add to this event
+            </Button>
+          )}
         </SheetFooter>
       </SheetContent>
 

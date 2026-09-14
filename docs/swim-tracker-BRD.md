@@ -136,6 +136,25 @@ long-course-only tiers; the changes are called out inline.)*
   Outside the window a swimmer has no cut to chase even though rows exist, and must never be listed as
   qualified. This is what gives 17+ swimmers a target at all — the age-graded tables stop at 16, so
   before SANS/SANY existed a 17-year-old resolved to no cut anywhere.
+- **Qualifying window** is a THIRD gate, separate from both the cut and the entry age window, stored
+  per gala and editable by the super-user (Admin › Galas). A swimmer qualifies on **this season's
+  racing**, not on a lifetime best: only an **official MEET swim** (never a time trial, practice swim
+  or school-gala time, however fast) whose date falls **inside the window, inclusive of both ends**
+  can be measured against a cut. Outside it there is nothing to measure even though the swim exists.
+  - **Per gala, not app-wide** — the federation publishes a qualifying period per championship, so
+    SANS's window need not be SANJ's. All five are seeded with the 2026-27 season, **1 June 2026 →
+    21 March 2027**, and each is corrected independently when its own dates are published.
+  - **Absent = all-time.** A gala with neither bound set judges on the all-time headline PB, exactly
+    as the app did before windows existed. This is a real state, not a missing setting.
+  - **The headline PB is untouched.** "Fastest MEET time ever" still owns the PB board, progression,
+    points, comparison times and season improvement. The *qualifying* time is a second fact and the
+    two are never collapsed — a swimmer whose best swim predates the window keeps their personal
+    best and simply has no qualification to show. Every qualifying surface states its basis once, in
+    a caption, so the difference between the two numbers never reads as a bug.
+  - **Scope:** status matrix, Road to qualify, Gala qualification, the stroke-profile wheel, coach
+    dashboard readiness, viewer highlights, the comparison screen's gala badge, and the progression
+    projection's "already qualified" verdict. The projection still fits its trend on **all** history
+    — a four-month window would starve it — and only its verdict is gated.
 - **Age matching = exact single-year age**, not the two-year display band (§4.7).
 - **"Age as of when" — resolved (corrected 2026-07):** qualification is judged at the age the swimmer is **for the competition**, i.e. the age they will be **on the tour date** when one is set (§5.10a), else their **current age (today)**. It is **NOT** judged at the age the PB was swum. Rationale: a swimmer who beat the easier 15-year-old cut must not still read as "qualified" once they are 16 and would swim the tour in the 16 age group needing the harder 16 cut — the qualifying screens answer "can this swimmer go to the upcoming tour?", not "what did this time achieve historically?". `results.ageAtSwim` is still stored (it is factually the age on the swim date) and still used for the **progression chart's historical cut overlay** (which shows the cut that applied at each past date), but never for the qualified/gala judgement.
 - **Coverage is a hard rule, not just missing data — and it is DATA, on `galas.coveredEvents`:**

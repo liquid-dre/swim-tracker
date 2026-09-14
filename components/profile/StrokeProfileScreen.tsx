@@ -12,6 +12,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { FilterBar } from "@/components/ui/FilterBar";
 import { useContainerWidth } from "@/hooks/use-container-width";
+import { QualifyingBasis } from "@/components/qualifying/QualifyingBasis";
 import { formatShortDate } from "@/lib/format";
 import { buildRingScale, type GalaCode, type RingScale, type TourDateByGala } from "@/lib/swim";
 import { GALA_FULL, GALA_SHORT } from "@/lib/galas";
@@ -344,6 +345,15 @@ function WheelPanel({
               {!data.swimmer.active && " · inactive"}
             </span>
           </header>
+
+          {/* What every spoke measured. The wheel draws ONE bar per event
+              across all its rings, so the time behind it is the fastest official
+              meet swim inside EVERY ring gala's window — see `wheelWindow` in
+              convex/analysis.ts for why that is the intersection, not the union. */}
+          <QualifyingBasis
+            windows={data.qualifyingWindows}
+            className="w-full !px-3 !py-2 !text-xs"
+          />
 
           {/* Same age-up context the Road screen gives, sized for this card.
               Galas pinned to a tour day are named — a birthday doesn't move

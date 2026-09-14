@@ -109,6 +109,18 @@ export async function applySeedGalas(ctx: MutationCtx): Promise<SeedGalasResult>
         ...(existing.tourDate === undefined && carried !== undefined
           ? { tourDate: carried.date, tourName: carried.name }
           : {}),
+        // The qualifying window is a POLICY field, so it seeds exactly the way
+        // `tourDate` does: filled only when the row does not already carry one.
+        // That is what makes this seed re-runnable — a super-user who has
+        // corrected SANS's window in Admin › Galas must not have it silently
+        // reverted the next time someone refreshes coverage.
+        ...(existing.qualifyingFrom === undefined &&
+        existing.qualifyingTo === undefined
+          ? {
+              qualifyingFrom: seed.qualifyingFrom ?? undefined,
+              qualifyingTo: seed.qualifyingTo ?? undefined,
+            }
+          : {}),
       });
       updated += 1;
       continue;
@@ -126,6 +138,8 @@ export async function applySeedGalas(ctx: MutationCtx): Promise<SeedGalasResult>
       season: seed.season,
       tourDate: carried?.date,
       tourName: carried?.name,
+      qualifyingFrom: seed.qualifyingFrom ?? undefined,
+      qualifyingTo: seed.qualifyingTo ?? undefined,
     });
     inserted += 1;
   }

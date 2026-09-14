@@ -16,7 +16,7 @@ import { formatShortDate } from "@/lib/format";
 import { GALA_FULL, GALA_ORDER, type GalaCode } from "@/lib/galas";
 
 /*
-  Galas (super-user only; docs/access-control.md). Two things per gala, both
+  Galas (super-user only; docs/access-control.md). Three things per gala, all
   global reference data every other screen reads:
 
   TOUR DATE — setting one switches EVERY qualifying surface to judge swimmers
@@ -27,6 +27,13 @@ import { GALA_FULL, GALA_ORDER, type GalaCode } from "@/lib/galas";
   cut to chase even though rows exist. SSA publishes these OUTSIDE the cut
   tables, and SANY's real window is not yet confirmed, so a coach must be able to
   correct them here rather than waiting on a deploy.
+
+  QUALIFYING WINDOW — the inclusive dates between which a swim can qualify a
+  swimmer for this gala. Swimmers qualify on THIS SEASON's racing, not on a
+  lifetime best, so a time swum before the window opened buys them nothing
+  however fast it was. Per gala, because the federation publishes a period per
+  championship; editable here for the same reason the entry window is. Clearing
+  both ends reverts the gala to judging on all-time personal bests.
 
   Writes are gated server-side by requireSuperUser — this screen is reachable
   only by the super-user via the /admin route boundary.
@@ -40,6 +47,8 @@ type Gala = {
   maxAge: number | null;
   tourDate: string | null;
   tourName: string | null;
+  qualifyingFrom: string | null;
+  qualifyingTo: string | null;
 };
 
 export function AdminGalasScreen() {
@@ -78,6 +87,21 @@ function windowLabel(minAge: number | null, maxAge: number | null): string {
   return `${minAge}–${maxAge}`;
 }
 
+/**
+ * "1 Jun 2026 – 21 Mar 2027", or a half-open / absent form — never a bare pair
+ * of ISO strings. "All-time" is the honest name for no window: it is the state
+ * the app was in before windows existed, not a missing setting.
+ */
+function qualifyingRangeLabel(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): string {
+  if (!from && !to) return "All-time";
+  if (from && to) return `${formatShortDate(from)} – ${formatShortDate(to)}`;
+  if (from) return `${formatShortDate(from)} onwards`;
+  return `Up to ${formatShortDate(to!)}`;
+}
+
 /** "" for an unset bound; the number as text otherwise. */
 function boundText(value: number | null): string {
   return value === null ? "" : String(value);
@@ -102,6 +126,7 @@ function GalaEditor({
   const setGalaTour = useMutation(api.galas.setGalaTour);
   const clearGalaTour = useMutation(api.galas.clearGalaTour);
   const setGalaEligibility = useMutation(api.galas.setGalaEligibility);
+  const setGalaQualifyingWindow = useMutation(api.galas.setGalaQualifyingWindow);
 
   // Local overrides only (null = show the live server value); a successful save
   // clears them so the fields re-sync — same pattern as SeasonStartEditor.
@@ -109,9 +134,13 @@ function GalaEditor({
   const [nameOverride, setNameOverride] = useState<string | null>(null);
   const [minOverride, setMinOverride] = useState<string | null>(null);
   const [maxOverride, setMaxOverride] = useState<string | null>(null);
+  const [fromOverride, setFromOverride] = useState<string | null>(null);
+  const [toOverride, setToOverride] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savingWindow, setSavingWindow] = useState(false);
+  const [savingQualifying, setSavingQualifying] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmClearQualifying, setConfirmClearQualifying] = useState(false);
 
   const loading = gala === undefined;
   const missing = gala === null;
@@ -119,6 +148,8 @@ function GalaEditor({
   const name = nameOverride ?? gala?.tourName ?? "";
   const minText = minOverride ?? boundText(gala?.minAge ?? null);
   const maxText = maxOverride ?? boundText(gala?.maxAge ?? null);
+  const qualFrom = fromOverride ?? gala?.qualifyingFrom ?? "";
+  const qualTo = toOverride ?? gala?.qualifyingTo ?? "";
 
   const dirty =
     !loading &&
@@ -135,8 +166,24 @@ function GalaEditor({
     boundsValid &&
     (parsedMin !== (gala?.minAge ?? null) || parsedMax !== (gala?.maxAge ?? null));
 
+  // The window is saved as a PAIR, so one Save covers both ends: the only
+  // cross-field rule (end not before start) needs both values, and saving them
+  // separately would make the invalid intermediate state reachable.
+  const qualifyingInverted =
+    qualFrom !== "" && qualTo !== "" && qualTo < qualFrom;
+  const qualifyingDirty =
+    !loading &&
+    !missing &&
+    !qualifyingInverted &&
+    (qualFrom !== (gala?.qualifyingFrom ?? "") ||
+      qualTo !== (gala?.qualifyingTo ?? ""));
+  const hasQualifying = !!gala?.qualifyingFrom || !!gala?.qualifyingTo;
+
   const today = new Date().toISOString().slice(0, 10);
   const inPast = !!gala?.tourDate && gala.tourDate < today;
+  // A window that closed is worth flagging: nothing swum from here on can
+  // qualify anyone for this gala until next season's dates are entered.
+  const qualifyingClosed = !!gala?.qualifyingTo && gala.qualifyingTo < today;
 
   async function saveTour() {
     if (!dirty) return;
@@ -178,6 +225,30 @@ function GalaEditor({
     }
   }
 
+  async function saveQualifying() {
+    if (!qualifyingDirty) return;
+    setSavingQualifying(true);
+    try {
+      await notify.promise(
+        setGalaQualifyingWindow({
+          code,
+          qualifyingFrom: qualFrom === "" ? null : qualFrom,
+          qualifyingTo: qualTo === "" ? null : qualTo,
+        }),
+        {
+          loading: "Saving qualifying window…",
+          success: `${GALA_FULL[code]} qualifying window saved`,
+        },
+      );
+      setFromOverride(null);
+      setToOverride(null);
+    } catch {
+      /* notify.promise surfaces the server message */
+    } finally {
+      setSavingQualifying(false);
+    }
+  }
+
   return (
     // min-w-0: a grid item defaults to min-width:auto, so without it a wide
     // child stretches the card past its track instead of being contained by it.
@@ -194,6 +265,17 @@ function GalaEditor({
                 : "No date set"}
         </span>
       </header>
+
+      {/* The qualifying window sits in the header too: it decides which swims
+          this gala will even look at, so it is the first thing worth seeing. */}
+      {!loading && !missing && (
+        <p className="text-2xs text-ink-faint">
+          Qualifying on{" "}
+          <span className="font-medium text-ink-muted">
+            {qualifyingRangeLabel(gala.qualifyingFrom, gala.qualifyingTo)}
+          </span>
+        </p>
+      )}
 
       <p className="text-xs text-ink-muted">
         {loading ? "…" : missing ? GALA_FULL[code] : gala.displayName}
@@ -251,6 +333,69 @@ function GalaEditor({
             >
               Save age range
             </Button>
+          </fieldset>
+
+          <hr className="border-gray-200" />
+
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-xs font-semibold text-ink-muted">
+              Qualifying window
+              <span className="ml-1 font-normal text-ink-faint">
+                ({qualifyingRangeLabel(gala?.qualifyingFrom, gala?.qualifyingTo)}
+                )
+              </span>
+            </legend>
+            {/* Same two-track grid as the age range above: a pair of bounds
+                that belong together and should stay equal width. */}
+            <div className="grid grid-cols-2 items-start gap-3">
+              <DateField
+                label="Opens"
+                aria-label={`${GALA_FULL[code]} qualifying window opens`}
+                value={qualFrom}
+                onChange={(iso) => setFromOverride(iso)}
+                disabled={loading || savingQualifying}
+              />
+              <DateField
+                label="Closes"
+                aria-label={`${GALA_FULL[code]} qualifying window closes`}
+                value={qualTo}
+                onChange={(iso) => setToOverride(iso)}
+                disabled={loading || savingQualifying}
+                hint={
+                  qualifyingInverted
+                    ? "Must be on or after the opening date."
+                    : qualifyingClosed && toOverride === null
+                      ? "This window has closed — enter next season's dates."
+                      : undefined
+                }
+              />
+            </div>
+            <p className="text-2xs text-ink-faint">
+              Only official meet times swum between these dates can qualify a
+              swimmer for this gala. Time trials, practice and school-gala times
+              never count. Leave both blank to judge on all-time personal bests.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={saveQualifying}
+                disabled={!qualifyingDirty || savingQualifying}
+                loading={savingQualifying}
+              >
+                Save window
+              </Button>
+              {hasQualifying && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setConfirmClearQualifying(true)}
+                  disabled={savingQualifying}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
           </fieldset>
 
           <hr className="border-gray-200" />
@@ -314,6 +459,29 @@ function GalaEditor({
           });
           setDateOverride(null);
           setNameOverride(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmClearQualifying}
+        onOpenChange={setConfirmClearQualifying}
+        title={`Clear the ${GALA_FULL[code]} qualifying window?`}
+        description="Without a window, this gala goes back to judging every swimmer on their all-time personal best — swimmers whose fastest swim predates this season will start reading as qualified again."
+        confirmLabel="Clear window"
+        onConfirm={async () => {
+          await notify.promise(
+            setGalaQualifyingWindow({
+              code,
+              qualifyingFrom: null,
+              qualifyingTo: null,
+            }),
+            {
+              loading: "Clearing…",
+              success: `${GALA_FULL[code]} qualifying window cleared`,
+            },
+          );
+          setFromOverride(null);
+          setToOverride(null);
         }}
       />
     </section>

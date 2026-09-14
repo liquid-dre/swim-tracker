@@ -7,6 +7,7 @@ import {
   assertCoachManagesSwimmer,
   requireCoach,
   requireSuperUser,
+  requireSwimmerAccess,
 } from "./authz";
 import { galaCodeValidator } from "./galas";
 import {
@@ -25,16 +26,23 @@ import {
   pbBeforeMeet,
   requireClub,
   resultsBySwimmer,
+  RESULTS_LIMIT,
 } from "./meetEntriesShared";
 import { tallyEntriesByMeet } from "../lib/meetEntries";
 import {
   compareMeetEvents,
   genderAllowsSwimmer,
+  isUpcoming,
   meetDates,
   meetEventLabel,
   type MeetEvent,
 } from "../lib/meets";
-import { compareToPbBefore, computeAge } from "../lib/swim";
+import {
+  compareToPbBefore,
+  computeAge,
+  eventLabel,
+  pbBefore,
+} from "../lib/swim";
 
 /*
   Meet sign-ups (§R19) — who is swimming what, and what they went.
@@ -144,17 +152,24 @@ export const getMeetSignups = query({
 
     const lines = [...meet.events]
       .sort(compareMeetEvents)
-      .filter((line): line is MeetEvent & { id: string } => line.id !== undefined)
+      .filter(
+        (line): line is MeetEvent & { id: string } => line.id !== undefined,
+      )
       .map((line) => {
         const rows = (byLine.get(line.id) ?? [])
           .map((entry) => {
             const swimmer = swimmers.get(entry.swimmerId);
             const result =
-              entry.resultId === undefined ? null : results.get(entry.resultId) ?? null;
+              entry.resultId === undefined
+                ? null
+                : (results.get(entry.resultId) ?? null);
             const pb = swimmer
               ? pbBeforeMeet(history.get(entry.swimmerId) ?? [], meet, line)
               : null;
-            const comparison = compareToPbBefore(result?.timeMs ?? null, pb?.timeMs ?? null);
+            const comparison = compareToPbBefore(
+              result?.timeMs ?? null,
+              pb?.timeMs ?? null,
+            );
             return {
               _id: entry._id,
               swimmerId: entry.swimmerId,
@@ -184,7 +199,11 @@ export const getMeetSignups = query({
         };
       });
 
-    return { courseKnown: meet.course !== undefined, days: meetDates(meet), lines };
+    return {
+      courseKnown: meet.course !== undefined,
+      days: meetDates(meet),
+      lines,
+    };
   },
 });
 
@@ -210,17 +229,22 @@ export const getEntryCounts = query({
     const entries = await ctx.db
       .query("meetEntries")
       .withIndex("by_club_date", (q) =>
-        q.eq("clubId", profile.clubId!).gte("meetStartDate", from).lte("meetStartDate", to),
+        q
+          .eq("clubId", profile.clubId!)
+          .gte("meetStartDate", from)
+          .lte("meetStartDate", to),
       )
       .take(MAX_ENTRIES_PER_CLUB);
 
-    return [...tallyEntriesByMeet(entries.map((e) => ({ ...e, meetId: String(e.meetId) })))].map(
-      ([meetId, tally]) => ({
-        meetId: meetId as Id<"meets">,
-        entered: tally.entered,
-        timed: tally.timed,
-      }),
-    );
+    return [
+      ...tallyEntriesByMeet(
+        entries.map((e) => ({ ...e, meetId: String(e.meetId) })),
+      ),
+    ].map(([meetId, tally]) => ({
+      meetId: meetId as Id<"meets">,
+      entered: tally.entered,
+      timed: tally.timed,
+    }));
   },
 });
 
@@ -300,9 +324,13 @@ export const getMyMeetEntries = query({
       for (const entry of entries) {
         const line = meet.events.find((e) => e.id === entry.lineId);
         const result =
-          entry.resultId === undefined ? null : await ctx.db.get(entry.resultId);
+          entry.resultId === undefined
+            ? null
+            : await ctx.db.get(entry.resultId);
         const pb =
-          line === undefined ? null : pbBeforeMeet(history.get(swimmerId) ?? [], meet, line);
+          line === undefined
+            ? null
+            : pbBeforeMeet(history.get(swimmerId) ?? [], meet, line);
         rows.push({
           _id: entry._id,
           lineId: entry.lineId,
@@ -363,14 +391,22 @@ async function entryContext(ctx: MutationCtx, entryId: Id<"meetEntries">) {
   assertCoachManagesSwimmer(profile, swimmer);
 
   const meet = await loadMeetOrThrow(ctx, entry.meetId);
-  return { profile, entry, swimmer, meet, line: lineOrThrow(meet, entry.lineId) };
+  return {
+    profile,
+    entry,
+    swimmer,
+    meet,
+    line: lineOrThrow(meet, entry.lineId),
+  };
 }
 
 /** The denormalised facts an entry carries from its line. */
 function denormalise(line: MeetEvent) {
   return {
     rawLabel: line.rawLabel,
-    ...(line.eventNumber === undefined ? {} : { eventNumber: line.eventNumber }),
+    ...(line.eventNumber === undefined
+      ? {}
+      : { eventNumber: line.eventNumber }),
     ...(line.distance === undefined
       ? {}
       : { distance: line.distance, stroke: line.stroke }),
@@ -401,7 +437,9 @@ export const addEntries = mutation({
     const swimDate = cleanEntryDay(meet, args.swimDate);
 
     if (args.swimmerIds.length > 100) {
-      throw new ConvexError("That is more swimmers than one event can take at once.");
+      throw new ConvexError(
+        "That is more swimmers than one event can take at once.",
+      );
     }
 
     const existing = new Set(
@@ -421,7 +459,9 @@ export const addEntries = mutation({
       if (swimmer === null) throw new ConvexError("Swimmer not found.");
       assertCoachManagesSwimmer(profile, swimmer);
       if (!swimmer.active) {
-        throw new ConvexError(`${swimmer.name} is no longer on the active roster.`);
+        throw new ConvexError(
+          `${swimmer.name} is no longer on the active roster.`,
+        );
       }
       assertGenderAllowed(line, swimmer);
 
@@ -476,7 +516,10 @@ export const setEntryDay = mutation({
   args: { entryId: v.id("meetEntries"), swimDate: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile, entry, swimmer, meet } = await entryContext(ctx, args.entryId);
+    const { profile, entry, swimmer, meet } = await entryContext(
+      ctx,
+      args.entryId,
+    );
     const swimDate = cleanEntryDay(meet, args.swimDate);
 
     await ctx.db.patch(entry._id, {
@@ -520,9 +563,13 @@ export const recordEntryTime = mutation({
     newPb: v.boolean(),
     newPbForMeet: v.boolean(),
     newlyMetGala: v.union(galaCodeValidator, v.null()),
+    cutBeatenOutsideWindow: v.union(galaCodeValidator, v.null()),
   }),
   handler: async (ctx, args) => {
-    const { profile, entry, swimmer, meet, line } = await entryContext(ctx, args.entryId);
+    const { profile, entry, swimmer, meet, line } = await entryContext(
+      ctx,
+      args.entryId,
+    );
 
     // A time needs a course before it can mean anything: a PB is per course and
     // never borrowed (§4.2), so guessing one here would file the swim in the
@@ -554,6 +601,7 @@ export const recordEntryTime = mutation({
       course: meet.course,
       timeMs,
       swimType: "MEET",
+      swimDate,
       excludeResultId: entry.resultId,
     });
 
@@ -606,5 +654,237 @@ export const recordEntryTime = mutation({
       updatedAt: Date.now(),
     });
     return { resultId, newPbForMeet, ...meaning };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// One swimmer, across meets
+// ---------------------------------------------------------------------------
+
+/**
+ * How far back the Past list reaches. A swimmer's whole career is not a thing
+ * to scroll; the honest answer is the recent seasons plus a note saying so.
+ */
+const MAX_PAST_MEETS = 40;
+
+/** One meet as a swimmer's own record of it. */
+const swimmerMeetEvent = v.object({
+  /** The programme line, when this came from a sign-up. Null for a logged swim. */
+  lineId: v.union(v.string(), v.null()),
+  eventNumber: v.union(v.number(), v.null()),
+  label: v.string(),
+  swimDate: v.string(),
+  timeMs: v.union(v.number(), v.null()),
+  pbBeforeMs: v.union(v.number(), v.null()),
+  deltaMs: v.union(v.number(), v.null()),
+  newPb: v.boolean(),
+  firstTime: v.boolean(),
+});
+
+const swimmerMeetBlock = v.object({
+  meetId: v.id("meets"),
+  name: v.string(),
+  startDate: v.string(),
+  endDate: v.union(v.string(), v.null()),
+  startTime: v.union(v.string(), v.null()),
+  venue: v.union(v.string(), v.null()),
+  course: v.union(v.literal("SCM"), v.literal("LCM"), v.null()),
+  events: v.array(swimmerMeetEvent),
+});
+
+/**
+ * One swimmer's meets — what they are down for next, and what they have swum.
+ *
+ * Neither existing read can answer this. `getMyMeetEntries` is per-meet and
+ * returns `[]` for staff by construction (it groups by the ACCOUNT's linked
+ * swimmers, and takes no swimmer id); `getMyEntryCounts` spans meets but
+ * carries only counts. So this one takes a `swimmerId` and is gated by
+ * `requireSwimmerAccess` — the same gate the profile itself uses, which lets a
+ * coach read any swimmer and a viewer only their own.
+ *
+ * A MEET COUNTS EITHER WAY IT WAS RECORDED. A swim reaches this app by two
+ * doors: the sign-up sheet, which creates a `meetEntries` row, and `/log` with
+ * a meet chosen, which creates only a `results` row carrying `meetId`. Reading
+ * entries alone would leave this screen empty for any club that logs the second
+ * way. So both are read and MERGED BY MEET: an entry that already carries a
+ * `resultId` owns that result, and only a result no entry points at becomes a
+ * row of its own. Without that check a swim entered on the sheet would appear
+ * twice on its own meet.
+ *
+ * A result-only row deliberately carries NO `eventNumber` and no `lineId`. The
+ * programme could be searched for a line matching its (distance, stroke), but
+ * a real programme repeats "100 Free" once per age band — keying on the pair is
+ * exactly what `meetEntries.lineId` exists to avoid, and guessing here would
+ * attach a swim to the wrong heat on screen.
+ */
+export const getSwimmerMeets = query({
+  args: { swimmerId: v.id("swimmers") },
+  returns: v.object({
+    /** The next meet they are down for, or null when nothing is ahead. */
+    upcoming: v.union(swimmerMeetBlock, v.null()),
+    past: v.array(swimmerMeetBlock),
+    /** True when `past` stopped at the cap, so the screen can say so. */
+    pastTruncated: v.boolean(),
+  }),
+  handler: async (ctx, { swimmerId }) => {
+    await requireSwimmerAccess(ctx, swimmerId);
+
+    const swimmer = await ctx.db.get(swimmerId);
+    if (swimmer === null)
+      return { upcoming: null, past: [], pastTruncated: false };
+
+    // Prefix seek on `by_swimmer_meet` — the traversal the schema comment calls
+    // "what am I down for?". There is no by_swimmer_date index, so the split
+    // into upcoming and past happens in memory below.
+    const entries = await ctx.db
+      .query("meetEntries")
+      .withIndex("by_swimmer_meet", (q) => q.eq("swimmerId", swimmerId))
+      .take(MAX_ENTRIES_PER_CLUB);
+
+    const history = await ctx.db
+      .query("results")
+      .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
+      .take(RESULTS_LIMIT);
+
+    // Results already spoken for by an entry, so a sheet-entered swim is not
+    // also counted as a loose one.
+    const claimed = new Set<string>();
+    for (const entry of entries) {
+      if (entry.resultId !== undefined) claimed.add(entry.resultId);
+    }
+
+    const byMeet = new Map<
+      Id<"meets">,
+      { entries: Doc<"meetEntries">[]; results: Doc<"results">[] }
+    >();
+    const bucket = (meetId: Id<"meets">) => {
+      const found = byMeet.get(meetId);
+      if (found) return found;
+      const made = {
+        entries: [] as Doc<"meetEntries">[],
+        results: [] as Doc<"results">[],
+      };
+      byMeet.set(meetId, made);
+      return made;
+    };
+    for (const entry of entries) bucket(entry.meetId).entries.push(entry);
+    for (const result of history) {
+      if (result.meetId === undefined) continue;
+      if (claimed.has(result._id)) continue;
+      bucket(result.meetId).results.push(result);
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const upcomingBlocks = [];
+    const pastBlocks = [];
+
+    for (const [meetId, group] of byMeet) {
+      const meet = await ctx.db.get(meetId);
+      if (meet === null) continue; // meet deleted; its results keep their name
+
+      const rows = [];
+      for (const entry of group.entries) {
+        const line = meet.events.find((e) => e.id === entry.lineId);
+        const result =
+          entry.resultId === undefined
+            ? null
+            : await ctx.db.get(entry.resultId);
+        const pb =
+          line === undefined ? null : pbBeforeMeet(history, meet, line);
+        rows.push({
+          lineId: entry.lineId,
+          eventNumber: entry.eventNumber ?? null,
+          // The entry's own denormalised label, so it still says what it was
+          // for after the line it points at is re-worded or removed.
+          label: line === undefined ? entry.rawLabel : meetEventLabel(line),
+          rawLabel: entry.rawLabel,
+          distance: entry.distance,
+          stroke: entry.stroke,
+          swimDate: entry.swimDate,
+          ...compareToPbBefore(result?.timeMs ?? null, pb?.timeMs ?? null),
+        });
+      }
+
+      for (const result of group.results) {
+        const pb = pbBefore(
+          history,
+          {
+            distance: result.distance,
+            stroke: result.stroke,
+            course: result.course,
+          },
+          meet.startDate,
+        );
+        rows.push({
+          lineId: null,
+          eventNumber: null,
+          label: eventLabel(result.distance, result.stroke),
+          rawLabel: eventLabel(result.distance, result.stroke),
+          distance: result.distance,
+          stroke: result.stroke,
+          swimDate: result.swimDate,
+          ...compareToPbBefore(result.timeMs, pb?.timeMs ?? null),
+        });
+      }
+
+      // `compareMeetEvents` is the app's one programme order (event number is
+      // the running order; unnumbered lines fall back to canonical event
+      // order). Its `eventNumber` is optional where these rows use null, so
+      // the rows are viewed as programme lines just for the sort.
+      rows.sort((a, b) =>
+        compareMeetEvents(
+          {
+            eventNumber: a.eventNumber ?? undefined,
+            rawLabel: a.rawLabel,
+            distance: a.distance,
+            stroke: a.stroke,
+          },
+          {
+            eventNumber: b.eventNumber ?? undefined,
+            rawLabel: b.rawLabel,
+            distance: b.distance,
+            stroke: b.stroke,
+          },
+        ),
+      );
+
+      const block = {
+        meetId,
+        name: meet.name,
+        startDate: meet.startDate,
+        endDate: meet.endDate ?? null,
+        startTime: meet.startTime ?? null,
+        venue: meet.venue ?? null,
+        course: meet.course ?? null,
+        events: rows.map((r) => ({
+          lineId: r.lineId,
+          eventNumber: r.eventNumber,
+          label: r.label,
+          swimDate: r.swimDate,
+          timeMs: r.timeMs,
+          pbBeforeMs: r.pbBeforeMs,
+          deltaMs: r.deltaMs,
+          newPb: r.newPb,
+          firstTime: r.firstTime,
+        })),
+      };
+
+      // A meet RUNNING today is upcoming (`isUpcoming` reads the end date), so
+      // a coach mid-gala still finds it where they left it rather than having
+      // it move to Past under them halfway through the day.
+      if (isUpcoming(meet, today)) upcomingBlocks.push(block);
+      else pastBlocks.push(block);
+    }
+
+    upcomingBlocks.sort((a, b) => a.startDate.localeCompare(b.startDate));
+    pastBlocks.sort((a, b) => b.startDate.localeCompare(a.startDate));
+
+    return {
+      // Only the nearest: "what is next" is one meet, and listing four would
+      // bury it.
+      upcoming: upcomingBlocks[0] ?? null,
+      past: pastBlocks.slice(0, MAX_PAST_MEETS),
+      pastTruncated: pastBlocks.length > MAX_PAST_MEETS,
+    };
   },
 });

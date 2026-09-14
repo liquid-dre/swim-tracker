@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatTime } from "@/lib/swim";
+import { SwimOutcome } from "./SwimOutcome";
 
 /*
   What a swimmer's family came to the page for.
@@ -73,7 +74,7 @@ export function ViewerMeetEntries({
                   )}
 
                   <p className="w-full text-xs text-ink-muted">
-                    <Outcome entry={entry} />
+                    <SwimOutcome row={entry} />
                   </p>
                 </li>
               ))}
@@ -82,53 +83,5 @@ export function ViewerMeetEntries({
         ))}
       </div>
     </section>
-  );
-}
-
-/**
- * One line of plain English about the swim. Never colour alone: "personal
- * best" is a word, and the green only reinforces it.
- */
-function Outcome({
-  entry,
-}: {
-  entry: {
-    timeMs: number | null;
-    pbBeforeMs: number | null;
-    deltaMs: number | null;
-    newPb: boolean;
-    firstTime: boolean;
-    swimDate: string;
-  };
-}) {
-  if (entry.timeMs === null) {
-    return entry.pbBeforeMs === null ? (
-      <>Not swum before.</>
-    ) : (
-      <>
-        Best so far{" "}
-        <span className="tabular-nums">{formatTime(entry.pbBeforeMs)}</span>.
-      </>
-    );
-  }
-  if (entry.firstTime) return <>First time at this event.</>;
-  if (entry.pbBeforeMs === null || entry.deltaMs === null) return <>Swum.</>;
-
-  const seconds = `${(Math.abs(entry.deltaMs) / 1000).toFixed(2)}s`;
-  return (
-    <>
-      Best going in{" "}
-      <span className="tabular-nums">{formatTime(entry.pbBeforeMs)}</span>
-      {" · "}
-      <span
-        className={entry.newPb ? "font-medium text-success-ink" : undefined}
-      >
-        {entry.newPb
-          ? `personal best, ${seconds} faster`
-          : entry.deltaMs === 0
-            ? "matched it exactly"
-            : `${seconds} slower`}
-      </span>
-    </>
   );
 }

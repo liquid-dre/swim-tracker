@@ -6,11 +6,16 @@ import {
   fastestMeetSwim,
   galaResolutionAges,
   highestGalaMet,
+  isInQualifyingWindow,
   isValidEvent,
   parseTime,
   pickApplicableStandardsPerGala,
+  qualifyingPbByGala,
+  uniformPb,
   type Course,
   type GalaCode,
+  type PbByGalaCourse,
+  type ResultForPB,
 } from "../lib/swim";
 import { loadGalas, toGalaRefs } from "./galas";
 
@@ -83,10 +88,24 @@ export type MeetSwimMeaning = {
   /** Beat every previous MEET swim on this event and course (§4.6). */
   newPb: boolean;
   /**
-   * The hardest gala this time meets that the previous best did not — the one
-   * moment worth naming over "time saved". Null when nothing changed.
+   * The hardest gala this swim newly QUALIFIES the swimmer for — the one moment
+   * worth naming over "time saved". Null when nothing changed.
+   *
+   * A real qualification, so it obeys the gala's window (§4.9): a swim dated
+   * outside it never appears here, however fast, because it cannot enter them.
    */
   newlyMetGala: GalaCode | null;
+  /**
+   * The hardest gala whose CUT this time beats while the swim falls outside
+   * that gala's qualifying window.
+   *
+   * Reported separately, and never merged into `newlyMetGala`, because the two
+   * are different facts and the difference is the whole point: "you swam under
+   * the Level 3 cut" is worth saying to a coach back-filling last season's meet,
+   * but "you have qualified for Level 3" would be false. The UI is expected to
+   * word it as the near-miss it is.
+   */
+  cutBeatenOutsideWindow: GalaCode | null;
 };
 
 /**
@@ -109,10 +128,18 @@ export async function describeMeetSwim(
     course: string;
     timeMs: number;
     swimType: string;
+    /** The day it was swum — decides which galas' windows it falls inside. */
+    swimDate: string;
     excludeResultId?: Doc<"results">["_id"];
   },
 ): Promise<MeetSwimMeaning> {
-  if (args.swimType !== "MEET") return { newPb: false, newlyMetGala: null };
+  // A time trial, a practice swim or a school-gala time is not an official meet
+  // time, so it can never set a headline PB and can never qualify anyone — and
+  // must not even be told it "beat a cut", which would read as a qualification
+  // the swimmer does not hold. Answered without a read.
+  if (args.swimType !== "MEET") {
+    return { newPb: false, newlyMetGala: null, cutBeatenOutsideWindow: null };
+  }
 
   const siblings = (
     await ctx.db
@@ -129,7 +156,9 @@ export async function describeMeetSwim(
 
   const prevBestMs = fastestMeetSwim(siblings)?.timeMs ?? null;
   const newPb = prevBestMs === null || args.timeMs < prevBestMs;
-  if (!newPb) return { newPb: false, newlyMetGala: null };
+  if (!newPb) {
+    return { newPb: false, newlyMetGala: null, cutBeatenOutsideWindow: null };
+  }
 
   // A new PB in EITHER course may be the first time a qualifying cut is met.
   // Both courses are valid for entry (§4.2), so a short-course PB earns the
@@ -168,15 +197,41 @@ export async function describeMeetSwim(
   );
   const byCourse = course === "LCM" ? { LCM: cuts, SCM: {} } : { LCM: {}, SCM: cuts };
 
-  const galaNow =
-    highestGalaMet({ [course]: args.timeMs }, byCourse, course)?.gala ?? null;
+  // The QUALIFICATION claim. This swim counts only for the galas whose window
+  // contains its date (§4.9), so a back-filled swim from last season reaches no
+  // gala here no matter how fast it was.
+  const thisSwimByGala: PbByGalaCourse = {};
+  for (const ref of galaRefs) {
+    thisSwimByGala[ref.code] = isInQualifyingWindow(args.swimDate, ref)
+      ? { [course]: args.timeMs }
+      : {};
+  }
+  const galaNow = highestGalaMet(thisSwimByGala, byCourse, course)?.gala ?? null;
+
+  // What they already held, judged the same way — otherwise "newly met" would
+  // compare a windowed claim against an all-time one and fire every time.
   const galaBefore =
-    prevBestMs === null
-      ? null
-      : highestGalaMet({ [course]: prevBestMs }, byCourse, course)?.gala ?? null;
+    highestGalaMet(qualifyingPbByGala(siblings as ResultForPB[], galaRefs), byCourse, course)
+      ?.gala ?? null;
+
+  // The near-miss: fast enough for a cut, on a day that cut does not count.
+  const galaIgnoringWindow =
+    highestGalaMet(uniformPb({ [course]: args.timeMs }), byCourse, course)
+      ?.gala ?? null;
+  const outsideRef =
+    galaIgnoringWindow === null
+      ? undefined
+      : galaRefs.find((g) => g.code === galaIgnoringWindow);
+  const cutBeatenOutsideWindow =
+    galaIgnoringWindow !== null &&
+    outsideRef !== undefined &&
+    !isInQualifyingWindow(args.swimDate, outsideRef)
+      ? galaIgnoringWindow
+      : null;
 
   return {
     newPb: true,
     newlyMetGala: galaNow !== null && galaNow !== galaBefore ? galaNow : null,
+    cutBeatenOutsideWindow,
   };
 }

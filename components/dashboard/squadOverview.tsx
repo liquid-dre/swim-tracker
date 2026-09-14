@@ -359,7 +359,16 @@ export function RosterOverview({ data }: { data: DashboardData | undefined }) {
                 <tr className="border-b border-gray-200 text-left text-xs font-medium uppercase tracking-wide text-ink-faint">
                   <th scope="col" className="px-4 py-2.5 font-medium sm:px-5">Swimmer</th>
                   <th scope="col" className="px-4 py-2.5 font-medium">Top event</th>
-                  <th scope="col" className="px-4 py-2.5 text-right font-medium">PB</th>
+                  {/* The QUALIFYING time, not the all-time PB: this table's
+                      gala and gap columns are entry claims, so the time beside
+                      them must be the one they were measured from (§4.9). */}
+                  <th
+                    scope="col"
+                    className="px-4 py-2.5 text-right font-medium"
+                    title="Fastest official meet swim inside the gala's qualifying window"
+                  >
+                    Qualifying
+                  </th>
                   <th scope="col" className="px-4 py-2.5 font-medium">Trend</th>
                   <th scope="col" className="px-4 py-2.5 font-medium">Best tier</th>
                 </tr>

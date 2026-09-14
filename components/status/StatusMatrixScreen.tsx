@@ -19,18 +19,26 @@ import { swimmerProfileBase } from "@/lib/swimmerHref";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { DEFAULT_AGE_BANDS, formatTime, type Course, type CourseMode } from "@/lib/swim";
 import { GALA_FULL, GALA_ORDER, GALA_SHORT, type GalaCode } from "@/lib/galas";
+import { QualifyingBasis } from "@/components/qualifying/QualifyingBasis";
 import { formatShortDate } from "@/lib/format";
 
 /*
   Qualification status matrix (Step 11, BRD §5.7) — the "who's ready for what"
   planning surface. Rows = swimmers, columns = events. Each cell shows the hardest
-  gala the swimmer's headline MEET PB meets, plus the gap to the next gala up.
+  gala the swimmer's QUALIFYING time meets, plus the gap to the next gala up.
+
+  A qualifying time is NOT the all-time headline PB: it is the fastest official
+  meet swim inside that gala's qualifying window (§4.9). A swimmer who beat the
+  SANJ cut two seasons ago reads here as not having met it, because they cannot
+  enter on that swim — and the basis line above the grid says so once, rather
+  than every cell carrying an explanation. Their lifetime best is untouched and
+  still owns the PB board.
 
   COURSE is a first-class control, because both courses are valid for entry
   (§4.2). "Best of both" — the default — answers "is my swimmer in?" in one read:
-  a cell counts a gala as met if EITHER course's PB beats that course's own cut,
+  a cell counts a gala as met if EITHER course's time beats that course's own cut,
   and marks which course got them there. "Long course" / "Short course" isolate
-  one course when you want an unambiguous single-course grid. A PB is never
+  one course when you want an unambiguous single-course grid. A time is never
   measured against the other course's cut.
 
   Cuts resolve to each swimmer's EXACT single-year age; the age-band filter is
@@ -172,6 +180,13 @@ export function StatusMatrixScreen() {
           setSquad("ALL");
         }}
       />
+      )}
+
+      {/* What this grid measured. Every time in it is a qualifying time — the
+          fastest official meet swim inside the gala's window — so the basis is
+          stated once here rather than annotated per cell. */}
+      {data !== undefined && data.hasStandards && (
+        <QualifyingBasis windows={data.qualifyingWindows} />
       )}
 
       {/* Resolution context: with tour dates set, those tiers judge at each
@@ -369,17 +384,19 @@ function MatrixCell({
     );
   }
 
-  // A cut exists, but no meet time in any course we're judging → dash, not a gala.
+  // A cut exists, but no QUALIFYING time in any course we're judging → dash, not
+  // a gala. This covers both "never raced it" and "raced it, but not inside the
+  // window" — deliberately the same cell, since neither can enter them.
   if (pbLcmMs === null && pbScmMs === null) {
     return (
       <td
         className={base}
-        title={`${swimmer}: no ${COURSE_MODE_LABEL[courseMode]} meet time for ${eventLabel}`}
+        title={`${swimmer}: no ${COURSE_MODE_LABEL[courseMode]} qualifying time for ${eventLabel}`}
       >
         <span aria-hidden className="text-ink-faint">
           –
         </span>
-        <span className="sr-only">No meet time</span>
+        <span className="sr-only">No qualifying time</span>
       </td>
     );
   }
@@ -387,14 +404,16 @@ function MatrixCell({
   const displayGala = gala ?? "NONE";
   const atTop = nextGala === null; // met the hardest available gala — nothing to chase
 
-  // Name every PB the grid is actually measuring, so the tooltip never implies a
-  // single time when two courses are in play.
+  // Name every time the grid is actually measuring, so the tooltip never implies
+  // a single time when two courses are in play. These are the swimmer's
+  // qualifying times, not their PBs — both courses come from the same gala's
+  // window, so the pair is always measured on one basis.
   const pbParts = [
     pbLcmMs === null ? null : `LC ${formatTime(pbLcmMs)}`,
     pbScmMs === null ? null : `SC ${formatTime(pbScmMs)}`,
   ].filter(Boolean);
   const title =
-    `${swimmer} · ${eventLabel} · PB ${pbParts.join(" / ")}` +
+    `${swimmer} · ${eventLabel} · qualifying ${pbParts.join(" / ")}` +
     (gala
       ? ` · ${GALA_SHORT[gala]} met${galaCourse ? ` on ${galaCourse === "LCM" ? "long" : "short"} course` : ""}`
       : " · no gala met") +

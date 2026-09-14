@@ -81,6 +81,7 @@ export const meetShape = v.object({
   name: v.string(),
   startDate: v.string(),
   endDate: v.union(v.string(), v.null()),
+  startTime: v.union(v.string(), v.null()),
   venue: v.union(v.string(), v.null()),
   course: v.union(courseValidator, v.null()),
   galaCode: v.union(galaCodeValidator, v.null()),
@@ -93,6 +94,7 @@ function toMeetShape(meet: Doc<"meets">) {
     name: meet.name,
     startDate: meet.startDate,
     endDate: meet.endDate ?? null,
+    startTime: meet.startTime ?? null,
     venue: meet.venue ?? null,
     course: meet.course ?? null,
     galaCode: meet.galaCode ?? null,
@@ -111,6 +113,25 @@ function cleanName(raw: string): string {
     throw new ConvexError(`That name is too long (max ${NAME_MAX} characters).`);
   }
   return name;
+}
+
+/**
+ * A start time as 24-hour `"HH:MM"`, or undefined when not stated.
+ *
+ * Absent is a real state and stays one: a programme that never printed a start
+ * time must not acquire an invented "09:00" on the way into the database, for
+ * the same reason a course is never guessed (§4.2) — a wrong time on the
+ * calendar is worse than a blank one, because a blank one asks.
+ */
+function cleanStartTime(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const value = raw.trim();
+  if (value === "") return undefined;
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(value);
+  if (!m) {
+    throw new ConvexError("The start time must be a 24-hour time like 18:00.");
+  }
+  return `${m[1].padStart(2, "0")}:${m[2]}`;
 }
 
 function cleanOptionalText(
@@ -417,6 +438,7 @@ const meetFields = {
   name: v.string(),
   startDate: v.string(),
   endDate: v.optional(v.string()),
+  startTime: v.optional(v.string()),
   venue: v.optional(v.string()),
   course: v.optional(courseValidator),
   galaCode: v.optional(galaCodeValidator),
@@ -430,11 +452,13 @@ export const createMeet = mutation({
     const profile = await requireSuperUser(ctx);
     const { startDate, endDate } = cleanDates(args.startDate, args.endDate);
     const venue = cleanOptionalText(args.venue, VENUE_MAX, "The venue");
+    const startTime = cleanStartTime(args.startTime);
 
     return await ctx.db.insert("meets", {
       name: cleanName(args.name),
       startDate,
       ...(endDate === undefined ? {} : { endDate }),
+      ...(startTime === undefined ? {} : { startTime }),
       ...(venue === undefined ? {} : { venue }),
       ...(args.course === undefined ? {} : { course: args.course }),
       ...(args.galaCode === undefined ? {} : { galaCode: args.galaCode }),
@@ -478,6 +502,7 @@ export const updateMeet = mutation({
       name: cleanName(args.name),
       startDate,
       endDate,
+      startTime: cleanStartTime(args.startTime),
       venue: cleanOptionalText(args.venue, VENUE_MAX, "The venue"),
       course: args.course,
       galaCode: args.galaCode,
@@ -613,6 +638,7 @@ export const importMeet = mutation({
     const { startDate, endDate } = cleanDates(args.startDate, args.endDate);
     const name = cleanName(args.name);
     const venue = cleanOptionalText(args.venue, VENUE_MAX, "The venue");
+    const startTime = cleanStartTime(args.startTime);
 
     if (args.meetId !== undefined) {
       const existing = await ctx.db.get(args.meetId);
@@ -651,6 +677,10 @@ export const importMeet = mutation({
         name,
         startDate,
         ...(endDate === undefined ? {} : { endDate }),
+        // A programme DOES state a start time, so unlike the course and the day
+        // count it is patched when present — and left alone when the document is
+        // silent, so a hand-entered time survives a re-import.
+        ...(startTime === undefined ? {} : { startTime }),
         ...(venue === undefined ? {} : { venue }),
         ...(args.course === undefined ? {} : { course: args.course }),
         ...(args.galaCode === undefined ? {} : { galaCode: args.galaCode }),
@@ -673,6 +703,7 @@ export const importMeet = mutation({
       name,
       startDate,
       ...(endDate === undefined ? {} : { endDate }),
+      ...(startTime === undefined ? {} : { startTime }),
       ...(venue === undefined ? {} : { venue }),
       ...(args.course === undefined ? {} : { course: args.course }),
       ...(args.galaCode === undefined ? {} : { galaCode: args.galaCode }),

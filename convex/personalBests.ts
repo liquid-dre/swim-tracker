@@ -7,9 +7,11 @@ import {
   computeMatrixCell,
   computePersonalBests,
   computeAge,
+  eventKey,
   eventLabel,
   galaResolutionAges,
   pickApplicableStandardsPerGala,
+  qualifyingPbsByEvent,
   type Course,
   type GalaCode,
   type ResultForPB,
@@ -414,11 +416,21 @@ export const getViewerHighlights = query({
         course: Course;
         gapMs: number;
       } | null = null;
-      // Every course counts (§4.2), and each PB is judged against its OWN
+      // "How close am I?" is a qualifying question, so it is measured on
+      // QUALIFYING times — the fastest official meet swim inside each gala's
+      // window (§4.9) — not on the all-time best shown above it. The two
+      // deliberately differ: `latestPb` celebrates a lifetime best whenever it
+      // was set; this block only counts swims that could still enter them.
+      const qualifyingPbs = qualifyingPbsByEvent(
+        results as ResultForPB[],
+        galaRefs,
+      );
+      // Every course counts (§4.2), and each time is judged against its OWN
       // course's cut — so the nearest cut may be a short-course one.
       for (const pb of pbs) {
         if (!pb.headline) continue;
         const course = pb.course as Course;
+        const pbByGala = qualifyingPbs.get(eventKey(pb.distance, pb.stroke)) ?? {};
         const cuts = pickApplicableStandardsPerGala(
           cutRows.flatMap((r) => {
             if (r.distance !== pb.distance || r.stroke !== pb.stroke) return [];
@@ -434,7 +446,7 @@ export const getViewerHighlights = query({
           ages,
         );
         const cell = computeMatrixCell(
-          { [course]: pb.headline.timeMs },
+          pbByGala,
           course === "LCM"
             ? { LCM: cuts, SCM: {} }
             : { LCM: {}, SCM: cuts },

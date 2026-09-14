@@ -13,10 +13,11 @@ import { GALA_ORDER, type GalaCode, type GalaRef } from "../lib/swim";
 
     identity   code / displayName / shortLabel / sortHint / season / ageScope
                Seeded from lib/galas.ts; refreshed by the seeding mutation.
-    policy     minAge / maxAge / coveredEvents
-               Seeded, then editable — SSA publishes entry windows outside the
-               cut tables, so a coach must be able to correct them without a
-               deploy (Youth's real window in particular is not yet confirmed).
+    policy     minAge / maxAge / coveredEvents / qualifyingFrom / qualifyingTo
+               Seeded, then editable — SSA publishes entry windows and
+               qualifying periods outside the cut tables, so a coach must be
+               able to correct them without a deploy (Youth's real window in
+               particular is not yet confirmed).
     tour       tourDate / tourName
                Purely coach-entered. Setting a date switches every qualifying
                surface to judging the swimmer at the age they will be ON TOUR
@@ -69,6 +70,8 @@ export const galaShape = v.object({
   season: v.string(),
   tourDate: v.union(v.string(), v.null()),
   tourName: v.union(v.string(), v.null()),
+  qualifyingFrom: v.union(v.string(), v.null()),
+  qualifyingTo: v.union(v.string(), v.null()),
 });
 
 // ---------------------------------------------------------------------------
@@ -90,14 +93,47 @@ export async function loadGalas(
     .sort((a, b) => rank.get(a.code)! - rank.get(b.code)!);
 }
 
-/** The subset of a gala row that the pure resolution helpers in lib/swim need. */
+/**
+ * The subset of a gala row that the pure resolution helpers in lib/swim need.
+ *
+ * This is the ONE adapter every qualifying surface passes through on its way to
+ * `pickApplicableStandardsPerGala` / `qualifyingPbByGala`, which is why a new
+ * per-gala policy field only has to be added here to reach all ~12 call sites.
+ */
 export function toGalaRefs(galas: ReadonlyArray<Doc<"galas">>): GalaRef[] {
   return galas.map((g) => ({
     code: g.code as GalaCode,
     minAge: g.minAge ?? null,
     maxAge: g.maxAge ?? null,
     tourDate: g.tourDate ?? null,
+    qualifyingFrom: g.qualifyingFrom ?? null,
+    qualifyingTo: g.qualifyingTo ?? null,
   }));
+}
+
+/**
+ * Qualifying windows by gala code, for surfaces that must judge on the CLIENT.
+ *
+ * Only the progression projection needs this today: it decides "already
+ * qualified" in the browser, and that verdict is a qualifying claim like any
+ * other. Everything else resolves server-side straight off `toGalaRefs`.
+ */
+export function qualifyingWindowsByGala(
+  galas: ReadonlyArray<Doc<"galas">>,
+): Partial<
+  Record<GalaCode, { qualifyingFrom: string | null; qualifyingTo: string | null }>
+> {
+  const out: Partial<
+    Record<GalaCode, { qualifyingFrom: string | null; qualifyingTo: string | null }>
+  > = {};
+  for (const g of galas) {
+    if (g.qualifyingFrom === undefined && g.qualifyingTo === undefined) continue;
+    out[g.code as GalaCode] = {
+      qualifyingFrom: g.qualifyingFrom ?? null,
+      qualifyingTo: g.qualifyingTo ?? null,
+    };
+  }
+  return out;
 }
 
 /** Tour dates by gala code, for the surfaces that explain the resolution rule. */
@@ -136,6 +172,8 @@ export const listGalas = query({
       season: g.season,
       tourDate: g.tourDate ?? null,
       tourName: g.tourName ?? null,
+      qualifyingFrom: g.qualifyingFrom ?? null,
+      qualifyingTo: g.qualifyingTo ?? null,
     }));
   },
 });
@@ -144,11 +182,17 @@ export const listGalas = query({
 // Writes (super-user only)
 // ---------------------------------------------------------------------------
 
-/** Validate a super-user-entered tour date (future dates are the norm). */
-function cleanTourDate(value: string): string {
+/**
+ * Validate a super-user-entered gala POLICY date — a tour date or either end of
+ * a qualifying window. Future dates are the norm for all three, which is why
+ * this and not `settings.ts`'s `cleanSeasonDate` (that one rejects them, because
+ * a season cannot start after today; a qualifying window routinely closes after
+ * it).
+ */
+function cleanPolicyDate(value: string, label: string): string {
   const trimmed = value.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    throw new ConvexError("Tour date must be a date in YYYY-MM-DD form.");
+    throw new ConvexError(`${label} must be a date in YYYY-MM-DD form.`);
   }
   const date = new Date(`${trimmed}T00:00:00Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== trimmed) {
@@ -157,7 +201,7 @@ function cleanTourDate(value: string): string {
   // A typo'd year (0206, 20260) silently pins cuts to a nonsense age — bound it.
   const year = date.getUTCFullYear();
   if (year < 2000 || year > 2100) {
-    throw new ConvexError("Tour date must be between 2000 and 2100.");
+    throw new ConvexError(`${label} must be between 2000 and 2100.`);
   }
   return trimmed;
 }
@@ -189,7 +233,7 @@ export const setGalaTour = mutation({
     await requireSuperUser(ctx);
     const gala = await requireGala(ctx, args.code);
 
-    const date = cleanTourDate(args.date);
+    const date = cleanPolicyDate(args.date, "Tour date");
     const name = args.name?.trim() || undefined;
     if (name && name.length > NAME_MAX) {
       throw new ConvexError("Tour name is too long.");
@@ -245,6 +289,52 @@ export const setGalaEligibility = mutation({
     await ctx.db.patch(gala._id, {
       minAge: minAge ?? undefined,
       maxAge: maxAge ?? undefined,
+    });
+    return null;
+  },
+});
+
+/**
+ * Set or clear a gala's QUALIFYING WINDOW (§4.9) — the dates between which a
+ * swim can qualify a swimmer for it.
+ *
+ * Both bounds are inclusive and either may be `null`, meaning unbounded on that
+ * side; clearing BOTH returns the gala to judging on all-time personal bests,
+ * which is a real state and not a broken one.
+ *
+ * Deliberately one mutation for the pair rather than two: the only cross-field
+ * rule (`to` cannot precede `from`) needs both values in hand, and setting them
+ * one at a time would make the invalid intermediate state reachable.
+ */
+export const setGalaQualifyingWindow = mutation({
+  args: {
+    code: galaCodeValidator,
+    qualifyingFrom: v.union(v.string(), v.null()),
+    qualifyingTo: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, { code, qualifyingFrom, qualifyingTo }) => {
+    await requireSuperUser(ctx);
+    const gala = await requireGala(ctx, code);
+
+    const from =
+      qualifyingFrom === null
+        ? undefined
+        : cleanPolicyDate(qualifyingFrom, "Qualifying window start");
+    const to =
+      qualifyingTo === null
+        ? undefined
+        : cleanPolicyDate(qualifyingTo, "Qualifying window end");
+
+    if (from !== undefined && to !== undefined && to < from) {
+      throw new ConvexError(
+        "The qualifying window cannot end before it starts.",
+      );
+    }
+
+    await ctx.db.patch(gala._id, {
+      qualifyingFrom: from,
+      qualifyingTo: to,
     });
     return null;
   },

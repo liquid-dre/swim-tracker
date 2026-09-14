@@ -162,8 +162,40 @@ export function galaCoversEvent(
 // rules; LEVEL_2 and LEVEL_3 take maxAge 16 from their tables terminating there
 // with no oldest catch-all. All of it is super-user editable at runtime.
 
+/**
+ * The QUALIFYING WINDOW: the dates between which a swim can qualify a swimmer
+ * for this gala (§4.9). A third gate alongside the cut and the entry age window
+ * — a swimmer qualifies on this season's racing, not on a lifetime best, so a
+ * time swum before the window opened buys them nothing however fast it was.
+ *
+ * Both bounds are INCLUSIVE and either may be absent, meaning unbounded on that
+ * side. Absent on BOTH is the pre-window behaviour: judge on all-time.
+ *
+ * Stored per gala rather than app-wide because the federation publishes a period
+ * per championship — SANS's window is rarely SANJ's — and super-user editable
+ * for the same reason `minAge`/`maxAge` are: a rule change must be an edit, not
+ * a deploy.
+ */
+export type GalaQualifyingWindow = {
+  qualifyingFrom?: string | null; // ISO YYYY-MM-DD, inclusive
+  qualifyingTo?: string | null; // ISO YYYY-MM-DD, inclusive
+};
+
+/**
+ * The 2026-27 season: 1 June 2026 → 21 March 2027, inclusive.
+ *
+ * Seeded onto all five galas so the whole status matrix judges on one basis.
+ * The three the club did not publish dates for (SANJ/SANY/SANS) take the same
+ * window as a starting point and are corrected in Admin › Galas the day their
+ * own periods are known — one field each, not a migration.
+ */
+export const SEASON_2027_WINDOW: Required<GalaQualifyingWindow> = {
+  qualifyingFrom: "2026-06-01",
+  qualifyingTo: "2027-03-21",
+};
+
 /** A gala row as seeded — matches the `galas` table minus Convex system fields. */
-export type GalaSeed = {
+export type GalaSeed = GalaQualifyingWindow & {
   code: GalaCode;
   displayName: string;
   shortLabel: string;
@@ -174,6 +206,63 @@ export type GalaSeed = {
   sortHint: number;
   season: string;
 };
+
+/**
+ * Is `swimDate` inside a gala's qualifying window? An absent bound is unbounded,
+ * so a gala with neither accepts every date — exactly the behaviour before
+ * windows existed.
+ *
+ * ISO `YYYY-MM-DD` strings compare lexicographically, which is why no date
+ * parsing (and no timezone) is involved.
+ */
+export function isInQualifyingWindow(
+  swimDate: string,
+  window: GalaQualifyingWindow,
+): boolean {
+  if (window.qualifyingFrom != null && swimDate < window.qualifyingFrom) {
+    return false;
+  }
+  if (window.qualifyingTo != null && swimDate > window.qualifyingTo) {
+    return false;
+  }
+  return true;
+}
+
+/** Does this gala restrict qualification to a window at all? */
+export function hasQualifyingWindow(window: GalaQualifyingWindow): boolean {
+  return window.qualifyingFrom != null || window.qualifyingTo != null;
+}
+
+/**
+ * The window a swim must fall in to be valid for EVERY one of these galas — the
+ * intersection: the latest start and the earliest end.
+ *
+ * Needed wherever one number is measured against several galas' cuts at once.
+ * The stroke-profile wheel is the case that forces it: a spoke draws ONE bar
+ * across two to four rings, and the wheel's locked invariant is that crossing a
+ * gala's ring means beating that gala's cut. A time valid for Level 2 but not
+ * for SANJ would cross the SANJ ring and lie. Taking the intersection is
+ * conservative — it never claims a qualification the swimmer does not hold.
+ *
+ * With every gala on one window (the normal case) this simply returns it. An
+ * EMPTY intersection (start after end) is left as-is rather than repaired: no
+ * swim can satisfy it, which is the truthful answer.
+ */
+export function intersectQualifyingWindows(
+  windows: ReadonlyArray<GalaQualifyingWindow>,
+): GalaQualifyingWindow {
+  let from: string | null = null;
+  let to: string | null = null;
+  for (const w of windows) {
+    if (w.qualifyingFrom != null && (from === null || w.qualifyingFrom > from)) {
+      from = w.qualifyingFrom;
+    }
+    if (w.qualifyingTo != null && (to === null || w.qualifyingTo < to)) {
+      to = w.qualifyingTo;
+    }
+  }
+  return { qualifyingFrom: from, qualifyingTo: to };
+}
 
 const FREE_SPRINT_TO_DISTANCE: ReadonlyArray<CoveredEvent> = [
   { distance: 50, stroke: "FREE" },
@@ -211,6 +300,7 @@ export const GALA_SEED: ReadonlyArray<GalaSeed> = [
     coveredEvents: OPEN_GALA_EVENTS,
     sortHint: 0,
     season: "2027",
+    ...SEASON_2027_WINDOW,
   },
   {
     code: "SANY",
@@ -222,6 +312,7 @@ export const GALA_SEED: ReadonlyArray<GalaSeed> = [
     coveredEvents: OPEN_GALA_EVENTS,
     sortHint: 1,
     season: "2027",
+    ...SEASON_2027_WINDOW,
   },
   {
     code: "SANJ",
@@ -247,6 +338,7 @@ export const GALA_SEED: ReadonlyArray<GalaSeed> = [
     ],
     sortHint: 2,
     season: "2027",
+    ...SEASON_2027_WINDOW,
   },
   {
     code: "LEVEL_3",
@@ -268,6 +360,7 @@ export const GALA_SEED: ReadonlyArray<GalaSeed> = [
     ],
     sortHint: 3,
     season: "2027",
+    ...SEASON_2027_WINDOW,
   },
   {
     code: "LEVEL_2",
@@ -292,6 +385,7 @@ export const GALA_SEED: ReadonlyArray<GalaSeed> = [
     ],
     sortHint: 4,
     season: "2027",
+    ...SEASON_2027_WINDOW,
   },
 ];
 

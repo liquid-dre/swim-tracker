@@ -141,6 +141,7 @@ export function MeetsScreen({
         name: m.name,
         startDate: m.startDate,
         endDate: m.endDate,
+        startTime: m.startTime,
         venue: m.venue,
         course: m.course,
         eventCount: m.events.length,

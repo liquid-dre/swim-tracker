@@ -6,6 +6,7 @@ import { Trash2 } from "lucide-react";
 import { Select } from "@/components/ui/Select";
 import { normaliseDigits, parseDigits } from "@/components/log/TimeField";
 import { formatTime } from "@/lib/swim";
+import { SwimOutcome } from "./SwimOutcome";
 
 /*
   The swimmers entered for one event, and what they went.
@@ -115,7 +116,7 @@ export function EntryRosterTable({
           </div>
 
           <p className="text-xs text-ink-muted">
-            <Comparison row={row} />
+            <SwimOutcome row={row} />
             {row.genderMismatch && (
               <span className="text-warning-ink">
                 {" · "}This event is no longer for this swimmer&rsquo;s
@@ -127,42 +128,6 @@ export function EntryRosterTable({
       ))}
     </ul>
   );
-}
-
-/** What the swim meant, in words rather than in colour alone. */
-function Comparison({ row }: { row: EntryRow }) {
-  if (row.timeMs === null) {
-    return (
-      <>
-        {row.pbBeforeMs === null
-          ? "No previous time for this event."
-          : `Best going in ${formatTime(row.pbBeforeMs)}.`}
-      </>
-    );
-  }
-  if (row.firstTime) return <>First time at this event, so this is the best.</>;
-  if (row.pbBeforeMs === null) return <>Nothing to compare this against.</>;
-
-  const delta = row.deltaMs ?? 0;
-  return (
-    <>
-      Best going in{" "}
-      <span className="tabular-nums">{formatTime(row.pbBeforeMs)}</span>
-      {" · "}
-      <span className={row.newPb ? "font-medium text-success-ink" : undefined}>
-        {row.newPb
-          ? `New personal best, ${formatDelta(delta)} faster`
-          : delta === 0
-            ? "Matched it exactly"
-            : `${formatDelta(-delta)} slower`}
-      </span>
-    </>
-  );
-}
-
-/** A signed millisecond gap as seconds, the way a coach says it out loud. */
-function formatDelta(ms: number): string {
-  return `${(Math.abs(ms) / 1000).toFixed(2)}s`;
 }
 
 /**

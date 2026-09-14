@@ -31,7 +31,8 @@ import { courseMismatches, validateLines } from "./programmeEditing";
   of what this component renders).
 
   Two tabs, because a meet is two different kinds of fact. DETAILS is the
-  fixture — a name, dates, a venue, which pool. EVENTS is its programme, and
+  fixture — a name, dates, a start time, a venue, which pool. EVENTS is its
+  programme, and
   editing it here is for the meets that have no importable document and for the
   corrections an import cannot make; importing a real gala's own PDF is still
   the fast path and lives on its own button.
@@ -59,6 +60,7 @@ export type EditableMeet = {
   name: string;
   startDate: string;
   endDate: string | null;
+  startTime: string | null;
   venue: string | null;
   course: Course | null;
   galaCode: GalaCode | null;
@@ -84,6 +86,7 @@ export function MeetForm({
   const [name, setName] = useState(meet?.name ?? "");
   const [startDate, setStartDate] = useState(meet?.startDate ?? today);
   const [endDate, setEndDate] = useState(meet?.endDate ?? "");
+  const [startTime, setStartTime] = useState(meet?.startTime ?? "");
   const [venue, setVenue] = useState(meet?.venue ?? "");
   // Adding: open on long course. Editing: show what is stored, including the
   // "Not set" a meet imported before anyone chose one still legitimately has.
@@ -164,6 +167,7 @@ export function MeetForm({
     name !== (meet?.name ?? "") ||
     startDate !== (meet?.startDate ?? today) ||
     endDate !== (meet?.endDate ?? "") ||
+    startTime !== (meet?.startTime ?? "") ||
     venue !== (meet?.venue ?? "") ||
     course !== (meet === undefined ? "LCM" : (meet.course ?? "")) ||
     galaCode !== (meet?.galaCode ?? "") ||
@@ -188,6 +192,7 @@ export function MeetForm({
       name: name.trim(),
       startDate,
       endDate: multiDay ? endDate : undefined,
+      startTime: startTime.trim() || undefined,
       venue: venue.trim() || undefined,
       course: (course || undefined) as Course | undefined,
       galaCode: (galaCode || undefined) as GalaCode | undefined,
@@ -268,6 +273,15 @@ export function MeetForm({
                       onChange={setEndDate}
                       min={startDate}
                       max={latestEnd}
+                    />
+
+                    <Input
+                      id="meet-start-time"
+                      type="time"
+                      label="Starts at"
+                      hint="Optional — when the first event goes off."
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
                     />
 
                     <Input
