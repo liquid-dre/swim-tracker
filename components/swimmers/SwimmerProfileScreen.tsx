@@ -14,6 +14,7 @@ import { Tabs, type TabItem } from "@/components/ui/Tabs";
 import { notify } from "@/lib/notify";
 import { formatShortDate } from "@/lib/format";
 import { formatTime } from "@/lib/swim";
+import { SwimmerMeetsTab } from "./SwimmerMeetsTab";
 import { PbBoard } from "./PbBoard";
 import { ImprovementSummary } from "./ImprovementSummary";
 import { AttendanceFigure } from "@/components/attendance/AttendanceFigure";
@@ -42,6 +43,13 @@ import { TrainingNotesTimeline } from "@/components/training/TrainingNotesTimeli
   button. All swim data comes from `getSwimmerProfile`; PBs are derived
   server-side (there is no PB table).
 */
+/**
+ * The tab a profile opens on, independent of where that tab sits in the rail.
+ * Kept as a name so reordering the rail — as adding Meets to the left did —
+ * can never quietly change which screen a coach lands on.
+ */
+const DEFAULT_TAB = "bests";
+
 export function SwimmerProfileScreen({
   swimmerId,
   today,
@@ -105,7 +113,9 @@ export function SwimmerProfileScreen({
         }
       : undefined;
   const historyOnDelete =
-    editable || canLogGala ? (row: HistoryResult) => setDeleting(row) : undefined;
+    editable || canLogGala
+      ? (row: HistoryResult) => setDeleting(row)
+      : undefined;
   const historyCanEditRow = canLogGala
     ? (row: HistoryResult) => row.swimType === "SCHOOL_GALA"
     : undefined;
@@ -114,6 +124,13 @@ export function SwimmerProfileScreen({
   // validator below has to check against THIS role's tabs — that is what keeps
   // `?tab=access` on /me from rendering the access panel.
   const tabs: TabItem[] = [
+    {
+      value: "meets",
+      label: "Meets",
+      content: (
+        <SwimmerMeetsTab swimmerId={swimmerId} swimmerName={swimmer.name} />
+      ),
+    },
     {
       value: "bests",
       label: "Personal bests",
@@ -211,8 +228,16 @@ export function SwimmerProfileScreen({
   // The PB board is the read this profile is built around, so it opens. An
   // unknown or not-permitted `?tab=` falls back to it rather than erroring —
   // a stale link should land somewhere sensible, not on a dead screen.
+  //
+  // Named, NOT `tabs[0]`: Meets sits leftmost because that is the order a coach
+  // reads the rail in, but the tab that opens is a separate decision, and
+  // deriving it from position meant reordering the rail silently moved the
+  // landing page. The fallback is still validated against THIS role's tabs.
   const requested = searchParams.get("tab");
-  const tab = tabs.some((t) => t.value === requested) ? requested! : tabs[0].value;
+  const fallback = tabs.some((t) => t.value === DEFAULT_TAB)
+    ? DEFAULT_TAB
+    : tabs[0].value;
+  const tab = tabs.some((t) => t.value === requested) ? requested! : fallback;
 
   function selectTab(value: string) {
     // Merge rather than overwrite: the tab is one param among whatever else
@@ -248,7 +273,10 @@ export function SwimmerProfileScreen({
                 }}
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-medium text-gray-700 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <PlusCircle className="size-4 text-ink-faint" strokeWidth={1.75} />
+                <PlusCircle
+                  className="size-4 text-ink-faint"
+                  strokeWidth={1.75}
+                />
                 Log a school gala time
               </button>
             ) : undefined
@@ -319,8 +347,9 @@ export function SwimmerProfileScreen({
           deleting ? (
             <>
               {deleting.label} · {deleting.course} ·{" "}
-              <span className="time tnum">{formatTime(deleting.timeMs)}</span> on{" "}
-              {formatShortDate(deleting.swimDate)}. This can&apos;t be undone.
+              <span className="time tnum">{formatTime(deleting.timeMs)}</span>{" "}
+              on {formatShortDate(deleting.swimDate)}. This can&apos;t be
+              undone.
             </>
           ) : (
             ""
@@ -369,11 +398,16 @@ function IdentityStrip({
         <dd>
           {active ? (
             <span className="inline-flex items-center gap-1.5 text-success-ink">
-              <span aria-hidden className="size-1.5 rounded-full bg-success" /> Active
+              <span aria-hidden className="size-1.5 rounded-full bg-success" />{" "}
+              Active
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 text-ink-faint">
-              <span aria-hidden className="size-1.5 rounded-full bg-ink-faint" /> Inactive
+              <span
+                aria-hidden
+                className="size-1.5 rounded-full bg-ink-faint"
+              />{" "}
+              Inactive
             </span>
           )}
         </dd>
@@ -383,7 +417,8 @@ function IdentityStrip({
         <CalendarClock aria-hidden className="size-4 text-ink-faint" />
         <dt className="sr-only">In system since</dt>
         <dd>
-          In system since <span className="text-ink">{formatShortDate(inSystemSince)}</span>
+          In system since{" "}
+          <span className="text-ink">{formatShortDate(inSystemSince)}</span>
         </dd>
       </div>
       <Divider />
@@ -414,7 +449,13 @@ function Divider() {
  * it carries a domain rule the reader needs at the point of reading (why a
  * trial isn't a PB; why an excused absence doesn't count).
  */
-function Panel({ hint, children }: { hint: string; children: React.ReactNode }) {
+function Panel({
+  hint,
+  children,
+}: {
+  hint: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="flex flex-col gap-3">
       <p className="text-sm text-ink-muted">{hint}</p>
@@ -451,7 +492,8 @@ function BestPointsLine({
         className="font-medium text-brand-500 underline-offset-2 hover:underline"
         href={href}
       >
-        <span className="tabular-nums">{best.points}</span> World Aquatics points
+        <span className="tabular-nums">{best.points}</span> World Aquatics
+        points
       </Link>{" "}
       — {best.label} in{" "}
       <span className="tabular-nums text-ink">{formatTime(best.timeMs)}</span>,{" "}
@@ -474,7 +516,10 @@ export function ProfileSkeleton() {
           page jumps down by a rail's height the moment the data lands. */}
       <div className="flex flex-col gap-6">
         <div className="flex items-center gap-6 border-b border-border pb-3">
-          {[28, 22, 16, 26].map((w, i) => (
+          {/* One width per tab in the rail's base set — Meets, Personal bests,
+              Improvement, History, Training notes — so the strip does not
+              reflow when the real labels arrive. */}
+          {[14, 28, 22, 16, 26].map((w, i) => (
             <div
               key={i}
               style={{ width: `${w * 4}px` }}
