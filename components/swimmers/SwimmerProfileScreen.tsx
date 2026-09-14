@@ -44,11 +44,18 @@ import { TrainingNotesTimeline } from "@/components/training/TrainingNotesTimeli
   server-side (there is no PB table).
 */
 /**
- * The tab a profile opens on, independent of where that tab sits in the rail.
- * Kept as a name so reordering the rail — as adding Meets to the left did —
- * can never quietly change which screen a coach lands on.
+ * The tab a profile opens on.
+ *
+ * Meets, because the first thing asked about a swimmer is usually what they are
+ * down for next and how the last gala went — the personal bests are a reference
+ * you go and look up, one click away.
+ *
+ * Kept as a NAME rather than taken from `tabs[0]`, even though the two currently
+ * agree: where a tab sits in the rail and which one opens are two decisions, and
+ * deriving one from the other means reordering the rail silently moves the
+ * landing page.
  */
-const DEFAULT_TAB = "bests";
+const DEFAULT_TAB = "meets";
 
 export function SwimmerProfileScreen({
   swimmerId,
@@ -225,14 +232,11 @@ export function SwimmerProfileScreen({
     });
   }
 
-  // The PB board is the read this profile is built around, so it opens. An
-  // unknown or not-permitted `?tab=` falls back to it rather than erroring —
-  // a stale link should land somewhere sensible, not on a dead screen.
-  //
-  // Named, NOT `tabs[0]`: Meets sits leftmost because that is the order a coach
-  // reads the rail in, but the tab that opens is a separate decision, and
-  // deriving it from position meant reordering the rail silently moved the
-  // landing page. The fallback is still validated against THIS role's tabs.
+  // An unknown or not-permitted `?tab=` falls back to `DEFAULT_TAB` rather than
+  // erroring — a stale link should land somewhere sensible, not on a dead
+  // screen. The fallback is validated against THIS role's tabs too, which is
+  // what keeps `?tab=access` on /me landing on the default instead of rendering
+  // a panel a viewer must not see.
   const requested = searchParams.get("tab");
   const fallback = tabs.some((t) => t.value === DEFAULT_TAB)
     ? DEFAULT_TAB
