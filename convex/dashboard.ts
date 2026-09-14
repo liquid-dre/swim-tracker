@@ -5,9 +5,11 @@ import {
   computeAge,
   computeMatrixCell,
   computePersonalBests,
+  eventKey,
   eventSortKey,
   galaResolutionAges,
   pickApplicableStandardsPerGala,
+  qualifyingPbsByEvent,
   GALA_ORDER,
   type Course,
   type Distance,
@@ -26,8 +28,10 @@ import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
   short trend of recent meet times for a sparkline.
 
   Everything is DERIVED with the exact same domain rules as the rest of the app —
-  headline PB = fastest MEET time only (§4.6), cuts resolve to the swimmer's
-  EXACT single-year age (§4.9), and each PB is judged against its OWN course's
+  headline PB = fastest MEET time only (§4.6), READINESS is judged on qualifying
+  times (fastest official meet swim inside each gala's window, §4.9) while the
+  PB-flavoured counts stay all-time, cuts resolve to the swimmer's
+  EXACT single-year age (§4.9), and each time is judged against its OWN course's
   cut because both courses are valid for entry (§4.2). Gala order comes from
   GALA_ORDER. Nothing here invents a number: no cut is drawn where coverage
   doesn't exist. Coach-only (cross-roster, §5.9) — a viewer is rejected
@@ -227,12 +231,23 @@ export const getCoachDashboard = query({
       } | null = null;
       let swimmerIsClose = false;
 
+      // Readiness is judged on QUALIFYING times, not on the all-time PBs above:
+      // the counts on this card ("cuts qualified", "close to a cut") are claims
+      // about what the squad can enter this season (§4.9). The PB-flavoured
+      // numbers on the same screen — "PBs this week", the digest — stay all-time,
+      // because those are facts about swimming fast, not about entry.
+      const qualifyingPbs = qualifyingPbsByEvent(
+        results as ResultForPB[],
+        galaRefs,
+      );
+
       // Both courses count (§4.2): a swimmer is qualified on an event if either
-      // their LCM or their SCM PB beats that course's own cut, so each PB is
-      // judged in its OWN course and every qualifying PB counts once.
+      // their LCM or their SCM qualifying time beats that course's own cut, so
+      // each is judged in its OWN course and every qualifying time counts once.
       for (const pb of pbs) {
         if (!pb.headline) continue;
         const course = pb.course as Course;
+        const pbByGala = qualifyingPbs.get(eventKey(pb.distance, pb.stroke)) ?? {};
         // Same rule as the status matrix: galas WITH a tour date judge at the
         // swimmer's age on tour day; the rest at their CURRENT age (§4.9) —
         // never the age the PB was swum, so these counts match what the
@@ -244,12 +259,16 @@ export const getCoachDashboard = query({
           galaResolutionAges(swimmer.dob, age, galaRefs),
         );
         const cell = computeMatrixCell(
-          { [course]: pb.headline.timeMs },
+          pbByGala,
           course === "LCM"
             ? { LCM: applicable, SCM: {} }
             : { LCM: {}, SCM: applicable },
           course,
         );
+        // No swim inside any applicable gala's window means there is nothing on
+        // this event the swimmer could enter on — it contributes no count and
+        // cannot be their headline event.
+        if (cell.pbMs === null) continue;
         if (cell.gala !== null) cutsQualified += 1;
         if (cell.gapMs !== null && cell.gapMs > 0 && cell.gapMs <= CLOSE_MS) {
           swimmerIsClose = true;
@@ -260,7 +279,7 @@ export const getCoachDashboard = query({
           stroke: pb.stroke,
           label: pb.label,
           course,
-          pbMs: pb.headline.timeMs,
+          pbMs: cell.pbMs,
           gala: cell.gala,
           nextGala: cell.nextGala,
           gapMs: cell.gapMs,

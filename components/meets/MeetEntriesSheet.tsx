@@ -190,9 +190,16 @@ export function MeetEntriesSheet({
                   entryId: entryId as Id<"meetEntries">,
                   timeInput,
                 }).then((r) => {
+                  // Same distinction the log form makes: only `newlyMetGala` is
+                  // a qualification. A cut beaten outside the window is said
+                  // plainly as the near-miss it is (§4.9).
                   if (r.newlyMetGala !== null) {
                     notify.success(
-                      `That time meets the ${GALA_FULL[r.newlyMetGala]} standard.`,
+                      `That time qualifies for ${GALA_FULL[r.newlyMetGala]}.`,
+                    );
+                  } else if (r.cutBeatenOutsideWindow !== null) {
+                    notify.success(
+                      `That time is under the ${GALA_FULL[r.cutBeatenOutsideWindow]} cut, but was swum outside this season's qualifying window.`,
                     );
                   }
                   return r;

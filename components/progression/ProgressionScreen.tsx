@@ -353,6 +353,7 @@ export function ProgressionScreen() {
               }
               noteMarkers={showNotes ? noteMarkers : undefined}
               tourDates={data.tourDates}
+              qualifyingWindows={data.qualifyingWindows}
             />
           ) : (
             <ProgressionGroupChart

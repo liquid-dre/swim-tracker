@@ -56,6 +56,7 @@ export type CalendarMeet = {
   name: string;
   startDate: string;
   endDate: string | null;
+  startTime: string | null;
   venue: string | null;
   course: Course | null;
   galaCode: GalaCode | null;
@@ -123,9 +124,14 @@ export function MeetPinChip({
       : (pin.tour.name ?? GALA_FULL[pin.tour.code]);
   // The accessible name says WHICH kind of date this is, so the distinction
   // never rests on the glyph or the colour alone.
+  // A clash between an evening gala and that evening's training session is a
+  // TIME question, so the start time belongs in the pin's accessible name where
+  // one is known — the whole reason this calendar draws both on one grid.
   const title =
     pin.kind === "meet"
-      ? `${pin.meet.name} — ${formatMeetDates(pin.meet)}`
+      ? `${pin.meet.name} — ${formatMeetDates(pin.meet)}${
+          pin.meet.startTime ? `, from ${pin.meet.startTime}` : ""
+        }`
       : `${GALA_FULL[pin.tour.code]} tour date`;
 
   return (

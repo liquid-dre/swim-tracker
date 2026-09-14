@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/Select";
 import { Segmented } from "@/components/ui/Segmented";
 import { FilterBar } from "@/components/ui/FilterBar";
 import { AgeUpNote } from "@/components/qualifying/AgeUpNote";
+import { QualifyingBasis } from "@/components/qualifying/QualifyingBasis";
 import { StandardsMissing } from "@/components/ui/StandardsMissing";
 import { trailForHref } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
@@ -28,10 +29,15 @@ import { RoadGapChart, type GapBar } from "./RoadGapChart";
 
     • Gap to cut — the anchor. One horizontal bar per applicable event, closest
       to the cut first, so the low-hanging events surface immediately. Qualified
-      events (PB ≤ cut) are flagged in the success green and grouped; events with
-      no meet time are listed separately, never drawn as a huge gap.
+      events (qualifying time ≤ cut) are flagged in the success green and
+      grouped; events with
+      no qualifying time are listed separately, never drawn as a huge gap. Every
+      time on this screen is the swimmer's fastest official MEET swim inside this
+      gala's qualifying window (§4.9) — a faster swim from a past season is not a
+      shorter road, because it cannot enter them at all.
     • All galas — one bar per event with the age-graded cuts as fixed calibrated
-      zones, filled to the swimmer's PB and coloured by the highest gala met.
+      zones, filled to the swimmer's qualifying time and coloured by the highest
+      gala met.
 
   Both courses qualify (§4.2), so each row is measured in whichever course the
   swimmer is CLOSEST in and says which one that was; the course selector pins it
@@ -234,6 +240,11 @@ export function RoadScreen() {
         />
       ) : (
         <>
+          {data.qualifyingWindow && (
+            <QualifyingBasis
+              windows={{ [gala]: data.qualifyingWindow }}
+            />
+          )}
           {data.tour && (
             <p className="rounded-lg bg-surface-2 px-4 py-2.5 text-sm text-ink-muted">
               {data.tour.name ?? `${GALA_FULL[gala]} tour`} ·{" "}

@@ -15,21 +15,29 @@ import {
   computeOverallImprovement,
   computePersonalBests,
   computeSeasonImprovements,
+  eventKey,
   eventLabel,
   eventSortKey,
   emptyCutsByCourse,
   galaCoversEvent,
   galaResolutionAges,
+  hasQualifyingWindow,
   isGalaAgeEligible,
   highestGalaMet,
   fastestMeetSwim,
+  fastestMeetSwimInWindow,
+  intersectQualifyingWindows,
   pickApplicableStandardsPerGala,
+  qualifyingPbByGala,
+  qualifyingPbsByEvent,
   resolveGalaCut,
   rollingSeasonStart,
+  uniformPb,
   type Course,
   type CourseMode,
   type CutsByCourse,
   type GalaCode,
+  type GalaQualifyingWindow,
   type GalaRef,
   type Distance,
   buildRingScale,
@@ -39,7 +47,13 @@ import {
   type SeasonSwim,
   type StandardCut,
 } from "../lib/swim";
-import { galaCodeValidator, loadGalas, toGalaRefs, tourDatesByGala } from "./galas";
+import {
+  galaCodeValidator,
+  loadGalas,
+  qualifyingWindowsByGala,
+  toGalaRefs,
+  tourDatesByGala,
+} from "./galas";
 import { radarMetric, strokeRadarScores } from "../lib/strokeRadar";
 import {
   courseHasBaseTimes,
@@ -58,6 +72,26 @@ const STROKE_RADAR_MAX = 4;
  * (freestyle). The client enforces the same number in its picker.
  */
 const POINTS_COMPARE_MAX = 6;
+
+/**
+ * Qualifying windows by gala, for the surfaces that judge on the client.
+ *
+ * Only the PROJECTION needs this: it decides "already qualified" in the browser,
+ * and that is a qualifying claim like any other (§4.9). The stepped historical
+ * overlay deliberately ignores it — that overlay describes what the cut WAS at
+ * each age, which is a fact about the standards, not about entry.
+ */
+const qualifyingWindowValidator = v.object({
+  qualifyingFrom: v.union(v.string(), v.null()),
+  qualifyingTo: v.union(v.string(), v.null()),
+});
+const qualifyingWindowsValidator = v.object({
+  SANS: v.optional(qualifyingWindowValidator),
+  SANY: v.optional(qualifyingWindowValidator),
+  SANJ: v.optional(qualifyingWindowValidator),
+  LEVEL_3: v.optional(qualifyingWindowValidator),
+  LEVEL_2: v.optional(qualifyingWindowValidator),
+});
 
 // Tour dates by gala, as returned to screens that explain their resolution.
 const tourDatesValidator = v.object({
@@ -314,10 +348,22 @@ export const getEventComparison = query({
         galaRefs,
         ages,
       );
-      // This leaderboard is a single course, so judge on that course alone.
+      // The TIME on this leaderboard is the all-time headline PB — comparing
+      // personal bests is what the screen is for, and decision #1 keeps that
+      // number all-time everywhere it appears.
+      //
+      // The gala BADGE is a different claim ("this swimmer has made that cut"),
+      // so it obeys each gala's qualifying window like every other qualifying
+      // surface. The two legitimately disagree: a swimmer can hold the fastest
+      // PB in the squad and still carry no badge, because the swim that set it
+      // was outside the window. This leaderboard is a single course, so judging
+      // is confined to that course alone (§4.2).
+      const qualifyingPb = qualifyingPbByGala(
+        (rowsBySwimmer.get(swimmerId) ?? []) as ResultForPB[],
+        galaRefs,
+      );
       const highestGala =
-        highestGalaMet({ [args.course]: best.timeMs }, cuts, args.course)?.gala ??
-        null;
+        highestGalaMet(qualifyingPb, cuts, args.course)?.gala ?? null;
 
       rows.push({
         swimmerId,
@@ -424,6 +470,10 @@ export const getProgression = query({
     // age on tour day where one is set. (The historical stepped overlay
     // deliberately stays age-as-of-each-date — it describes the past.)
     tourDates: tourDatesValidator,
+    // Each gala's qualifying window, so the projection's "already qualified"
+    // verdict obeys it. The TREND is still fitted on all history — see
+    // `computeQualifyProjection`.
+    qualifyingWindows: qualifyingWindowsValidator,
   }),
   handler: async (ctx, args) => {
     // De-dupe and cap so a squad with repeats or a huge selection stays bounded.
@@ -579,6 +629,7 @@ export const getProgression = query({
       // super-user, never a viewer — not even for their own swimmer.
       canSeeProjections: staff,
       tourDates: tourDatesByGala(galasForOverlay),
+      qualifyingWindows: qualifyingWindowsByGala(galasForOverlay),
     };
   },
 });
@@ -615,7 +666,10 @@ const matrixCell = v.object({
   stroke,
   label: v.string(),
   hasCut: v.boolean(), // a cut exists for this event at the swimmer's exact age
-  // Headline MEET PB in each active course (null = never raced it in that course).
+  // The swimmer's QUALIFYING time in each active course — their fastest official
+  // meet swim inside the judging gala's window (§4.9), not their all-time PB.
+  // Null = no swim that could qualify them in that course, which covers both
+  // "never raced it" and "raced it, but not this season".
   pbLcmMs: v.union(v.number(), v.null()),
   pbScmMs: v.union(v.number(), v.null()),
   gala: v.union(galaCodeValidator, v.null()), // hardest gala met (null = none / no PB)
@@ -652,6 +706,10 @@ export const getQualificationMatrix = query({
     hasStandards: v.boolean(),
     // Which galas are judged at age-on-tour-day (the screen says so).
     tourDates: tourDatesValidator,
+    // The qualifying window(s) behind every time in this grid, so the screen can
+    // state its basis once rather than leaving a coach to reconcile a gap here
+    // against a faster PB on the PB board (§4.9).
+    qualifyingWindows: qualifyingWindowsValidator,
   }),
   handler: async (ctx, args) => {
     // Role-scoped. Staff get the full roster (optionally squad-filtered); a
@@ -746,24 +804,22 @@ export const getQualificationMatrix = query({
 
     const rows = [];
     for (const swimmer of swimmers) {
-      // Headline MEET PBs for every event this swimmer has swum (same derivation
-      // as the profile board): fastest MEET only, SCM/LCM kept separate.
+      // QUALIFYING times for every event this swimmer has raced: the fastest
+      // official MEET swim inside each gala's own window (§4.9). Deliberately
+      // NOT `computePersonalBests` — this grid answers "can they enter?", and a
+      // lifetime best swum before the window opened cannot enter anyone. The
+      // PB board keeps the all-time number; the two are never collapsed.
+      //
+      // SCM/LCM stay separate throughout, because either course can qualify a
+      // swimmer (§4.2) and a cut is never borrowed across them.
       const results = await ctx.db
         .query("results")
         .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmer._id))
         .take(SWIMMER_RESULTS_LIMIT);
-      const pbs = computePersonalBests(results as ResultForPB[]);
-      // Headline MEET PB per event PER COURSE — both are kept, because either
-      // course can qualify a swimmer (§4.2) and they are never merged.
-      const pbByEventCourse = new Map<string, number>();
-      for (const pb of pbs) {
-        if (pb.headline) {
-          pbByEventCourse.set(
-            `${pb.distance}|${pb.stroke}|${pb.course}`,
-            pb.headline.timeMs,
-          );
-        }
-      }
+      const qualifyingPbs = qualifyingPbsByEvent(
+        results as ResultForPB[],
+        galaRefs,
+      );
 
       const age = computeAge(swimmer.dob, today); // display age (as of today)
       const ageBand = computeAgeGroup(swimmer.dob, today);
@@ -774,20 +830,20 @@ export const getQualificationMatrix = query({
       const ages = galaResolutionAges(swimmer.dob, age, galaRefs);
 
       const cells = lcmEvents.map((e) => {
-        const pbLcmMs =
-          pbByEventCourse.get(`${e.distance}|${e.stroke}|LCM`) ?? null;
-        const pbScmMs =
-          pbByEventCourse.get(`${e.distance}|${e.stroke}|SCM`) ?? null;
+        const pbByGala = qualifyingPbs.get(eventKey(e.distance, e.stroke)) ?? {};
         const cuts = resolveBothCourses(
           cutsByEvent.get(`${swimmer.gender}|${e.distance}|${e.stroke}`) ?? [],
           galaRefs,
           ages,
         );
-        const cell = computeMatrixCell(
-          { LCM: pbLcmMs, SCM: pbScmMs },
-          cuts,
-          mode,
-        );
+        const cell = computeMatrixCell(pbByGala, cuts, mode);
+        // Both courses read from the SAME gala the cell judged on. Galas may
+        // carry different windows, so taking each course from wherever it looked
+        // fastest would print two times measured on two different bases beside
+        // one gap.
+        const judged = cell.pbGala === null ? undefined : pbByGala[cell.pbGala];
+        const pbLcmMs = judged?.LCM ?? null;
+        const pbScmMs = judged?.SCM ?? null;
         return {
           distance: e.distance,
           stroke: e.stroke,
@@ -826,6 +882,7 @@ export const getQualificationMatrix = query({
       courseMode: mode,
       hasStandards: allStandards.length > 0,
       tourDates: tourDatesByGala(galas),
+      qualifyingWindows: qualifyingWindowsByGala(galas),
     };
   },
 });
@@ -916,6 +973,15 @@ export const getRoadToQualify = query({
           ageAtTour: v.number(),
         }),
       ),
+      // The window every time on this road was measured in — null when this gala
+      // has none and the road is walked on all-time bests (§4.9).
+      qualifyingWindow: v.union(
+        v.null(),
+        v.object({
+          qualifyingFrom: v.union(v.string(), v.null()),
+          qualifyingTo: v.union(v.string(), v.null()),
+        }),
+      ),
     }),
   ),
   handler: async (ctx, { swimmerId, gala: targetGala, courseMode: modeArg }) => {
@@ -978,15 +1044,25 @@ export const getRoadToQualify = query({
       .query("results")
       .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
       .take(SWIMMER_RESULTS_LIMIT);
-    const pbs = computePersonalBests(results as ResultForPB[]);
+    // This screen answers "what stands between this swimmer and THIS gala?", so
+    // every time on it is a QUALIFYING time: the fastest official meet swim
+    // inside this gala's own window (§4.9). A faster swim from a previous season
+    // is not a shorter road — it cannot enter them at all. One gala here, so
+    // unlike the matrix there is a single window to apply.
+    const roadWindow: GalaQualifyingWindow = galaRef ?? {};
+    const rowsByEventCourse = new Map<string, ResultForPB[]>();
+    for (const r of results as ResultForPB[]) {
+      const key = `${r.distance}|${r.stroke}|${r.course}`;
+      const arr = rowsByEventCourse.get(key);
+      if (arr) arr.push(r);
+      else rowsByEventCourse.set(key, [r]);
+    }
     const pbByEventCourse = new Map<string, number>();
-    for (const pb of pbs) {
-      if (pb.headline) {
-        pbByEventCourse.set(
-          `${pb.distance}|${pb.stroke}|${pb.course}`,
-          pb.headline.timeMs,
-        );
-      }
+    for (const [key, rows] of rowsByEventCourse) {
+      // Both gates in one call: MEET-only (by construction, via
+      // `fastestMeetSwim`) and inside this gala's window.
+      const best = fastestMeetSwimInWindow(rows, roadWindow);
+      if (best) pbByEventCourse.set(key, best.timeMs);
     }
 
     // With a tour date for this gala, every cut resolves at the age the swimmer
@@ -1092,6 +1168,12 @@ export const getRoadToQualify = query({
         tourAge !== null && tourDate !== undefined
           ? { name: gala?.tourName ?? null, date: tourDate, ageAtTour: tourAge }
           : null,
+      qualifyingWindow: hasQualifyingWindow(roadWindow)
+        ? {
+            qualifyingFrom: roadWindow.qualifyingFrom ?? null,
+            qualifyingTo: roadWindow.qualifyingTo ?? null,
+          }
+        : null,
     };
   },
 });
@@ -1177,6 +1259,9 @@ type StrokeProfileResult = {
   hasStandards: boolean;
   agedUpAt: string | null;
   tourDates: TourDateByGala;
+  qualifyingWindows: Partial<
+    Record<GalaCode, { qualifyingFrom: string | null; qualifyingTo: string | null }>
+  >;
 } | null;
 
 export const getStrokeProfile = query({
@@ -1205,6 +1290,8 @@ export const getStrokeProfile = query({
       // Which tiers are pinned to a tour day, so the age-up note can say
       // which cuts a birthday does NOT move.
       tourDates: tourDatesValidator,
+      // The window every bar on the wheel was measured in (§4.9).
+      qualifyingWindows: qualifyingWindowsValidator,
     }),
   ),
   // The return type is pinned explicitly: this validator is large enough that
@@ -1266,21 +1353,30 @@ export const getStrokeProfile = query({
       .query("results")
       .withIndex("by_swimmer", (q) => q.eq("swimmerId", swimmerId))
       .take(SWIMMER_RESULTS_LIMIT);
-    const pbs = computePersonalBests(results as ResultForPB[]);
-    const lcmPbByEvent = new Map<
-      string,
-      { timeMs: number; ageAtSwim: number | null }
-    >();
-    for (const pb of pbs) {
-      if (pb.course === "LCM" && pb.headline) {
-        lcmPbByEvent.set(`${pb.distance}|${pb.stroke}`, {
-          timeMs: pb.headline.timeMs,
-          ageAtSwim: pb.headline.ageAtSwim,
-        });
-      }
-    }
-
     const galaRefs = toGalaRefs(profileGalas);
+
+    // The wheel draws ONE bar per event across two to four rings, and its locked
+    // invariant is that crossing a gala's ring means beating that gala's cut
+    // (`computeCalibratedRadius`). So the single number a spoke carries must be
+    // valid for EVERY gala on the wheel — the INTERSECTION of their qualifying
+    // windows, not the union. With all galas on one window that is simply that
+    // window; where they differ it is the strict reading, which can understate a
+    // swimmer but can never draw a ring crossing they have not earned.
+    const wheelWindow = intersectQualifyingWindows(galaRefs);
+    const lcmResults = (results as ResultForPB[]).filter(
+      (r) => r.course === "LCM",
+    );
+    const lcmPbByEvent = new Map<string, { timeMs: number }>();
+    for (const e of lcmEvents) {
+      const key = eventKey(e.distance, e.stroke);
+      const best = fastestMeetSwimInWindow(
+        lcmResults.filter(
+          (r) => r.distance === e.distance && r.stroke === e.stroke,
+        ),
+        wheelWindow,
+      );
+      if (best) lcmPbByEvent.set(key, { timeMs: best.timeMs });
+    }
     const ages = galaResolutionAges(swimmer.dob, age, galaRefs);
 
     // PASS 1 — resolve each event's cuts and learn which galas the wheel needs.
@@ -1298,7 +1394,7 @@ export const getStrokeProfile = query({
     }> = [];
     const galasOnWheel = new Set<GalaCode>();
     for (const e of lcmEvents) {
-      const pb = lcmPbByEvent.get(`${e.distance}|${e.stroke}`) ?? null;
+      const pb = lcmPbByEvent.get(eventKey(e.distance, e.stroke)) ?? null;
       const applicable = pickApplicableStandardsPerGala(
         (cutsByEvent.get(`${e.distance}|${e.stroke}`) ?? []).filter(
           (c) => c.course === "LCM",
@@ -1338,7 +1434,9 @@ export const getStrokeProfile = query({
           pbMs === null
             ? null
             : (highestGalaMet(
-                { LCM: pbMs },
+                // Valid for every gala on the wheel by construction (see
+                // `wheelWindow`), so one number legitimately serves them all.
+                uniformPb({ LCM: pbMs }),
                 { LCM: applicable, SCM: {} },
                 "LCM",
               )?.gala ?? null),
@@ -1374,6 +1472,7 @@ export const getStrokeProfile = query({
         ? null
         : recentBirthday(swimmer.dob, today),
       tourDates: tourDatesByGala(profileGalas),
+      qualifyingWindows: qualifyingWindowsByGala(profileGalas),
     };
   },
 });

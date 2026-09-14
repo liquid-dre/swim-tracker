@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import {
   CalendarDays,
+  Clock,
   MapPin,
   Pencil,
   Trash2,
@@ -180,6 +181,13 @@ export function MeetDetailScreen({
           numeric
         />
         <Fact
+          icon={Clock}
+          label="Starts at"
+          value={meet.startTime ?? "Not set"}
+          muted={meet.startTime === null}
+          numeric
+        />
+        <Fact
           icon={MapPin}
           label="Venue"
           value={meet.venue ?? "Not set"}
@@ -236,6 +244,7 @@ export function MeetDetailScreen({
               name: meet.name,
               startDate: meet.startDate,
               endDate: meet.endDate,
+              startTime: meet.startTime,
               venue: meet.venue,
               course: meet.course,
               galaCode: meet.galaCode,
@@ -254,6 +263,7 @@ export function MeetDetailScreen({
               name: meet.name,
               startDate: meet.startDate,
               endDate: meet.endDate,
+              startTime: meet.startTime,
               venue: meet.venue,
               course: meet.course,
               eventCount: meet.events.length,
@@ -263,6 +273,7 @@ export function MeetDetailScreen({
               name: m.name,
               startDate: m.startDate,
               endDate: m.endDate,
+              startTime: m.startTime,
               venue: m.venue,
               course: m.course,
               eventCount: m.events.length,

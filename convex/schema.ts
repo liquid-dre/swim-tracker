@@ -120,6 +120,20 @@ export default defineSchema({
     season: v.string(), // provenance label, e.g. "2027" — not a version key
     tourDate: v.optional(v.string()), // ISO YYYY-MM-DD
     tourName: v.optional(v.string()), // display-only ("SANJ Nationals")
+    // The QUALIFYING WINDOW (§4.9): the dates between which a swim can qualify a
+    // swimmer for this gala. A third gate beside the cut and the entry age
+    // window — a swimmer qualifies on THIS SEASON's racing, so an all-time PB
+    // swum before the window opened buys them nothing however fast it was.
+    //
+    // Inclusive bounds; either may be absent, meaning unbounded on that side.
+    // Absent on BOTH means "judge on all-time", which is a real state a gala can
+    // be in (and what every row held before windows existed) — so these stay
+    // OPTIONAL permanently rather than being narrowed after a backfill.
+    //
+    // Per gala, not app-wide, because the federation publishes a period per
+    // championship; super-user editable for the same reason minAge/maxAge are.
+    qualifyingFrom: v.optional(v.string()), // ISO YYYY-MM-DD, inclusive
+    qualifyingTo: v.optional(v.string()), // ISO YYYY-MM-DD, inclusive
   }).index("by_code", ["code"]),
 
   // Meets — the dated competitions on the season calendar (§R19).
@@ -152,6 +166,11 @@ export default defineSchema({
     name: v.string(),
     startDate: v.string(), // ISO YYYY-MM-DD
     endDate: v.optional(v.string()), // ISO; absent = single day
+    // When the first event goes off, 24-hour "HH:MM". A club programme states it
+    // ("6:00 PM"), and a clash between an evening gala and that evening's
+    // training session is a TIME question the calendar cannot answer from dates
+    // alone. Absent = not stated; never guessed from the day of the week.
+    startTime: v.optional(v.string()),
     venue: v.optional(v.string()),
     course: v.optional(course),
     galaCode: v.optional(

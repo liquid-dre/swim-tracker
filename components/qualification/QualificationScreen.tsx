@@ -15,6 +15,7 @@ import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { useNewKeys } from "@/lib/useNewKeys";
 import { formatShortDate } from "@/lib/format";
 import { formatSeconds } from "@/lib/format";
+import { QualifyingBasis } from "@/components/qualifying/QualifyingBasis";
 import { formatTime, GALA_FULL, GALA_ORDER } from "@/lib/swim";
 
 /*
@@ -80,7 +81,7 @@ export function QualificationScreen() {
           />
         )
       ) : (
-        data.galas.map(({ gala, displayName, tour, swimmers }) => (
+        data.galas.map(({ gala, displayName, tour, swimmers, qualifyingWindow }) => (
           <section key={gala} className="flex flex-col gap-3">
             <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <div className="flex items-center gap-2">
@@ -119,6 +120,13 @@ export function QualificationScreen() {
                 )}
               </p>
             </header>
+
+            {qualifyingWindow && (
+              <QualifyingBasis
+                windows={{ [gala]: qualifyingWindow }}
+                className="!py-2 !text-xs"
+              />
+            )}
 
             {swimmers.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-8 text-center shadow-theme-sm">

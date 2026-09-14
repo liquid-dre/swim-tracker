@@ -89,6 +89,9 @@ export const logResult = mutation({
     // against THIS COURSE's own cut (both courses qualify, §4.2) and resolved
     // per the tour rule. Null when nothing changed.
     newlyMetGala: v.union(galaCodeValidator, v.null()),
+    // Fast enough for this gala's cut, but swum outside its qualifying window —
+    // a near-miss to report, never a qualification to claim.
+    cutBeatenOutsideWindow: v.union(galaCodeValidator, v.null()),
   }),
   handler: async (ctx, args) => {
     const profile = await requireSignedIn(ctx);
@@ -121,14 +124,16 @@ export const logResult = mutation({
     // What this swim MEANT — PB and newly-met cut — through the one seam both
     // doors into `results` share, so a time typed on the meet sheet is judged
     // exactly as one typed here.
-    const { newPb, newlyMetGala } = await describeMeetSwim(ctx, {
-      swimmer,
-      distance: args.distance,
-      stroke: args.stroke,
-      course: args.course,
-      timeMs,
-      swimType: args.swimType,
-    });
+    const { newPb, newlyMetGala, cutBeatenOutsideWindow } =
+      await describeMeetSwim(ctx, {
+        swimmer,
+        distance: args.distance,
+        stroke: args.stroke,
+        course: args.course,
+        timeMs,
+        swimType: args.swimType,
+        swimDate,
+      });
 
     const resultId = await ctx.db.insert("results", {
       swimmerId: args.swimmerId,
@@ -167,7 +172,7 @@ export const logResult = mutation({
       }
     }
 
-    return { resultId, newPb, newlyMetGala };
+    return { resultId, newPb, newlyMetGala, cutBeatenOutsideWindow };
   },
 });
 

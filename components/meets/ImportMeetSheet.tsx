@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/sheet";
 import { errorMessage, notify } from "@/lib/notify";
 import { formatMeetDates, meetEventLabel } from "@/lib/meets";
-import { parseMeetProgramme, type MeetDraft } from "@/lib/meetImport";
+import { parseMeetWorkbook, type MeetDraft } from "@/lib/meetImport";
+import { MultiMeetReview } from "./MultiMeetReview";
 import type { Course } from "@/lib/swim";
 import { COURSE_LABEL } from "./meetShared";
 
@@ -61,6 +62,7 @@ type MeetOption = {
   name: string;
   startDate: string;
   endDate: string | null;
+  startTime: string | null;
   venue: string | null;
   course: Course | null;
   eventCount: number;
@@ -115,10 +117,17 @@ export function ImportMeetSheet({
 
   // The parse is pure and cheap, so it re-runs from the text rather than being
   // stored — one source of truth for what the file says.
-  const draft: MeetDraft | null = useMemo(
-    () => (text.trim() === "" ? null : parseMeetProgramme(text)),
+  //
+  // `parseMeetWorkbook` returns MANY drafts, because a club publishes its season
+  // as one file. With a single meet in it the array holds exactly what
+  // `parseMeetProgramme` always returned, so everything below this line is the
+  // flow it has always been; with several, the review list takes over.
+  const drafts: MeetDraft[] = useMemo(
+    () => (text.trim() === "" ? [] : parseMeetWorkbook(text)),
     [text],
   );
+  const multi = drafts.length > 1;
+  const draft: MeetDraft | null = multi ? null : (drafts[0] ?? null);
 
   // Confirmable fields, seeded from the parse. `null` means "not overridden";
   // the parsed value shows until the super-user types over it.
@@ -482,10 +491,46 @@ export function ImportMeetSheet({
               wrapper would have to be `display: contents` to keep the layout,
               and that can drop the live region from the accessibility tree. */}
           <p className="sr-only" role="status">
-            {draft ? parseSummary(draft, truncated) : "No programme loaded."}
+            {multi
+              ? `${drafts.length} meets found in this file.`
+              : draft
+                ? parseSummary(draft, truncated)
+                : "No programme loaded."}
           </p>
+
+          {/* A season workbook launched from a MEET's own page has nowhere to
+              go: `lockedMeet` pins the import to one fixture, and twelve drafts
+              cannot all land on it. Say where to do it instead rather than
+              silently importing the first one. */}
+          {multi && lockedMeet && (
+            <p className="flex gap-2 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
+              <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+              <span>
+                This file holds {drafts.length} meets, but this import is locked
+                to {lockedMeet.name}. Import it from the Meets list instead, where
+                each meet can be reviewed on its own.
+              </span>
+            </p>
+          )}
+
+          {multi && !lockedMeet && (
+            <MultiMeetReview
+              drafts={drafts}
+              meets={meets.map((m) => ({
+                _id: m._id,
+                name: m.name,
+                startDate: m.startDate,
+                eventCount: m.eventCount,
+              }))}
+              // Deliberately no `onImported`: that callback navigates to ONE
+              // meet, and a season import has no single destination. The list
+              // keeps its per-row outcomes on screen and the person closes the
+              // sheet when they have read them.
+            />
+          )}
+
           <>
-            {draft && !done && (
+            {!multi && draft && !done && (
               <>
                 {truncated && (
                   <p className="flex gap-2 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
@@ -748,7 +793,7 @@ export function ImportMeetSheet({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {done ? "Done" : "Cancel"}
           </Button>
-          {!done && (
+          {!done && !multi && (
             // Replacing wears the destructive colour; adding a fixture does not.
             <Button
               variant={isReplace ? "danger" : "primary"}

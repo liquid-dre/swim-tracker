@@ -120,6 +120,11 @@ function galaRefsFor(tourDates: TourDateByGala): GalaRef[] {
   }));
 }
 
+/** Qualifying windows by gala, as `getProgression` returns them. */
+export type QualifyingWindowsByGala = Partial<
+  Record<GalaCode, { qualifyingFrom: string | null; qualifyingTo: string | null }>
+>;
+
 export type ProgressionSeries = {
   swimmerId: string;
   name: string;
@@ -170,6 +175,7 @@ export function ProgressionChart({
   projectionTier = null,
   noteMarkers,
   tourDates = {},
+  qualifyingWindows = {},
 }: {
   series: ProgressionSeries[];
   single: boolean;
@@ -186,6 +192,9 @@ export function ProgressionChart({
   noteMarkers?: NoteMarker[];
   // Tour dates by gala — the projection targets the age-on-tour-day cut.
   tourDates?: TourDateByGala;
+  // Qualifying windows by gala — the projection's "already qualified" verdict
+  // obeys them (§4.9). Empty = judge on all-time, as before windows existed.
+  qualifyingWindows?: QualifyingWindowsByGala;
 }) {
   const reduced = usePrefersReducedMotion();
   // Phone-width: a slightly shorter plot and slimmer time gutter keep the
@@ -231,6 +240,7 @@ export function ProgressionChart({
     course,
     projectionTier,
     tourDates,
+    qualifyingWindows,
   );
   const projected = projection?.status === "projected" ? projection : null;
 
@@ -547,6 +557,7 @@ function buildProjection(
   course: "SCM" | "LCM",
   tier: GalaCode | null,
   tourDates: TourDateByGala,
+  qualifyingWindows: QualifyingWindowsByGala,
 ): QualifyProjection | null {
   if (!single || course !== "LCM" || tier === null || series.length === 0) {
     return null;
@@ -570,7 +581,13 @@ function buildProjection(
   const meets = s.points
     .filter((p) => p.isMeet)
     .map((p) => ({ swimDate: p.swimDate, timeMs: p.timeMs }));
-  return computeQualifyProjection(meets, cutMs, today);
+  // The window gates the "already qualified" verdict ONLY — a qualification is a
+  // claim about entry and must obey it (§4.9). The trend keeps being fitted on
+  // every meet there is: a four-month window would drop most swimmers under
+  // PROJECTION_MIN_MEETS and silently delete the feature each June.
+  return computeQualifyProjection(meets, cutMs, today, {
+    window: qualifyingWindows[tier] ?? {},
+  });
 }
 
 // One label map, shared with every other gala surface (lib/galas.ts).

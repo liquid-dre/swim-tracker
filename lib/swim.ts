@@ -12,6 +12,7 @@ import type {
   GalaCode,
   GalaCoverage,
   GalaEligibility,
+  GalaQualifyingWindow,
 } from "./galas";
 import {
   GALA_FULL,
@@ -20,8 +21,11 @@ import {
   GALA_SHORT,
   GALA_TOKEN,
   galaCoversEvent,
+  hasQualifyingWindow,
+  intersectQualifyingWindows,
   isGalaAgeEligible,
   isGalaCode,
+  isInQualifyingWindow,
 } from "./galas";
 
 // ---------------------------------------------------------------------------
@@ -675,6 +679,38 @@ export function fastestMeetSwim<
 }
 
 /**
+ * The QUALIFYING TIME: the fastest swim that could actually put this swimmer on
+ * a team — the fastest OFFICIAL MEET swim inside the gala's qualifying window
+ * (§4.9).
+ *
+ * A qualifying time passes TWO gates, and both live here so no call site can
+ * apply one and forget the other:
+ *
+ *   swim type — it delegates to `fastestMeetSwim`, so `TIME_TRIAL`, `PRACTICE`
+ *               and `SCHOOL_GALA` are excluded BY CONSTRUCTION rather than by a
+ *               second predicate. A blistering time trial qualifies nobody, for
+ *               the same reason it never sets a headline PB.
+ *   date      — the swim must fall inside the window, INCLUSIVE of both bounds.
+ *               A swimmer qualifies on this season's racing; last season's
+ *               lifetime best is a fact about them, not an entry ticket.
+ *
+ * A window with neither bound set accepts every date, so a gala that has not
+ * been given one behaves exactly as it did before windows existed. That is the
+ * deliberate fallback, not an oversight.
+ *
+ * Like `fastestMeetSwim`, this says nothing about which EVENT the rows are for:
+ * pass rows already grouped by (distance, stroke, course), because a course is
+ * never borrowed.
+ */
+export function fastestMeetSwimInWindow<
+  T extends { timeMs: number; swimDate: string; swimType: SwimType | string },
+>(rows: ReadonlyArray<T>, window: GalaQualifyingWindow): T | null {
+  return fastestMeetSwim(
+    rows.filter((r) => isInQualifyingWindow(r.swimDate, window)),
+  );
+}
+
+/**
  * The PB a swimmer took INTO a meet: their fastest MEET swim of this exact
  * event, in this exact course, strictly before `beforeDate`.
  *
@@ -866,7 +902,14 @@ export function computePersonalBests(
 
 // Re-exported so the ~25 consumers keep importing swim-domain names from one
 // place; the definitions themselves live in ./galas.
-export type { AgeScope, CoveredEvent, GalaCode, GalaCoverage, GalaEligibility };
+export type {
+  AgeScope,
+  CoveredEvent,
+  GalaCode,
+  GalaCoverage,
+  GalaEligibility,
+  GalaQualifyingWindow,
+};
 export {
   GALA_FULL,
   GALA_MEDIUM,
@@ -874,18 +917,28 @@ export {
   GALA_SHORT,
   GALA_TOKEN,
   galaCoversEvent,
+  hasQualifyingWindow,
+  intersectQualifyingWindows,
   isGalaAgeEligible,
   isGalaCode,
+  isInQualifyingWindow,
 };
 
 /**
- * The gala fields resolution needs: its code, its age window, and its tour date
- * (which decides WHICH age the cut resolves at — the birthday rule).
+ * The gala fields resolution needs: its code, its age window, its tour date
+ * (which decides WHICH age the cut resolves at — the birthday rule) and its
+ * qualifying window (which decides WHICH SWIMS may be measured against the cut
+ * at all).
+ *
+ * All four are per-gala policy, which is why they travel together on one ref:
+ * `convex/galas.ts:toGalaRefs` is the single adapter that fills it, so every
+ * qualifying surface picks a new policy field up without its own wiring.
  */
-export type GalaRef = GalaEligibility & {
-  code: GalaCode;
-  tourDate?: string | null;
-};
+export type GalaRef = GalaEligibility &
+  GalaQualifyingWindow & {
+    code: GalaCode;
+    tourDate?: string | null;
+  };
 
 /**
  * The minimal cut fields the resolver reads. `age` is ABSENT on an open
@@ -1043,6 +1096,99 @@ export function coursesForMode(mode: CourseMode): ReadonlyArray<Course> {
 /** Headline MEET PBs for one event, per course (absent/null = never raced). */
 export type PbByCourse = Partial<Record<Course, number | null>>;
 
+/**
+ * The time each gala judges this swimmer on, per course.
+ *
+ * One number per course is no longer enough, because the qualifying window is
+ * per gala: SANS may open its period in May and SANJ in June, and the same
+ * swimmer then takes a different qualifying time into each. Keying the PB by
+ * gala as well as course is what makes per-gala windows real rather than
+ * nominal — collapsing it to one number would silently judge every gala on
+ * whichever window happened to be applied.
+ *
+ * A gala absent from the map has no qualifying time at all (no meet swim inside
+ * its window), which is a different fact from "raced it and was slow".
+ */
+export type PbByGalaCourse = Partial<Record<GalaCode, PbByCourse>>;
+
+/**
+ * One PB read as every gala's qualifying time — the shape for callers that are
+ * deliberately NOT windowing (unit tests asserting cut logic, and any surface
+ * judging on an all-time best by design).
+ */
+export function uniformPb(
+  pb: PbByCourse,
+  galas: ReadonlyArray<GalaCode> = GALA_ORDER,
+): PbByGalaCourse {
+  const out: PbByGalaCourse = {};
+  for (const gala of galas) out[gala] = pb;
+  return out;
+}
+
+/**
+ * Every gala's qualifying time for ONE event, per course.
+ *
+ * `rows` must already be narrowed to a single (distance, stroke) — courses are
+ * split here, never merged (§4.2). Each gala gets the fastest official meet swim
+ * inside ITS OWN window, so two galas with different periods legitimately return
+ * different times for the same swimmer and event.
+ */
+export function qualifyingPbByGala(
+  rows: ReadonlyArray<ResultForPB>,
+  galas: ReadonlyArray<GalaRef>,
+): PbByGalaCourse {
+  const out: PbByGalaCourse = {};
+  for (const gala of galas) {
+    const byCourse: PbByCourse = {};
+    for (const course of ["LCM", "SCM"] as const) {
+      const best = fastestMeetSwimInWindow(
+        rows.filter((r) => r.course === course),
+        gala,
+      );
+      byCourse[course] = best?.timeMs ?? null;
+    }
+    out[gala.code] = byCourse;
+  }
+  return out;
+}
+
+/** The key `qualifyingPbsByEvent` groups on: an event, course-independent. */
+export function eventKey(
+  distance: Distance | number,
+  stroke: Stroke | string,
+): string {
+  return `${distance}|${stroke}`;
+}
+
+/**
+ * Every gala's qualifying time for EVERY event a swimmer has raced, keyed by
+ * `eventKey`.
+ *
+ * This is the one derivation the qualifying surfaces share — the matrix, the
+ * dashboard, Road and the viewer's highlights all need exactly this and nothing
+ * else — so it lives here rather than being re-rolled four times, in the same
+ * spirit as `fastestMeetSwim`. Pass a swimmer's whole result set; grouping,
+ * the MEET-only gate and each gala's window are all applied inside.
+ */
+export function qualifyingPbsByEvent(
+  results: ReadonlyArray<ResultForPB>,
+  galas: ReadonlyArray<GalaRef>,
+): Map<string, PbByGalaCourse> {
+  const byEvent = new Map<string, ResultForPB[]>();
+  for (const r of results) {
+    const key = eventKey(r.distance, r.stroke);
+    const arr = byEvent.get(key);
+    if (arr) arr.push(r);
+    else byEvent.set(key, [r]);
+  }
+
+  const out = new Map<string, PbByGalaCourse>();
+  for (const [key, rows] of byEvent) {
+    out.set(key, qualifyingPbByGala(rows, galas));
+  }
+  return out;
+}
+
 /** A gala met, and the course the swimmer actually met it in. */
 export type GalaMet = { gala: GalaCode; course: Course };
 
@@ -1055,7 +1201,7 @@ export type GalaMet = { gala: GalaCode; course: Course };
  * reported, so the surfaced course is the swimmer's strongest.
  */
 export function highestGalaMet(
-  pb: PbByCourse,
+  pb: PbByGalaCourse,
   cuts: CutsByCourse,
   mode: CourseMode = "BEST",
 ): GalaMet | null {
@@ -1065,7 +1211,7 @@ export function highestGalaMet(
     let bestMargin = -1;
     for (const course of courses) {
       const cut = cuts[course]?.[gala];
-      const pbMs = pb[course];
+      const pbMs = pb[gala]?.[course];
       if (cut == null || pbMs == null || pbMs > cut) continue;
       const margin = cut - pbMs;
       if (margin > bestMargin) {
@@ -1106,6 +1252,26 @@ export type MatrixCell = {
   nextGala: GalaCode | null;
   gapMs: number | null;
   gapCourse: Course | null;
+  /**
+   * The time this cell actually JUDGED, and the course it was swum in.
+   *
+   * Returned rather than left to the caller because the cell no longer measures
+   * the swimmer's all-time PB: under a qualifying window it measures their
+   * fastest official meet swim inside that window, and a screen that fetched the
+   * PB separately would print one number while the gap it sits beside was
+   * computed from another. It is the time behind `gapMs` — measured against
+   * `nextGala` when there is one to chase, otherwise against the gala met.
+   */
+  pbMs: number | null;
+  pbCourse: Course | null;
+  /**
+   * Which gala's qualifying window produced `pbMs`. Galas may carry different
+   * windows, so "the swimmer's qualifying time" is only well defined per gala;
+   * a caller that wants to show BOTH courses (a tooltip, say) must read them
+   * from this gala's entry, or it will print two numbers measured on two
+   * different bases.
+   */
+  pbGala: GalaCode | null;
 };
 
 const BLANK_CELL: MatrixCell = {
@@ -1115,10 +1281,13 @@ const BLANK_CELL: MatrixCell = {
   nextGala: null,
   gapMs: null,
   gapCourse: null,
+  pbMs: null,
+  pbCourse: null,
+  pbGala: null,
 };
 
 export function computeMatrixCell(
-  pb: PbByCourse,
+  pb: PbByGalaCourse,
   cuts: CutsByCourse,
   mode: CourseMode = "BEST",
 ): MatrixCell {
@@ -1132,9 +1301,14 @@ export function computeMatrixCell(
   // No cut at any gala for this exact age → nothing to show (blank/neutral).
   if (available.length === 0) return BLANK_CELL;
 
-  // A cut exists but no headline (meet) time yet in any active course: the
-  // target is the easiest gala, but there is no gap to measure without a PB.
-  const hasPb = courses.some((course) => pb[course] != null);
+  // A cut exists but no QUALIFYING time yet in any active course: the target is
+  // the easiest gala, but there is no gap to measure without one. Note this is
+  // now also the state of a swimmer who has raced the event plenty but not
+  // inside any available gala's window — which is correct, because none of those
+  // swims can put them on a team (§4.9).
+  const hasPb = available.some((gala) =>
+    courses.some((course) => pb[gala]?.[course] != null),
+  );
   if (!hasPb) {
     return {
       ...BLANK_CELL,
@@ -1161,12 +1335,43 @@ export function computeMatrixCell(
   if (nextGala !== null) {
     for (const course of courses) {
       const cut = cuts[course]?.[nextGala];
-      const pbMs = pb[course];
+      const pbMs = pb[nextGala]?.[course];
       if (cut == null || pbMs == null) continue;
       const gap = pbMs - cut;
       if (gapMs === null || gap < gapMs) {
         gapMs = gap;
         gapCourse = course;
+      }
+    }
+  }
+
+  // The time the cell judged. It belongs to the gala the gap is measured
+  // against, so the number shown and the gap beside it always come from one
+  // swim; with nothing left to chase it is the time that met the top gala.
+  let pbMs: number | null = null;
+  let pbCourse: Course | null = null;
+  let pbGala: GalaCode | null = null;
+  if (nextGala !== null && gapCourse !== null) {
+    pbMs = pb[nextGala]?.[gapCourse] ?? null;
+    pbCourse = gapCourse;
+    pbGala = nextGala;
+  } else if (met !== null) {
+    pbMs = pb[met.gala]?.[met.course] ?? null;
+    pbCourse = met.course;
+    pbGala = met.gala;
+  }
+  if (pbMs === null) {
+    // Fall back to the fastest qualifying time any available gala holds, so a
+    // cell that judged SOMETHING never renders as though it judged nothing.
+    for (const gala of available) {
+      for (const course of courses) {
+        const candidate = pb[gala]?.[course];
+        if (candidate == null) continue;
+        if (pbMs === null || candidate < pbMs) {
+          pbMs = candidate;
+          pbCourse = course;
+          pbGala = gala;
+        }
       }
     }
   }
@@ -1178,6 +1383,9 @@ export function computeMatrixCell(
     nextGala,
     gapMs,
     gapCourse,
+    pbMs,
+    pbCourse,
+    pbGala,
   };
 }
 
@@ -2048,10 +2256,29 @@ export function computeQualifyProjection(
   meets: ReadonlyArray<ProjectionMeet>,
   cutMs: number | null,
   todayIso: string,
-  opts?: { recentMeets?: number; horizonMonths?: number },
+  opts?: {
+    recentMeets?: number;
+    horizonMonths?: number;
+    /**
+     * The gala's qualifying window, applied ONLY to the "already qualified"
+     * test below — never to the trend.
+     *
+     * The two halves of this function answer different questions. "Has this
+     * swimmer already made the cut?" is a qualifying claim and must obey the
+     * window (§4.9). "How fast are they improving?" is a question about the
+     * swimmer, and a four-month window would leave most of them under
+     * `PROJECTION_MIN_MEETS` and silently delete the feature every June. So the
+     * line is fitted on all the history there is and only the verdict is gated.
+     *
+     * `meets` is already MEET-only by construction — callers pass meet swims —
+     * so this applies the date gate alone.
+     */
+    window?: GalaQualifyingWindow;
+  },
 ): QualifyProjection {
   const recentN = opts?.recentMeets ?? PROJECTION_RECENT_MEETS;
   const horizonMonths = opts?.horizonMonths ?? PROJECTION_HORIZON_MONTHS;
+  const window = opts?.window ?? {};
 
   if (cutMs === null) return { status: "no_cut" };
 
@@ -2061,10 +2288,17 @@ export function computeQualifyProjection(
   const meetCount = sorted.length;
   if (meetCount === 0) return { status: "not_enough_data", meetCount: 0 };
 
-  // Headline PB = fastest meet ever (§4.6). If it already beats the cut, there is
-  // nothing to project — the swimmer has qualified.
+  // The qualifying time = fastest meet swim INSIDE the gala's window (§4.9). If
+  // it already beats the cut there is nothing to project — the swimmer is in.
+  // A faster swim outside the window is deliberately not consulted: it cannot
+  // enter them, so projecting as though they were already qualified would be a
+  // claim they cannot act on. With no window set this is the fastest meet ever,
+  // exactly as before.
   let bestMs = Infinity;
-  for (const m of sorted) if (m.timeMs < bestMs) bestMs = m.timeMs;
+  for (const m of sorted) {
+    if (!isInQualifyingWindow(m.swimDate, window)) continue;
+    if (m.timeMs < bestMs) bestMs = m.timeMs;
+  }
   if (bestMs <= cutMs) return { status: "already_qualified", cutMs, bestMs };
 
   if (meetCount < PROJECTION_MIN_MEETS) {

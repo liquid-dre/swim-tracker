@@ -5,9 +5,11 @@ import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
 import {
   computeAge,
   computePersonalBests,
+  eventKey,
   eventLabel,
   eventSortKey,
   galaCoversEvent,
+  qualifyingPbsByEvent,
   resolveGalaCut,
   GALA_ORDER,
   type Course,
@@ -73,6 +75,15 @@ export const getTourQualification = query({
           v.object({ name: v.union(v.string(), v.null()), date: v.string() }),
         ),
         swimmers: v.array(qualifiedSwimmer),
+        // The window the times in this group were measured in (§4.9); null when
+        // this gala has none and it is judged on all-time bests.
+        qualifyingWindow: v.union(
+          v.null(),
+          v.object({
+            qualifyingFrom: v.union(v.string(), v.null()),
+            qualifyingTo: v.union(v.string(), v.null()),
+          }),
+        ),
       }),
     ),
   }),
@@ -154,6 +165,15 @@ export const getTourQualification = query({
       const headlinePbs = pbs.filter((pb) => pb.headline);
       if (headlinePbs.length === 0) continue;
 
+      // This screen answers "who can we take on tour?", so every time on it is a
+      // QUALIFYING time: the fastest official meet swim inside that gala's own
+      // window (§4.9). `headlinePbs` is used only to enumerate which events the
+      // swimmer has raced — the number that meets a cut comes from here.
+      const qualifyingPbs = qualifyingPbsByEvent(
+        results as ResultForPB[],
+        galaRefs,
+      );
+
       const ageToday = computeAge(swimmer.dob, today);
 
       // Highest gala only: walk hardest → easiest and stop at the first gala
@@ -178,22 +198,28 @@ export const getTourQualification = query({
         }> = [];
         for (const pb of headlinePbs) {
           if (!galaCoversEvent(gala, pb.distance, pb.stroke)) continue;
-          const headline = pb.headline!;
           const course = pb.course as Course;
+          const pbMs =
+            qualifyingPbs.get(eventKey(pb.distance, pb.stroke))?.[code]?.[
+              course
+            ] ?? null;
+          // Raced it, but not inside this gala's window — nothing here can take
+          // them on tour, however fast their lifetime best is.
+          if (pbMs === null) continue;
           const cutMs = resolveGalaCut(
             ref,
             (cutsByEvent.get(`${swimmer.gender}|${pb.distance}|${pb.stroke}`) ?? [])
               .filter((r) => r.gala === code && r.course === course),
             cutAge,
           );
-          if (cutMs === null || headline.timeMs > cutMs) continue;
+          if (cutMs === null || pbMs > cutMs) continue;
           qualifying.push({
             sortKey: eventSortKey(pb.distance, pb.stroke),
             label: eventLabel(pb.distance, pb.stroke),
             course,
-            pbMs: headline.timeMs,
+            pbMs,
             cutMs,
-            marginMs: cutMs - headline.timeMs,
+            marginMs: cutMs - pbMs,
           });
         }
 
@@ -233,6 +259,13 @@ export const getTourQualification = query({
               ? { name: gala.tourName ?? null, date: gala.tourDate }
               : null,
             swimmers: byGala.get(code) ?? [],
+            qualifyingWindow:
+              gala.qualifyingFrom !== undefined || gala.qualifyingTo !== undefined
+                ? {
+                    qualifyingFrom: gala.qualifyingFrom ?? null,
+                    qualifyingTo: gala.qualifyingTo ?? null,
+                  }
+                : null,
           },
         ];
       }),

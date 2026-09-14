@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { parseMeetProgramme, parsePrintedDate, statedCourse } from "./meetImport";
+import {
+  parseMeetProgramme,
+  parseMeetWorkbook,
+  parsePrintedDate,
+  parsePrintedTime,
+  statedCourse,
+} from "./meetImport";
 import {
   compareMeetEvents,
   formatMeetDates,
@@ -398,5 +404,168 @@ describe("compareMeetEvents", () => {
       "50 Free",
       "200 IM",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A whole season in one workbook (§R19)
+// ---------------------------------------------------------------------------
+//
+// The real input this was built for: "HAS 2026-2027 Seeded and Junior League
+// Galas", two sheets and twelve dated fixtures, as `lib/sheetText.ts` hands it
+// over — one tab-separated line per row, empty cells collapsed rather than
+// padded (so column POSITION is not recoverable and never relied on).
+
+const SEASON_WORKBOOK = [
+  "Gala\tDate\tTime\tVenue\tEvent No.\tEvent",
+  "1st Seeded Gala\tFriday, 11 September 2026\t6:00 PM\tLes Brown",
+  "1\t50m Butterfly",
+  "2\t100m Breaststroke",
+  "3\t400m Freestyle",
+  "2nd Seeded Gala\tSunday, 27 September 2026\t8:00 AM\tLes Brown",
+  "1\t200m Freestyle",
+  "2\t800m Freestyle",
+  "Gala\tDate\tTime\tVenue\tEvent No.\tAge Group\tDistance\tStroke / Event",
+  "1st Junior League\tSunday, 13 September 2026\t9:00 AM\tHIS",
+  "1\tBoys 11 Years\t50m\tBackstroke",
+  "2\tGirls 10 Years\t25m\tButterfly",
+  "3\tBoys 8 & 9 Years\t25m\tFreestyle",
+  "4\t9, 10, 11 Years\t100m\tBreaststroke",
+  "5\tMixed Circle\t100m\tIndividual Medley",
+  "6\tMixed 11 Years\t100m\tFreestyle Relay",
+  "6th Junior League\tSunday, 7 February 2027\t9:00 AM\tLes Brown",
+].join("\n");
+
+describe("parseMeetWorkbook — a season in one file", () => {
+  const drafts = parseMeetWorkbook(SEASON_WORKBOOK);
+
+  it("finds every dated fixture, not just the first", () => {
+    expect(drafts.map((d) => d.name)).toEqual([
+      "1st Seeded Gala",
+      "2nd Seeded Gala",
+      "1st Junior League",
+      "6th Junior League",
+    ]);
+  });
+
+  it("reads a written date, weekday and all", () => {
+    // `parsePrintedDate` used to read only ISO and 11/9/2026; a club programme
+    // spells the month out, and nothing parsed at all before this.
+    expect(drafts.map((d) => d.startDate)).toEqual([
+      "2026-09-11",
+      "2026-09-27",
+      "2026-09-13",
+      "2027-02-07",
+    ]);
+  });
+
+  it("keeps the name clean of the weekday it sits beside", () => {
+    // The weekday is part of the DATE match, so "Friday," never lands in the
+    // meet's title.
+    expect(drafts[0].name).toBe("1st Seeded Gala");
+  });
+
+  it("reads the start time as 24-hour, and the venue positionally", () => {
+    // Venue is taken as the text AFTER the date, not by keyword: the real
+    // venues are "Les Brown" and "HIS", neither of which says "pool".
+    expect(drafts[0].startTime).toBe("18:00");
+    expect(drafts[0].venue).toBe("Les Brown");
+    expect(drafts[1].startTime).toBe("08:00");
+    expect(drafts[2].venue).toBe("HIS");
+  });
+
+  it("numbers events PER MEET, so the second fixture is not read as duplicates", () => {
+    // The bug this guards: `seenNumbers` used to be document-wide, and twelve
+    // meets each numbering from 1 would discard eleven programmes entirely.
+    expect(drafts[0].events.map((e) => e.eventNumber)).toEqual([1, 2, 3]);
+    expect(drafts[1].events.map((e) => e.eventNumber)).toEqual([1, 2]);
+    expect(drafts[1].events).toHaveLength(2);
+  });
+
+  it("resolves a four-column junior-league line, band stripped and sex kept", () => {
+    const jl = drafts[2].events;
+    expect(jl[0]).toMatchObject({ distance: 50, stroke: "BACK", gender: "M" });
+    expect(jl[1]).toMatchObject({ distance: 25, stroke: "FLY", gender: "F" });
+    // "8 & 9 Years" is a band, not a distance — 25 is the distance.
+    expect(jl[2]).toMatchObject({ distance: 25, stroke: "FREE", gender: "M" });
+    // A comma-listed band ("9, 10, 11 Years") must not yield 10 as a distance.
+    expect(jl[3]).toMatchObject({ distance: 100, stroke: "BREAST" });
+    expect(jl[4]).toMatchObject({ distance: 100, stroke: "IM", gender: "MIXED" });
+  });
+
+  it("never resolves a relay, but never drops it either", () => {
+    const relay = drafts[2].events[5];
+    expect(relay.rawLabel).toContain("Relay");
+    expect(relay.distance).toBeUndefined();
+    expect(relay.stroke).toBeUndefined();
+  });
+
+  it("keeps a fixture whose programme has not been published yet", () => {
+    // A dated meet with no events belongs on the calendar NOW; a later
+    // re-import fills the programme in.
+    expect(drafts[3].events).toHaveLength(0);
+    expect(drafts[3].startDate).toBe("2027-02-07");
+    expect(drafts[3].warnings.join(" ")).toMatch(/no events listed/i);
+  });
+
+  it("states no course for any of them", () => {
+    // §4.2: the parser never sets a course, not even for a 25 m programme that
+    // can only be short course. The person confirming the import decides.
+    for (const d of drafts) {
+      expect(d).not.toHaveProperty("course");
+    }
+  });
+
+  it("falls back to the single-meet parser for an ordinary one-meet document", () => {
+    const one = parseMeetWorkbook("HAS 1st Seeded Gala 2026 - 11/9/2026\n1 50 Free");
+    expect(one).toHaveLength(1);
+    expect(one[0].name).toBe("HAS 1st Seeded Gala 2026");
+  });
+});
+
+describe("parsePrintedDate — written months", () => {
+  it("reads a weekday-led day-first date", () => {
+    expect(parsePrintedDate("Friday, 11 September 2026")).toEqual({
+      iso: "2026-09-11",
+      ambiguous: false,
+    });
+  });
+
+  it("reads abbreviations and ordinals", () => {
+    expect(parsePrintedDate("11th Sept 2026")?.iso).toBe("2026-09-11");
+    expect(parsePrintedDate("1 Jun 2026")?.iso).toBe("2026-06-01");
+  });
+
+  it("reads a month-first date", () => {
+    expect(parsePrintedDate("September 11, 2026")?.iso).toBe("2026-09-11");
+  });
+
+  it("never calls a written date ambiguous — the month is spelled out", () => {
+    expect(parsePrintedDate("5 March 2027")?.ambiguous).toBe(false);
+    // Whereas the numeric form with both halves ≤ 12 still is.
+    expect(parsePrintedDate("5/3/2027")?.ambiguous).toBe(true);
+  });
+
+  it("refuses a date that does not exist", () => {
+    expect(parsePrintedDate("31 February 2026")).toBeNull();
+  });
+});
+
+describe("parsePrintedTime", () => {
+  it("reads the am/pm forms a programme prints", () => {
+    expect(parsePrintedTime("6:00 PM")).toBe("18:00");
+    expect(parsePrintedTime("8:00 AM")).toBe("08:00");
+    expect(parsePrintedTime("12:30 AM")).toBe("00:30");
+    expect(parsePrintedTime("12:30 PM")).toBe("12:30");
+    expect(parsePrintedTime("6 pm")).toBe("18:00");
+  });
+
+  it("reads a 24-hour time as written", () => {
+    expect(parsePrintedTime("18:00")).toBe("18:00");
+    expect(parsePrintedTime("08:05")).toBe("08:05");
+  });
+
+  it("has nothing to report when no time is printed", () => {
+    expect(parsePrintedTime("Les Brown")).toBeNull();
   });
 });

@@ -19,7 +19,8 @@ import {
 /*
   The radial stroke-profile wheel (Step 12.5). One bar per event around a circle,
   grouped contiguously by stroke so each stroke reads as a coloured arc. Radius =
-  the headline long-course MEET PB on that event's OWN calibrated scale, so raw
+  the long-course QUALIFYING time — the fastest official meet swim inside every
+  ring gala's window (§4.9) — on that event's OWN calibrated scale, so raw
   times never share an axis. OUTWARD = FASTER: a bar crossing a gala's ring beat
   that gala's cut.
 
@@ -87,7 +88,8 @@ export function StrokeWheel({
       >
         <title id={titleId}>
           {title ? `${title} — ` : ""}stroke profile wheel: each bar is an event’s
-          long-course meet PB on its own L2/L3/SANJ scale; further out is faster.
+          long-course qualifying time on its own L2/L3/SANJ scale; further out
+          is faster.
         </title>
 
         {/* Hub — a faint disc the bars radiate from (calibrated centre). */}
@@ -153,7 +155,9 @@ export function StrokeWheel({
             .join(", ");
           const ariaLabel =
             `${b.event.label}: ` +
-            (b.event.pbMs !== null ? `PB ${formatTime(b.event.pbMs)}` : "no meet time") +
+            (b.event.pbMs !== null
+              ? `qualifying time ${formatTime(b.event.pbMs)}`
+              : "no qualifying time") +
             (cuts ? `; cuts ${cuts}` : "") +
             (b.event.highestGala ? `; meets ${GALA_MEDIUM[b.event.highestGala]}` : "") +
             (!b.event.fullCoverage ? "; partial coverage" : "");
@@ -183,7 +187,8 @@ export function StrokeWheel({
                   }}
                 />
               ) : (
-                // No PB → an empty spoke: a small neutral tick at the hub only.
+                // No qualifying time → an empty spoke: a small neutral tick at
+                // the hub only.
                 <line
                   x1={p0.x}
                   y1={p0.y}
@@ -286,7 +291,8 @@ export function StrokeWheel({
         })}
       </svg>
 
-      {/* Tooltip — event, PB (tabular), every ring's cut, highest gala. */}
+      {/* Tooltip — event, qualifying time (tabular), every ring's cut, highest
+          gala. */}
       {hovered && (
         <WheelTooltip
           bar={hovered}
@@ -337,7 +343,7 @@ function WheelTooltip({
       <div className="mt-1 time tnum text-ink">
         {e.pbMs !== null ? formatTime(e.pbMs) : "—"}
         <span className="ml-1.5 text-xs font-normal text-ink-faint">
-          {e.pbMs !== null ? "meet PB" : "no meet time"}
+          {e.pbMs !== null ? "qualifying time" : "no qualifying time"}
         </span>
       </div>
       <dl className="mt-2 space-y-0.5 border-t border-border pt-1.5 text-xs">

@@ -37,6 +37,10 @@ import {
   type EventDef,
   compareToPbBefore,
   fastestMeetSwim,
+  fastestMeetSwimInWindow,
+  qualifyingPbByGala,
+  qualifyingPbsByEvent,
+  uniformPb,
   pbBefore,
   type ResultForPB,
   type StandardCut,
@@ -46,7 +50,13 @@ import {
   type AgeCut,
   type SeasonSwim,
 } from "./swim";
-import { GALA_SEED, GALA_SEED_BY_CODE } from "./galas";
+import {
+  GALA_SEED,
+  GALA_SEED_BY_CODE,
+  SEASON_2027_WINDOW,
+  intersectQualifyingWindows,
+  isInQualifyingWindow,
+} from "./galas";
 import { isGalaAgeEligible, resolveGalaCut } from "./swim";
 
 // ---------------------------------------------------------------------------
@@ -780,47 +790,46 @@ describe("highestGalaMet (§4.9 order) — hardest first, either course", () => 
   const both = { LCM: lcm, SCM: {} };
 
   it("returns the hardest gala the PB meets", () => {
-    expect(highestGalaMet({ LCM: 57000 }, both)?.gala).toBe("SANJ");
-    expect(highestGalaMet({ LCM: 59000 }, both)?.gala).toBe("LEVEL_3");
-    expect(highestGalaMet({ LCM: 61000 }, both)?.gala).toBe("LEVEL_2");
-    expect(highestGalaMet({ LCM: 64000 }, both)).toBeNull(); // slower than all
+    expect(highestGalaMet(uniformPb({ LCM: 57000 }), both)?.gala).toBe("SANJ");
+    expect(highestGalaMet(uniformPb({ LCM: 59000 }), both)?.gala).toBe("LEVEL_3");
+    expect(highestGalaMet(uniformPb({ LCM: 61000 }), both)?.gala).toBe("LEVEL_2");
+    expect(highestGalaMet(uniformPb({ LCM: 64000 }), both)).toBeNull(); // slower than all
   });
 
   it("treats equal-to-cut as met", () => {
-    expect(highestGalaMet({ LCM: 58000 }, both)?.gala).toBe("SANJ");
-    expect(highestGalaMet({ LCM: 63000 }, both)?.gala).toBe("LEVEL_2");
+    expect(highestGalaMet(uniformPb({ LCM: 58000 }), both)?.gala).toBe("SANJ");
+    expect(highestGalaMet(uniformPb({ LCM: 63000 }), both)?.gala).toBe("LEVEL_2");
   });
 
   it("skips galas with no cut", () => {
     expect(
-      highestGalaMet({ LCM: 61000 }, { LCM: { LEVEL_2: 63000 }, SCM: {} })?.gala,
+      highestGalaMet(uniformPb({ LCM: 61000 }), { LCM: { LEVEL_2: 63000 }, SCM: {} })?.gala,
     ).toBe("LEVEL_2");
     // SANJ not met, LEVEL_3 absent → falls through to LEVEL_2.
     expect(
-      highestGalaMet(
-        { LCM: 59000 },
+      highestGalaMet(uniformPb({ LCM: 59000 }),
         { LCM: { SANJ: 58000, LEVEL_2: 63000 }, SCM: {} },
       )?.gala,
     ).toBe("LEVEL_2");
-    expect(highestGalaMet({ LCM: 59000 }, { LCM: {}, SCM: {} })).toBeNull();
+    expect(highestGalaMet(uniformPb({ LCM: 59000 }), { LCM: {}, SCM: {} })).toBeNull();
   });
 
   it("NEVER measures a PB against the other course's cut (§4.2)", () => {
     // A blistering short-course time must not qualify on the long-course cut.
     expect(
-      highestGalaMet({ SCM: 50000 }, { LCM: lcm, SCM: {} }, "BEST"),
+      highestGalaMet(uniformPb({ SCM: 50000 }), { LCM: lcm, SCM: {} }, "BEST"),
     ).toBeNull();
   });
 
   it("qualifies on EITHER course, and names the course that did it", () => {
     const cuts = { LCM: { SANJ: 58000 }, SCM: { SANJ: 56000 } };
     // Only the short-course PB clears its own cut.
-    expect(highestGalaMet({ LCM: 59000, SCM: 55000 }, cuts, "BEST")).toEqual({
+    expect(highestGalaMet(uniformPb({ LCM: 59000, SCM: 55000 }), cuts, "BEST")).toEqual({
       gala: "SANJ",
       course: "SCM",
     });
     // Only the long-course PB clears its own cut.
-    expect(highestGalaMet({ LCM: 57000, SCM: 57000 }, cuts, "BEST")).toEqual({
+    expect(highestGalaMet(uniformPb({ LCM: 57000, SCM: 57000 }), cuts, "BEST")).toEqual({
       gala: "SANJ",
       course: "LCM",
     });
@@ -829,7 +838,7 @@ describe("highestGalaMet (§4.9 order) — hardest first, either course", () => 
   it("reports the course with the BIGGER margin when both qualify", () => {
     const cuts = { LCM: { SANJ: 58000 }, SCM: { SANJ: 56000 } };
     // LCM margin 3s, SCM margin 1s → LCM is the stronger swim.
-    expect(highestGalaMet({ LCM: 55000, SCM: 55000 }, cuts, "BEST")).toEqual({
+    expect(highestGalaMet(uniformPb({ LCM: 55000, SCM: 55000 }), cuts, "BEST")).toEqual({
       gala: "SANJ",
       course: "LCM",
     });
@@ -838,8 +847,8 @@ describe("highestGalaMet (§4.9 order) — hardest first, either course", () => 
   it("isolates one course when asked", () => {
     const cuts = { LCM: { SANJ: 58000 }, SCM: { SANJ: 56000 } };
     // The SCM PB qualifies, but an LCM-only read must ignore it.
-    expect(highestGalaMet({ LCM: 59000, SCM: 55000 }, cuts, "LCM")).toBeNull();
-    expect(highestGalaMet({ LCM: 59000, SCM: 55000 }, cuts, "SCM")?.course).toBe(
+    expect(highestGalaMet(uniformPb({ LCM: 59000, SCM: 55000 }), cuts, "LCM")).toBeNull();
+    expect(highestGalaMet(uniformPb({ LCM: 59000, SCM: 55000 }), cuts, "SCM")?.course).toBe(
       "SCM",
     );
   });
@@ -856,14 +865,17 @@ describe("computeMatrixCell (§5.7) — highest gala met + gap to next up", () =
     nextGala: null,
     gapMs: null,
     gapCourse: null,
+    pbMs: null,
+    pbCourse: null,
+    pbGala: null,
   };
 
   it("is blank/neutral when no gala has a cut", () => {
-    expect(computeMatrixCell({ LCM: 60000 }, empty)).toEqual(BLANK);
+    expect(computeMatrixCell(uniformPb({ LCM: 60000 }), empty)).toEqual(BLANK);
   });
 
   it("has a cut but no gala/gap when there is no PB yet (target = easiest)", () => {
-    expect(computeMatrixCell({}, cuts)).toEqual({
+    expect(computeMatrixCell(uniformPb({}), cuts)).toEqual({
       ...BLANK,
       hasCut: true,
       nextGala: "LEVEL_2",
@@ -872,52 +884,64 @@ describe("computeMatrixCell (§5.7) — highest gala met + gap to next up", () =
 
   it("none met → target the easiest gala, gap = PB − its cut", () => {
     // 64000 is slower than every cut; next up is L2.
-    expect(computeMatrixCell({ LCM: 64000 }, cuts)).toEqual({
+    expect(computeMatrixCell(uniformPb({ LCM: 64000 }), cuts)).toEqual({
       hasCut: true,
       gala: null,
       galaCourse: null,
       nextGala: "LEVEL_2",
       gapMs: 1000,
       gapCourse: "LCM",
+      // The cell reports the very time it judged, so the number a screen prints
+      // and the gap beside it can never come from different swims.
+      pbMs: 64000,
+      pbCourse: "LCM",
+      pbGala: "LEVEL_2",
     });
   });
 
   it("met L2 → next up is L3, gap = PB − L3 cut", () => {
-    expect(computeMatrixCell({ LCM: 61000 }, cuts)).toEqual({
+    expect(computeMatrixCell(uniformPb({ LCM: 61000 }), cuts)).toEqual({
       hasCut: true,
       gala: "LEVEL_2",
       galaCourse: "LCM",
       nextGala: "LEVEL_3",
       gapMs: 1000, // 61000 − 60000
       gapCourse: "LCM",
+      pbMs: 61000,
+      pbCourse: "LCM",
+      pbGala: "LEVEL_3",
     });
   });
 
   it("met the hardest available gala → no next up, no gap", () => {
-    expect(computeMatrixCell({ LCM: 57000 }, cuts)).toEqual({
+    expect(computeMatrixCell(uniformPb({ LCM: 57000 }), cuts)).toEqual({
       hasCut: true,
       gala: "SANJ",
       galaCourse: "LCM",
       nextGala: null,
       gapMs: null,
       gapCourse: null,
+      // Nothing left to chase, so the judged time is the one that met the top.
+      pbMs: 57000,
+      pbCourse: "LCM",
+      pbGala: "SANJ",
     });
     // equal-to-cut counts as met.
-    expect(computeMatrixCell({ LCM: 58000 }, cuts).gala).toBe("SANJ");
+    expect(computeMatrixCell(uniformPb({ LCM: 58000 }), cuts).gala).toBe("SANJ");
   });
 
   it("walks only the galas that have a cut (sparse coverage, §4.9)", () => {
     // 50 m has no age-graded cut above L2 — meeting L2 tops out.
     expect(
-      computeMatrixCell({ LCM: 30000 }, { LCM: { LEVEL_2: 31000 }, SCM: {} }),
+      computeMatrixCell(uniformPb({ LCM: 30000 }), { LCM: { LEVEL_2: 31000 }, SCM: {} }),
     ).toMatchObject({ hasCut: true, gala: "LEVEL_2", nextGala: null, gapMs: null });
     // Distance event: SANJ-only. Not met → gap to SANJ.
     expect(
-      computeMatrixCell({ LCM: 970000 }, { LCM: { SANJ: 950000 }, SCM: {} }),
+      computeMatrixCell(uniformPb({ LCM: 970000 }), { LCM: { SANJ: 950000 }, SCM: {} }),
     ).toMatchObject({ gala: null, nextGala: "SANJ", gapMs: 20000 });
     // L2 met but next-up SANJ (no L3 cut here) → the gap skips the absent gala.
     expect(
-      computeMatrixCell({ LCM: 61000 }, { LCM: { SANJ: 58000, LEVEL_2: 63000 }, SCM: {} }),
+      computeMatrixCell(uniformPb({ LCM: 61000 }), { LCM: { SANJ: 58000, LEVEL_2: 63000 }, SCM: {} }),
     ).toMatchObject({ gala: "LEVEL_2", nextGala: "SANJ", gapMs: 3000 });
   });
 
@@ -926,7 +950,7 @@ describe("computeMatrixCell (§5.7) — highest gala met + gap to next up", () =
   it("counts a gala as met when EITHER course clears its own cut", () => {
     const both = { LCM: { SANJ: 58000 }, SCM: { SANJ: 56000 } };
     // Long course misses, short course clears → still qualified, marked SCM.
-    expect(computeMatrixCell({ LCM: 59000, SCM: 55000 }, both, "BEST")).toMatchObject({
+    expect(computeMatrixCell(uniformPb({ LCM: 59000, SCM: 55000 }), both, "BEST")).toMatchObject({
       hasCut: true,
       gala: "SANJ",
       galaCourse: "SCM",
@@ -939,7 +963,7 @@ describe("computeMatrixCell (§5.7) — highest gala met + gap to next up", () =
       SCM: { SANJ: 56000, LEVEL_2: 61000 },
     };
     // L2 met in both; chasing SANJ. LCM shortfall 2s, SCM shortfall 4s → LCM.
-    expect(computeMatrixCell({ LCM: 60000, SCM: 60000 }, both, "BEST")).toMatchObject({
+    expect(computeMatrixCell(uniformPb({ LCM: 60000, SCM: 60000 }), both, "BEST")).toMatchObject({
       gala: "LEVEL_2",
       nextGala: "SANJ",
       gapMs: 2000,
@@ -950,7 +974,7 @@ describe("computeMatrixCell (§5.7) — highest gala met + gap to next up", () =
   it("ignores the other course entirely in a single-course mode", () => {
     const both = { LCM: { SANJ: 58000 }, SCM: { SANJ: 56000 } };
     // The SCM PB would qualify, but an LCM grid must not show it.
-    expect(computeMatrixCell({ LCM: 59000, SCM: 55000 }, both, "LCM")).toMatchObject({
+    expect(computeMatrixCell(uniformPb({ LCM: 59000, SCM: 55000 }), both, "LCM")).toMatchObject({
       gala: null,
       nextGala: "SANJ",
       gapMs: 1000,
@@ -962,7 +986,7 @@ describe("computeMatrixCell (§5.7) — highest gala met + gap to next up", () =
     // A short-course-only swimmer on a grid that only has long-course cuts:
     // the cut exists, but nothing of theirs can be measured against it.
     expect(
-      computeMatrixCell({ SCM: 55000 }, { LCM: { SANJ: 58000 }, SCM: {} }, "BEST"),
+      computeMatrixCell(uniformPb({ SCM: 55000 }), { LCM: { SANJ: 58000 }, SCM: {} }, "BEST"),
     ).toMatchObject({ hasCut: true, gala: null, nextGala: "SANJ", gapMs: null });
   });
 });
@@ -2054,5 +2078,228 @@ describe("compareToPbBefore", () => {
       newPb: false,
       firstTime: false,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The qualifying window (§4.9)
+// ---------------------------------------------------------------------------
+//
+// A swimmer qualifies on THIS SEASON's racing, not on a lifetime best. The two
+// gates a qualifying time passes are the whole subject here: it must be an
+// OFFICIAL MEET swim, and it must fall inside the gala's window. Neither gate is
+// allowed to quietly stand in for the other.
+
+describe("isInQualifyingWindow", () => {
+  const season = SEASON_2027_WINDOW;
+
+  it("includes BOTH bounds — a swim on the closing day still qualifies", () => {
+    expect(isInQualifyingWindow("2026-06-01", season)).toBe(true);
+    expect(isInQualifyingWindow("2027-03-21", season)).toBe(true);
+  });
+
+  it("excludes the days either side of them", () => {
+    expect(isInQualifyingWindow("2026-05-31", season)).toBe(false);
+    expect(isInQualifyingWindow("2027-03-22", season)).toBe(false);
+  });
+
+  it("treats an absent bound as unbounded, and no window as all-time", () => {
+    expect(isInQualifyingWindow("1999-01-01", { qualifyingTo: "2027-03-21" })).toBe(true);
+    expect(isInQualifyingWindow("2099-01-01", { qualifyingFrom: "2026-06-01" })).toBe(true);
+    expect(isInQualifyingWindow("1999-01-01", {})).toBe(true);
+  });
+});
+
+describe("fastestMeetSwimInWindow", () => {
+  const row = (
+    timeMs: number,
+    swimType: ResultForPB["swimType"],
+    swimDate: string,
+  ) => ({ distance: 100, stroke: "FREE", course: "LCM", timeMs, swimType, swimDate });
+  const season = SEASON_2027_WINDOW;
+
+  it("ignores a faster meet swim from before the window opened", () => {
+    // The lifetime best is 57.00 in March — outside the window, so it cannot
+    // enter anyone. The qualifying time is the slower in-season swim.
+    expect(
+      fastestMeetSwimInWindow(
+        [
+          row(57_000, "MEET", "2026-03-01"),
+          row(61_000, "MEET", "2026-09-11"),
+        ],
+        season,
+      )?.timeMs,
+    ).toBe(61_000);
+  });
+
+  it("ignores a blistering time trial INSIDE the window", () => {
+    // Both gates, not one: being in season does not make a trial official.
+    expect(
+      fastestMeetSwimInWindow(
+        [
+          row(50_000, "TIME_TRIAL", "2026-09-11"),
+          row(51_000, "PRACTICE", "2026-09-12"),
+          row(52_000, "SCHOOL_GALA", "2026-09-13"),
+          row(61_000, "MEET", "2026-09-14"),
+        ],
+        season,
+      )?.timeMs,
+    ).toBe(61_000);
+  });
+
+  it("reports nothing when every meet swim falls outside the window", () => {
+    expect(
+      fastestMeetSwimInWindow([row(57_000, "MEET", "2026-03-01")], season),
+    ).toBeNull();
+  });
+
+  it("is the plain fastest meet swim when the gala has no window", () => {
+    expect(
+      fastestMeetSwimInWindow(
+        [row(57_000, "MEET", "2019-03-01"), row(61_000, "MEET", "2026-09-11")],
+        {},
+      )?.timeMs,
+    ).toBe(57_000);
+  });
+});
+
+describe("qualifyingPbByGala", () => {
+  const rows: ResultForPB[] = [
+    { distance: 100, stroke: "FREE", course: "LCM", timeMs: 57_000, swimType: "MEET", swimDate: "2026-03-01" },
+    { distance: 100, stroke: "FREE", course: "LCM", timeMs: 61_000, swimType: "MEET", swimDate: "2026-09-11" },
+    { distance: 100, stroke: "FREE", course: "SCM", timeMs: 59_000, swimType: "MEET", swimDate: "2026-10-01" },
+  ];
+
+  it("gives each gala the time ITS OWN window allows", () => {
+    // The reason a PB is keyed by gala at all: two galas, two windows, two
+    // different qualifying times for the same swimmer and event.
+    const out = qualifyingPbByGala(rows, [
+      { code: "SANJ", qualifyingFrom: "2026-06-01", qualifyingTo: "2027-03-21" },
+      { code: "SANS", qualifyingFrom: "2026-01-01", qualifyingTo: "2027-03-21" },
+    ]);
+    expect(out.SANJ?.LCM).toBe(61_000); // March swim is out of SANJ's window
+    expect(out.SANS?.LCM).toBe(57_000); // SANS opened earlier, so it counts
+  });
+
+  it("keeps the courses apart — a cut is never borrowed across them (§4.2)", () => {
+    const out = qualifyingPbByGala(rows, [{ code: "SANJ", ...SEASON_2027_WINDOW }]);
+    expect(out.SANJ?.LCM).toBe(61_000);
+    expect(out.SANJ?.SCM).toBe(59_000);
+  });
+});
+
+describe("qualifyingPbsByEvent", () => {
+  it("groups by event and applies both gates to each group", () => {
+    const out = qualifyingPbsByEvent(
+      [
+        { distance: 100, stroke: "FREE", course: "LCM", timeMs: 57_000, swimType: "MEET", swimDate: "2026-03-01" },
+        { distance: 100, stroke: "FREE", course: "LCM", timeMs: 61_000, swimType: "MEET", swimDate: "2026-09-11" },
+        { distance: 200, stroke: "BACK", course: "LCM", timeMs: 140_000, swimType: "TIME_TRIAL", swimDate: "2026-09-11" },
+      ],
+      [{ code: "SANJ", ...SEASON_2027_WINDOW }],
+    );
+    expect(out.get("100|FREE")?.SANJ?.LCM).toBe(61_000);
+    // Raced only as a trial → no qualifying time at all, which is a different
+    // fact from "never raced it" but reads the same on a qualifying surface.
+    expect(out.get("200|BACK")?.SANJ?.LCM).toBeNull();
+  });
+});
+
+describe("computeMatrixCell with per-gala windows", () => {
+  // L2 is the easiest cut, SANJ the hardest; one course to keep it readable.
+  const cuts = {
+    LCM: { SANJ: 58_000, LEVEL_3: 60_000, LEVEL_2: 62_000 },
+    SCM: {},
+  } as const;
+
+  it("judges each gala on the time its own window allows", () => {
+    // 57.00 beats SANJ but only SANS-era rules would count it; SANJ sees 61.00.
+    const cell = computeMatrixCell(
+      {
+        SANJ: { LCM: 61_000 },
+        LEVEL_3: { LCM: 61_000 },
+        LEVEL_2: { LCM: 57_000 },
+      },
+      cuts,
+    );
+    // L2's window admits the fast swim, so L2 is met; SANJ and L3 see 61.00.
+    expect(cell.gala).toBe("LEVEL_2");
+    expect(cell.nextGala).toBe("LEVEL_3");
+    // The gap — and the time reported beside it — come from L3's own window.
+    expect(cell.gapMs).toBe(1_000);
+    expect(cell.pbMs).toBe(61_000);
+    expect(cell.pbGala).toBe("LEVEL_3");
+  });
+
+  it("reads as no time at all when nothing falls inside any window", () => {
+    // A swimmer with a career of fast swims, none of them this season: the same
+    // cell a swimmer who has never raced the event gets, because neither can
+    // enter. Decision #4 — the lapse is not annotated, it simply is not met.
+    const cell = computeMatrixCell(
+      { SANJ: {}, LEVEL_3: {}, LEVEL_2: {} },
+      cuts,
+    );
+    expect(cell.hasCut).toBe(true);
+    expect(cell.gala).toBeNull();
+    expect(cell.pbMs).toBeNull();
+    expect(cell.nextGala).toBe("LEVEL_2"); // still something to chase
+  });
+});
+
+describe("intersectQualifyingWindows", () => {
+  it("takes the latest start and the earliest end", () => {
+    expect(
+      intersectQualifyingWindows([
+        { qualifyingFrom: "2026-06-01", qualifyingTo: "2027-03-21" },
+        { qualifyingFrom: "2026-09-01", qualifyingTo: "2027-01-31" },
+      ]),
+    ).toEqual({ qualifyingFrom: "2026-09-01", qualifyingTo: "2027-01-31" });
+  });
+
+  it("ignores galas with no window, and returns none when nobody has one", () => {
+    expect(
+      intersectQualifyingWindows([{}, { qualifyingFrom: "2026-06-01" }]),
+    ).toEqual({ qualifyingFrom: "2026-06-01", qualifyingTo: null });
+    expect(intersectQualifyingWindows([{}, {}])).toEqual({
+      qualifyingFrom: null,
+      qualifyingTo: null,
+    });
+  });
+});
+
+describe("computeQualifyProjection and the window", () => {
+  const meets = [
+    { swimDate: "2026-01-10", timeMs: 57_000 }, // lifetime best, out of window
+    { swimDate: "2026-07-10", timeMs: 64_000 },
+    { swimDate: "2026-08-10", timeMs: 63_000 },
+    { swimDate: "2026-09-10", timeMs: 62_000 },
+    { swimDate: "2026-10-10", timeMs: 61_000 },
+  ];
+
+  it("does not call a swimmer qualified on a swim outside the window", () => {
+    const out = computeQualifyProjection(meets, 58_000, "2026-10-20", {
+      window: SEASON_2027_WINDOW,
+    });
+    // Without the window the January 57.00 would short-circuit to
+    // "already_qualified" — which the swimmer could not act on.
+    expect(out.status).not.toBe("already_qualified");
+  });
+
+  it("still fits the trend on ALL the history, window or not", () => {
+    // Only four of these five meets are in season; windowing the fit as well
+    // would drop the swimmer under PROJECTION_MIN_MEETS in a thin season.
+    const out = computeQualifyProjection(meets, 58_000, "2026-10-20", {
+      window: SEASON_2027_WINDOW,
+    });
+    expect(out.status === "not_enough_data").toBe(false);
+    if (out.status === "projected" || out.status === "beyond_horizon") {
+      expect(out.meetCount).toBe(5);
+    }
+  });
+
+  it("is unchanged when the gala has no window", () => {
+    expect(computeQualifyProjection(meets, 58_000, "2026-10-20").status).toBe(
+      "already_qualified",
+    );
   });
 });

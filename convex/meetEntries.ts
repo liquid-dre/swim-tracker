@@ -520,6 +520,7 @@ export const recordEntryTime = mutation({
     newPb: v.boolean(),
     newPbForMeet: v.boolean(),
     newlyMetGala: v.union(galaCodeValidator, v.null()),
+    cutBeatenOutsideWindow: v.union(galaCodeValidator, v.null()),
   }),
   handler: async (ctx, args) => {
     const { profile, entry, swimmer, meet, line } = await entryContext(ctx, args.entryId);
@@ -554,6 +555,7 @@ export const recordEntryTime = mutation({
       course: meet.course,
       timeMs,
       swimType: "MEET",
+      swimDate,
       excludeResultId: entry.resultId,
     });
 

@@ -91,13 +91,15 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   own tier-coloured pin, absorbed when a meet carries that gala's tag on the same day. Selecting a
   pin opens the programme in a sheet, not a navigation — a coach checking a clash must not lose the
   month they were reading.
-- **Two season windows, and they point opposite ways.** Attendance rates, the heatmap and season
+- **THREE season windows, and they point three different ways.** Attendance rates, the heatmap and season
   improvement read a rolling window that looks a year **back** from today. Session GENERATION reads
   its own (`resolveGenerationWindow`): today through the coach's season end, or a year **ahead** when
   none is set. Never feed the first to the second — its end lands on today, so no future session is
   ever produced and every clean future one is then deleted as "no longer produced by the pattern",
   which is exactly how the calendar emptied itself once. An ended season (an inverted window) is a
-  **no-op**, not an empty programme: it stops extending the schedule, it never culls it.
+  **no-op**, not an empty programme: it stops extending the schedule, it never culls it. The third is
+  the per-gala **qualifying window** above: fixed published dates, neither rolling nor relative to today,
+  and it gates qualification only — never attendance, never generation, never improvement.
 - **Dropdowns:** one shared styled menu component (white rounded panel, soft shadow, brand-indigo hover
   items, rotating chevron, subtle staggered entrance) for every select / picker / action menu.
 - **Collapsed sidebar:** the icon rail still reaches every subcategory — groups reveal a flyout of their
@@ -114,6 +116,19 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   400 is Free/IM only. Reject anything off the whitelist.
 - **Course:** SCM and LCM PBs are **separate**; never merge or compare across course.
 - **Headline PB = fastest MEET time only.** Time trials and practice never count toward the PB.
+- **A QUALIFYING time is not a PB.** Qualification reads the fastest **official MEET** swim inside that
+  gala's own **qualifying window** (`galas.qualifyingFrom`/`qualifyingTo`, super-user editable in Admin ›
+  Galas; all five seeded **2026-06-01 → 2027-03-21**, inclusive). **Both gates always apply**: a time
+  trial, practice swim or school-gala time qualifies nobody however fast, and an official meet time
+  outside the window does not either. Absent window = all-time, the pre-window behaviour. The headline
+  PB stays all-time and keeps the PB board, progression, points, comparison times and season improvement;
+  the two facts are **never collapsed**. One copy of the rule: `fastestMeetSwimInWindow` in `lib/swim.ts`,
+  which delegates its swim-type gate to `fastestMeetSwim` so the two can never drift. `PbByGalaCourse`
+  keys the time by gala as well as course, because two galas may carry different windows — never collapse
+  it to one number. A lapsed qualification is shown as simply **not met**, with no per-cell marker; each
+  qualifying surface states its basis once via `<QualifyingBasis>`. Where one number is measured against
+  several galas at once (the stroke wheel), use `intersectQualifyingWindows` — a bar that crosses a ring
+  must have beaten that ring's cut.
 - **Times:** integer ms internally; canonical text `m:ss:hh`. Bulletproof parser — 2 groups means
   `ss:hh` (so `59:09` = 59.09 s, never 59 minutes); the last group is always hundredths.
 - **Five galas, not three.** `GALA_ORDER` in `lib/galas.ts` is the single difficulty order, hardest →
@@ -177,6 +192,19 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   uses) so there is one set of rules and one test. A four-column programme is why the age band is
   stripped before the distance is read: "Boys 25 years | 100 | Free" has two bare numbers and 25 is
   a real racing distance.
+- **A club publishes its whole season as ONE file**, so `parseMeetWorkbook` returns **many** drafts. It
+  splits on every line carrying a readable date with a name before it — the identity rule
+  `parseMeetProgramme` already had, minus the stop — and delegates to that parser unchanged when a
+  document holds fewer than two meets. Three things this depends on: event numbering is **per draft**
+  (a document-wide `seenNumbers` would discard eleven of twelve programmes that each number from 1);
+  the name is the text **before** the date and the venue the text **after** it, positionally, because
+  the real venues are "Les Brown" and "HIS" and no keyword rule finds them; and `findPrintedDate` reads
+  a **spelled-out month** ("Friday, 11 September 2026" — never ambiguous, unlike `11/9/2026`), since
+  `sheetText` collapses empty cells and a club programme writes its dates in words. A fixture whose
+  programme is not published yet imports as a **dated meet with an empty programme** — the coach needs
+  it on the calendar now and a re-import fills it in. A meet's printed start time is kept
+  (`meets.startTime`, 24-hour `"HH:MM"`; absent = not stated, never guessed), because a gala-vs-training
+  clash is a *time* question and `/attendance` draws both on one grid.
 - **A programme LINE has an identity, and sign-ups point at it.** Every `meets.events[]` object
   carries a stable `id`, minted in `cleanEvents` (the one seam every programme write passes through)
   and preserved across edits and re-imports by `reconcileLines` — by the line's own id first, then by
@@ -185,8 +213,11 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   import replaces the whole array. The **event number is the running order** (`compareMeetEvents`
   sorts by it), so reordering swaps numbers as well as positions, splitting shifts the rest of the
   programme up, and two lines may never claim one number.
-- **A meet's course is a form DEFAULT, never an inference.** The Add-meet form and the import sheet
-  pre-select long course so a human decides before saving; `parseMeetProgramme` still reports no
+- **A meet's course is a form DEFAULT, never an inference.** The Add-meet form and the single-meet import
+  sheet pre-select long course so a human decides before saving; the multi-meet review list starts every
+  row **unset** instead, because twelve rows silently defaulted to long course would file six short-course
+  junior galas wrong — it offers a one-click suggestion carrying its reason (`courseMismatches`: a 25 m
+  event has nowhere but a short-course pool) and holds the commit until each row is answered; `parseMeetProgramme` still reports no
   course, and a meet stored without one shows "Not set" and cannot take times at all — a guessed
   course files a swim in the wrong pool and nothing downstream would ever flag it.
 - **Sign-ups (`meetEntries`) are club-scoped and coach-owned, on a meet that is neither.** One row per
