@@ -3,6 +3,8 @@
 // tested without convex-test. All date maths is UTC-based so a plain "YYYY-MM-DD"
 // is timezone-stable (matching rollingSeasonStart in lib/swim.ts).
 
+import { rollingSeasonStart } from "../lib/swim";
+
 export type AttendanceStatus = "PRESENT" | "ABSENT" | "LATE" | "EXCUSED";
 
 export const MIN_OF_DAY = 0;
@@ -117,15 +119,47 @@ export function resolveSeasonEnd(
 }
 
 /**
+ * The window every attendance REPORT reads — rates, the heatmap strip, the
+ * insights table and the profile figure — and it is not either of the other two.
+ *
+ * It looks BACKWARDS, from the season's start to the present, because a rate is
+ * a statement about swims that have already happened. So its end is TODAY, never
+ * a year past the start: `resolveSeasonEnd` bounds the FORWARD window generation
+ * writes into, and borrowing it here is what made a season older than a year
+ * report nothing — a coach who set the season start last September got a window
+ * ending last September too, so this month's marks fell outside it and the
+ * profile said "no attendance recorded" over a calendar full of them.
+ *
+ *   start = the coach's season start when set, else a rolling year back.
+ *   end   = today, or the coach's season end when that has already passed — an
+ *           ended season reports the season it was, not the weeks since.
+ *
+ * A season end still to come does NOT extend the window past today: a future
+ * session can only carry a pre-excusal (`markAttendance`), and counting those
+ * would inflate the excused column with absences nobody has taken yet.
+ */
+export function resolveReportingWindow(
+  todayIso: string,
+  seasonStartIso: string | null,
+  seasonEndIso: string | null,
+): { start: string; end: string } {
+  const today = cleanIsoDate(todayIso);
+  if (today === null) throw new Error(`resolveReportingWindow: invalid date "${todayIso}"`);
+  const start = cleanIsoDate(seasonStartIso ?? undefined) ?? rollingSeasonStart(today);
+  const seasonEnd = cleanIsoDate(seasonEndIso ?? undefined);
+  return { start, end: seasonEnd !== null && seasonEnd < today ? seasonEnd : today };
+}
+
+/**
  * The window session GENERATION runs over — and it is NOT the season window the
  * rates and heatmap read.
  *
- * Those look BACKWARDS: with no custom season set they run from a rolling start
- * a year before today to today, which is the right shape for "this season's
- * attendance so far". Generation only ever writes FORWARD, so handing it that
- * window is what empties the calendar — its end lands on today, no future date
- * is ever produced, and every clean future session then sits outside the window
- * and is deleted as "no longer produced by the pattern".
+ * Those look BACKWARDS (`resolveReportingWindow` above): from the season start to
+ * today, which is the right shape for "this season's attendance so far".
+ * Generation only ever writes FORWARD, so handing it that window empties the
+ * calendar — its end lands on today, no future date is ever produced, and every
+ * clean future session then sits outside the window and is deleted as "no longer
+ * produced by the pattern".
  *
  * So generation resolves its own window:
  *

@@ -11,6 +11,7 @@ import {
   isValidWeekdays,
   parseHHMM,
   resolveGenerationWindow,
+  resolveReportingWindow,
   resolveSeasonEnd,
   weekdayOf,
 } from "./attendanceLib";
@@ -101,6 +102,57 @@ describe("resolveSeasonEnd", () => {
   test("caps an open-ended season at one year past the start", () => {
     expect(resolveSeasonEnd("2026-07-23", null)).toBe("2027-07-23");
     expect(resolveSeasonEnd("2026-07-23", "garbage")).toBe("2027-07-23");
+  });
+});
+
+describe("resolveReportingWindow", () => {
+  test("a rolling season runs a year back to today", () => {
+    expect(resolveReportingWindow("2026-09-15", null, null)).toEqual({
+      start: "2025-09-15",
+      end: "2026-09-15",
+    });
+  });
+
+  test("a custom season start still reports up to today", () => {
+    // The bug this exists to prevent: borrowing generation's `resolveSeasonEnd`
+    // ended the window a year after the START. A season begun in September 2025
+    // therefore stopped reporting on 2026-09-01, so a swimmer marked present this
+    // month showed on the calendar and nowhere in the rates.
+    expect(resolveReportingWindow("2026-09-15", "2025-09-01", null)).toEqual({
+      start: "2025-09-01",
+      end: "2026-09-15",
+    });
+    expect(resolveReportingWindow("2026-09-15", "2024-08-15", null)).toEqual({
+      start: "2024-08-15",
+      end: "2026-09-15",
+    });
+  });
+
+  test("a season end still to come does not reach past today", () => {
+    // Only a pre-excusal can sit on a future session, and an absence nobody has
+    // taken yet must not land in the excused column.
+    expect(resolveReportingWindow("2026-09-15", "2026-01-01", "2027-03-31")).toEqual({
+      start: "2026-01-01",
+      end: "2026-09-15",
+    });
+  });
+
+  test("an ended season reports the season it was", () => {
+    expect(resolveReportingWindow("2026-09-15", "2025-01-01", "2025-12-31")).toEqual({
+      start: "2025-01-01",
+      end: "2025-12-31",
+    });
+  });
+
+  test("unreadable season dates fall back to the rolling default", () => {
+    expect(resolveReportingWindow("2026-09-15", "garbage", "garbage")).toEqual({
+      start: "2025-09-15",
+      end: "2026-09-15",
+    });
+  });
+
+  test("rejects an unreadable today", () => {
+    expect(() => resolveReportingWindow("nope", null, null)).toThrow();
   });
 });
 

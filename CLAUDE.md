@@ -92,7 +92,10 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   pin opens the programme in a sheet, not a navigation — a coach checking a clash must not lose the
   month they were reading.
 - **THREE season windows, and they point three different ways.** Attendance rates, the heatmap and season
-  improvement read a rolling window that looks a year **back** from today. Session GENERATION reads
+  improvement read a rolling window that looks a year **back** from today (`resolveReportingWindow`
+  — season start through **today**, and today even when the coach set a season start years ago;
+  capping it a year past the START is what made the profile's attendance tab read empty over a
+  calendar full of marks). Session GENERATION reads
   its own (`resolveGenerationWindow`): today through the coach's season end, or a year **ahead** when
   none is set. Never feed the first to the second — its end lands on today, so no future session is
   ever produced and every clean future one is then deleted as "no longer produced by the pattern",
