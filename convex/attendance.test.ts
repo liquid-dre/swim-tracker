@@ -652,3 +652,96 @@ describe("attendance heatmap", () => {
     expect(res.days).toEqual([]);
   });
 });
+
+describe("the season window these reports read", () => {
+  /*
+    The regression: the rates, the heatmap and the profile figure all default to
+    the club's season window, and that window took its END from `resolveSeasonEnd`
+    — the helper that bounds the FORWARD window session generation writes into. A
+    season start older than a year therefore produced a window that had already
+    closed, so a swimmer marked present this week appeared on the calendar (which
+    reads the month in view) and nowhere in the attendance tab.
+  */
+  function isoShift(days: number): string {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  /** The fixture's far-future season, replaced by one that began two years ago. */
+  async function staleSeason() {
+    const s = await setup();
+    await s.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("settings")
+        .withIndex("by_key", (q) => q.eq("key", "app"))
+        .unique();
+      await ctx.db.patch(row!._id, { seasonStart: isoShift(-730), seasonEnd: undefined });
+    });
+    const session = await oneOff(s.asCoachA, isoShift(-2), [s.ids.squadX]);
+    await s.asCoachA.mutation(api.attendance.markAttendance, {
+      sessionId: session,
+      swimmerId: s.ids.swimmerA,
+      status: "PRESENT",
+    });
+    await s.asCoachA.mutation(api.attendance.markAttendance, {
+      sessionId: session,
+      swimmerId: s.ids.swimmerC,
+      status: "ABSENT",
+    });
+    return s;
+  }
+
+  test("the profile figure counts a mark made in a season older than a year", async () => {
+    const { asCoachA, ids } = await staleSeason();
+    const fig = await asCoachA.query(api.attendance.getSwimmerAttendanceFigure, {
+      swimmerId: ids.swimmerA,
+    });
+    expect(fig.marked).toBe(1);
+    expect(fig.present).toBe(1);
+    expect(fig.attended).toBe(1);
+    expect(fig.eligible).toBe(1);
+    expect(fig.ratePct).toBe(100);
+    // The window runs to today, not to a year past the season start.
+    expect(fig.to).toBe(isoShift(0));
+  });
+
+  test("the heatmap's default window covers the same marks", async () => {
+    const { asCoachA } = await staleSeason();
+    const res = await asCoachA.query(api.attendance.getAttendanceHeatmap, {});
+    expect(res.to).toBe(isoShift(0));
+    expect(res.days.map((d) => d.date)).toEqual([isoShift(-2)]);
+    expect(res.days[0].ratePct).toBe(50);
+  });
+
+  test("a pre-excusal on a future session is not counted yet", async () => {
+    const { asCoachA, ids } = await staleSeason();
+    const future = await oneOff(asCoachA, isoShift(30), [ids.squadX]);
+    await asCoachA.mutation(api.attendance.markAttendance, {
+      sessionId: future,
+      swimmerId: ids.swimmerA,
+      status: "EXCUSED",
+    });
+    const fig = await asCoachA.query(api.attendance.getSwimmerAttendanceFigure, {
+      swimmerId: ids.swimmerA,
+    });
+    expect(fig.excused).toBe(0);
+    expect(fig.marked).toBe(1);
+  });
+
+  test("an ended season still reports the season it was", async () => {
+    const { t, asCoachA, ids } = await staleSeason();
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("settings")
+        .withIndex("by_key", (q) => q.eq("key", "app"))
+        .unique();
+      await ctx.db.patch(row!._id, { seasonEnd: isoShift(-1) });
+    });
+    const fig = await asCoachA.query(api.attendance.getSwimmerAttendanceFigure, {
+      swimmerId: ids.swimmerA,
+    });
+    expect(fig.to).toBe(isoShift(-1));
+    expect(fig.marked).toBe(1);
+  });
+});

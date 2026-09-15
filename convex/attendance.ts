@@ -12,10 +12,9 @@ import { assertManagesClub, attendanceBySwimmer, rosterSwimmers } from "./attend
 import {
   cleanIsoDate,
   computeRates,
-  resolveSeasonEnd,
+  resolveReportingWindow,
   todayIso,
 } from "./attendanceLib";
-import { rollingSeasonStart } from "../lib/swim";
 
 /*
   Attendance marks (§R18) — the coach action and the reads swimmers/parents get.
@@ -176,18 +175,20 @@ export const markAllRemainingPresent = mutation({
 // Reads
 // ---------------------------------------------------------------------------
 
-/** Resolve the club-wide season window (custom or rolling default, capped end). */
-async function seasonWindow(
+/**
+ * The club-wide window these READS report over: the season start (custom or a
+ * rolling year back) through today. Deliberately `resolveReportingWindow` and
+ * not generation's `resolveSeasonEnd` — see the note there on why a backward
+ * window may never take a forward window's end.
+ */
+async function reportingWindow(
   ctx: QueryCtx,
 ): Promise<{ start: string; end: string }> {
   const row = await ctx.db
     .query("settings")
     .withIndex("by_key", (q) => q.eq("key", "app"))
     .unique();
-  const today = todayIso();
-  const start = row?.seasonStart ?? rollingSeasonStart(today);
-  const end = resolveSeasonEnd(start, row?.seasonEnd ?? null);
-  return { start, end };
+  return resolveReportingWindow(todayIso(), row?.seasonStart ?? null, row?.seasonEnd ?? null);
 }
 
 /**
@@ -359,7 +360,7 @@ export const getSwimmerAttendanceFigure = query({
   }),
   handler: async (ctx, args) => {
     await requireSwimmerAccess(ctx, args.swimmerId);
-    const window = await seasonWindow(ctx);
+    const window = await reportingWindow(ctx);
     const from = cleanIsoDate(args.from ?? "") ?? window.start;
     const to = cleanIsoDate(args.to ?? "") ?? window.end;
 
@@ -440,7 +441,7 @@ export const getAttendanceHeatmap = query({
     ),
   }),
   handler: async (ctx, args) => {
-    const window = await seasonWindow(ctx);
+    const window = await reportingWindow(ctx);
     const from = cleanIsoDate(args.from ?? "") ?? window.start;
     const to = cleanIsoDate(args.to ?? "") ?? window.end;
     if (from > to) return { from, to, variant: "summary" as const, days: [] };

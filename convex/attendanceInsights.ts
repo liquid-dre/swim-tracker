@@ -2,8 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import { requireCoach } from "./authz";
-import { cleanIsoDate, resolveSeasonEnd, todayIso } from "./attendanceLib";
-import { rollingSeasonStart } from "../lib/swim";
+import { cleanIsoDate, resolveReportingWindow, todayIso } from "./attendanceLib";
 
 /*
   Attendance insights (§R18) — coach-only analytics over the season. Per-swimmer
@@ -95,15 +94,19 @@ export const getAttendanceInsights = query({
       worstAttenders: [],
     });
 
-    // Season window (custom or rolling default, capped).
+    // The season window these rates report over — season start through today
+    // (`resolveReportingWindow`), never generation's forward end.
     const settings = await ctx.db
       .query("settings")
       .withIndex("by_key", (q) => q.eq("key", "app"))
       .unique();
-    const seasonStart = settings?.seasonStart ?? rollingSeasonStart(todayIso());
-    const from = cleanIsoDate(args.from ?? "") ?? seasonStart;
-    const to =
-      cleanIsoDate(args.to ?? "") ?? resolveSeasonEnd(seasonStart, settings?.seasonEnd ?? null);
+    const window = resolveReportingWindow(
+      todayIso(),
+      settings?.seasonStart ?? null,
+      settings?.seasonEnd ?? null,
+    );
+    const from = cleanIsoDate(args.from ?? "") ?? window.start;
+    const to = cleanIsoDate(args.to ?? "") ?? window.end;
 
     if (!profile.clubId) return emptyResult(from, to);
 
