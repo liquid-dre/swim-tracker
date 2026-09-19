@@ -19,7 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 // Progression group builder) match the built-in Filters button exactly.
 // ≥44px on touch viewports (PRODUCT.md); h-9 from lg up for toolbar density.
 export const toolbarButtonClass =
-  "inline-flex h-11 lg:h-9 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
+  "inline-flex h-11 lg:h-9 touch:h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-50 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
 export function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null;
@@ -54,10 +54,21 @@ export function FilterBar({
 }) {
   const hasRight = Boolean(trailing) || Boolean(filters);
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    // `items-end` so controls of different heights sit on one bottom edge (a
+    // 50px Segmented beside a 44px input left their two labels at different
+    // heights under `items-center`). `gap-y-3` because a wrapped row is a
+    // different group: at a uniform 8px the "Find" label sat 8px under the
+    // control above it and 6px above its own, so 2px decided which control the
+    // label belonged to.
+    <div className={cn("flex flex-wrap items-end gap-x-2 gap-y-3", className)}>
       {primary}
       {hasRight && (
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        // On a phone this group never fits beside the primary selectors, so it
+        // wraps — and `ml-auto` then pushed the wrapped row hard right, leaving
+        // the search box floating under nothing with a ragged left edge. Below
+        // `sm` it is simply its own full-width row, directly under the control
+        // above it; from `sm` up it is right-aligned inline as before.
+        <div className="flex w-full flex-wrap items-end gap-2 sm:ml-auto sm:w-auto">
           {trailing}
           {filters && (
             <Popover>
@@ -110,12 +121,15 @@ export function FilterBar({
 export function FilterField({
   label,
   children,
+  className,
 }: {
   label: string;
   children: React.ReactNode;
+  /** For a field that should claim the rest of its row (e.g. a search box). */
+  className?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
       <span className="text-xs font-medium text-ink-muted">{label}</span>
       {children}
     </div>

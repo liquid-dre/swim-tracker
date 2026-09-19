@@ -24,7 +24,12 @@ import {
 } from "@/components/ui/sheet";
 import { notify } from "@/lib/notify";
 import { GALA_FULL } from "@/lib/galas";
-import { MEET_GENDER_LABEL, genderAllowsSwimmer } from "@/lib/meets";
+import {
+  DAY_NOT_LISTED,
+  MEET_GENDER_LABEL,
+  formatMeetDay,
+  genderAllowsSwimmer,
+} from "@/lib/meets";
 import { EntryRosterTable, type EntryRow } from "./EntryRosterTable";
 
 /*
@@ -62,6 +67,34 @@ export function MeetEntriesSheet({
   const [adding, setAdding] = useState(false);
 
   const line = signups?.lines.find((l) => l.lineId === lineId) ?? null;
+  const days = signups?.days ?? [];
+  // The programme moved after these swimmers were entered. Counted here so the
+  // sheet says it once at the top rather than leaving it to be discovered by
+  // scrolling a thirty-row roster.
+  const mismatchedDays = (line?.entries ?? []).filter(
+    (e) => e.dayMismatch !== null,
+  ).length;
+  const sheetNotice: { text: string; tone: "warn" | "muted" } | null =
+    signups !== undefined && !signups.courseKnown
+      ? {
+          tone: "warn",
+          text: "This meet has no course set, so times can't be recorded yet. A time in the wrong pool can never be compared with anything. Set it on the meet's Details tab.",
+        }
+      : line !== null && !line.resolved
+        ? {
+            tone: "muted",
+            text: "This isn't an event the app tracks, so no time can be recorded against it. A relay time belongs to the team.",
+          }
+        : mismatchedDays > 0
+          ? {
+              tone: "warn",
+              text: `${
+                mismatchedDays === 1
+                  ? "One swimmer is still entered for a different day"
+                  : `${mismatchedDays} swimmers are still entered for a different day`
+              } than the programme now swims this event on. Their rows say which, and move them in one click.`,
+            }
+          : null;
   const entered = useMemo(
     () => new Set((line?.entries ?? []).map((e) => String(e.swimmerId))),
     [line],
@@ -187,8 +220,23 @@ export function MeetEntriesSheet({
           <SheetDescription>
             {line === null
               ? "Loading this event."
-              : `${line.rawLabel}${
+              : // The DAY belongs in the description on a multi-day meet: it is
+                // what every swimmer added here is dated with, and a coach
+                // working down thirty events should be able to see that
+                // without opening the day column on each row.
+                `${line.rawLabel}${
                   line.gender ? ` · ${MEET_GENDER_LABEL[line.gender]}` : ""
+                }${
+                  days.length > 1
+                    ? ` · ${
+                        line.day !== null && days[line.day - 1] !== undefined
+                          ? formatMeetDay(
+                              { startDate: days[0], endDate: days[days.length - 1] },
+                              line.day,
+                            )
+                          : DAY_NOT_LISTED
+                      }`
+                    : ""
                 }`}
           </SheetDescription>
         </SheetHeader>
@@ -199,18 +247,21 @@ export function MeetEntriesSheet({
             to do) is what let a ~400px add block push the roster out of view;
             SquadMembersSheet has always been arranged this way. */}
         <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-2">
-          {signups !== undefined && !signups.courseKnown && (
-            <p className="shrink-0 rounded-xl border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-ink">
-              This meet has no course set, so times can&rsquo;t be recorded yet.
-              A time in the wrong pool can never be compared with anything. Set
-              it on the meet&rsquo;s Details tab.
-            </p>
-          )}
-
-          {line !== null && !line.resolved && (
-            <p className="shrink-0 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-ink-muted">
-              This isn&rsquo;t an event the app tracks, so no time can be
-              recorded against it. A relay time belongs to the team.
+          {/* ONE banner, ranked, for the same reason the programme editor has
+              one strip: three full-width warning cards of equal weight above a
+              roster say nothing about which to act on. Blocking first — no
+              course means no time can be recorded at all — then the line being
+              untimeable, then the entries that merely need moving. */}
+          {sheetNotice !== null && (
+            <p
+              className={
+                "shrink-0 rounded-xl px-3 py-2 text-sm " +
+                (sheetNotice.tone === "warn"
+                  ? "border border-warning-500/30 bg-warning-50 text-warning-ink"
+                  : "border border-gray-200 bg-gray-50 text-ink-muted")
+              }
+            >
+              {sheetNotice.text}
             </p>
           )}
 
@@ -221,7 +272,7 @@ export function MeetEntriesSheet({
                 _id: String(e._id),
                 resultId: e.resultId === null ? null : String(e.resultId),
               }))}
-              days={signups?.days ?? []}
+              days={days}
               courseKnown={signups?.courseKnown ?? false}
               resolved={line?.resolved ?? false}
               busyId={busyId}
@@ -314,7 +365,7 @@ export function MeetEntriesSheet({
                     placeholder="Find a swimmer"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-8 pr-2 text-sm text-gray-800 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
+                    className="h-11 w-full rounded-lg border border-gray-300 bg-white pl-8 pr-2 text-sm text-gray-800 lg:h-9 touch:h-11 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
                   />
                 </div>
                 {squads.length > 0 && (

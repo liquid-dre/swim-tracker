@@ -80,10 +80,22 @@ export function MeetDetailScreen({
   const tallies = useMemo(() => {
     const out = new Map<string, EntryTally>();
     for (const line of signups?.lines ?? []) {
-      out.set(line.lineId, { entered: line.entered, timed: line.timed });
+      out.set(line.lineId, {
+        entered: line.entered,
+        timed: line.timed,
+        dayMismatched: line.dayMismatched,
+      });
     }
     return out;
   }, [signups]);
+  // The realistic way days move is a RE-IMPORT, which shifts many lines at
+  // once. Without a total here, finding the drift means opening every line's
+  // sheet — and the drift feeds `ageAtSwim`, so it decides which exact-age cut
+  // a swim is judged against.
+  const movedDays = (signups?.lines ?? []).reduce(
+    (n, line) => n + line.dayMismatched,
+    0,
+  );
 
   const rootCrumb = isViewer
     ? { label: "My swimmers", href: "/me/swimmers" }
@@ -141,9 +153,9 @@ export function MeetDetailScreen({
         actions={
           canEdit ? (
             <>
-              {/* One primary, and it is the thing this page is for. Three
-                  identical secondary buttons would give the page no centre and
-                  make Delete look exactly like Edit. */}
+              {/* One primary, and it is the thing this page is for. Delete
+                  takes the danger variant so it does not read as another Edit,
+                  which is exactly what two identical secondaries gave it. */}
               <Button size="sm" onClick={() => setImportOpen(true)}>
                 <Upload className="size-4" aria-hidden />
                 Import programme
@@ -157,7 +169,7 @@ export function MeetDetailScreen({
                 Edit
               </Button>
               <Button
-                variant="secondary"
+                variant="danger"
                 size="sm"
                 onClick={() => setConfirmDelete(true)}
                 aria-label={`Delete ${meet.name}`}
@@ -214,11 +226,25 @@ export function MeetDetailScreen({
       {/* Their own events lead, then the full programme. A parent's question
           is "what is my swimmer in", and a sixty-line list does not answer it. */}
       {isViewer && (
-        <ViewerMeetEntries meetId={meetId} upcoming={isUpcoming(meet, today)} />
+        <ViewerMeetEntries
+          meetId={meetId}
+          meet={meet}
+          upcoming={isUpcoming(meet, today)}
+        />
+      )}
+
+      {movedDays > 0 && (
+        <p className="rounded-2xl border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm text-warning-ink">
+          {movedDays === 1
+            ? "1 sign-up is on a day the programme has since moved"
+            : `${movedDays} sign-ups are on days the programme has since moved`}
+          . The events holding them are marked below; open one to move them.
+        </p>
       )}
 
       <MeetProgrammeTable
         events={meet.events}
+        meet={meet}
         signups={isViewer ? undefined : tallies}
         upcoming={isUpcoming(meet, today)}
         onOpenLine={isViewer ? undefined : setOpenLineId}

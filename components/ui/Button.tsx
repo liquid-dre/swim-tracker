@@ -21,8 +21,8 @@ const variants: Record<Variant, string> = {
 // ≥44px targets on touch viewports (PRODUCT.md); compact from lg up so the
 // dense coach toolbars keep their density.
 const sizes: Record<Size, string> = {
-  sm: "h-11 px-3 text-sm lg:h-8",
-  md: "h-11 px-4 text-base lg:h-9",
+  sm: "h-11 px-3 text-sm lg:h-8 touch:h-11",
+  md: "h-11 px-4 text-base lg:h-9 touch:h-11",
 };
 
 /** The full Button class string, for link elements styled as buttons. */

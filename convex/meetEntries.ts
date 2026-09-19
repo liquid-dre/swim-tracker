@@ -34,6 +34,7 @@ import {
   genderAllowsSwimmer,
   isUpcoming,
   meetDates,
+  meetDayDate,
   meetEventLabel,
   type MeetEvent,
 } from "../lib/meets";
@@ -72,6 +73,17 @@ const entryRow = v.object({
   swimDate: v.string(),
   /** The swimmer no longer matches the line's sex scope — flagged, never dropped. */
   genderMismatch: v.boolean(),
+  /**
+   * This entry's day is not the day the programme now puts its event on.
+   *
+   * Derived at READ time, never stored — the same reason `genderMismatch` is
+   * (CLAUDE.md: "a flag derived at read time cannot go stale"). `swimDate` IS
+   * denormalised, because an entry may legitimately be moved to another day;
+   * so the moment a line moves, every entry made before it has to say so
+   * rather than quietly keeping the old date, which feeds `ageAtSwim` and
+   * therefore which exact-age cut the swim is judged against.
+   */
+  dayMismatch: v.union(v.string(), v.null()),
   resultId: v.union(v.id("results"), v.null()),
   timeMs: v.union(v.number(), v.null()),
   /** The PB they took INTO this meet; null when there is nothing to compare. */
@@ -82,6 +94,25 @@ const entryRow = v.object({
   firstTime: v.boolean(),
 });
 
+/**
+ * The day the PROGRAMME now puts this line on, when that is not the day the
+ * entry carries. Null otherwise, including for a line with no day at all.
+ *
+ * Derived at read time, never stored — the same reason `genderMismatch` is
+ * (CLAUDE.md: "a flag derived at read time cannot go stale"). A date rather
+ * than a boolean, so a row can name the day to move to and the one-click fix
+ * has something to send.
+ */
+function lineDayFor(
+  meet: Doc<"meets">,
+  line: MeetEvent | undefined,
+  swimDate: string,
+): string | null {
+  if (line?.day === undefined) return null;
+  const lineDay = meetDayDate(meet, line.day);
+  return lineDay !== null && lineDay !== swimDate ? lineDay : null;
+}
+
 const lineRow = v.object({
   lineId: v.string(),
   eventNumber: v.union(v.number(), v.null()),
@@ -90,10 +121,14 @@ const lineRow = v.object({
   gender: v.union(v.literal("M"), v.literal("F"), v.literal("MIXED"), v.null()),
   distance: v.union(v.number(), v.null()),
   stroke: v.union(v.string(), v.null()),
+  /** Which day of the meet the programme puts this line on; null = not said. */
+  day: v.union(v.number(), v.null()),
   /** The line maps to a real event, so a swimmer can be entered and timed. */
   resolved: v.boolean(),
   entered: v.number(),
   timed: v.number(),
+  /** Of those entered, how many sit on a day the programme has since moved. */
+  dayMismatched: v.number(),
   entries: v.array(entryRow),
 });
 
@@ -170,11 +205,16 @@ export const getMeetSignups = query({
               result?.timeMs ?? null,
               pb?.timeMs ?? null,
             );
+            // The ISO date the LINE now says, when it says one and it is not
+            // the one this entry carries. A string rather than a boolean, so
+            // the row can name the day to move to instead of only that it is
+            // wrong — and so the one-click fix has something to send.
             return {
               _id: entry._id,
               swimmerId: entry.swimmerId,
               name: swimmer?.name ?? "Unknown swimmer",
               swimDate: entry.swimDate,
+              dayMismatch: lineDayFor(meet, line, entry.swimDate),
               genderMismatch:
                 swimmer !== undefined &&
                 !genderAllowsSwimmer(line.gender, swimmer.gender),
@@ -192,9 +232,11 @@ export const getMeetSignups = query({
           gender: line.gender ?? null,
           distance: line.distance ?? null,
           stroke: line.stroke ?? null,
+          day: line.day ?? null,
           resolved: line.distance !== undefined && line.stroke !== undefined,
           entered: rows.length,
           timed: rows.filter((r) => r.resultId !== null).length,
+          dayMismatched: rows.filter((r) => r.dayMismatch !== null).length,
           entries: rows,
         };
       });
@@ -296,6 +338,13 @@ export const getMyMeetEntries = query({
           eventNumber: v.union(v.number(), v.null()),
           label: v.string(),
           swimDate: v.string(),
+          /**
+           * The day the programme now swims this on, when it is not the one
+           * this entry carries. A family reading "Day 1 · Sat" for an event a
+           * re-import has moved to the Sunday turns up on the wrong morning —
+           * which is the one question this block exists to answer.
+           */
+          dayMismatch: v.union(v.string(), v.null()),
           timeMs: v.union(v.number(), v.null()),
           pbBeforeMs: v.union(v.number(), v.null()),
           deltaMs: v.union(v.number(), v.null()),
@@ -339,11 +388,16 @@ export const getMyMeetEntries = query({
           // being re-worded and still says what it was for.
           label: line === undefined ? entry.rawLabel : meetEventLabel(line),
           swimDate: entry.swimDate,
+          dayMismatch: lineDayFor(meet, line, entry.swimDate),
           ...compareToPbBefore(result?.timeMs ?? null, pb?.timeMs ?? null),
         });
       }
+      // DAY first, then the running order within it. On a three-day gala the
+      // event numbers restart nowhere and run straight through, so sorting by
+      // number alone reads Saturday's 400 free between two Sunday sprints.
       rows.sort(
         (a, b) =>
+          a.swimDate.localeCompare(b.swimDate) ||
           (a.eventNumber ?? Number.MAX_SAFE_INTEGER) -
             (b.eventNumber ?? Number.MAX_SAFE_INTEGER) ||
           a.label.localeCompare(b.label),
@@ -434,7 +488,9 @@ export const addEntries = mutation({
     const clubId = requireClub(profile);
     const meet = await loadMeetOrThrow(ctx, args.meetId);
     const line = lineOrThrow(meet, args.lineId);
-    const swimDate = cleanEntryDay(meet, args.swimDate);
+    // The line's own day when the caller names none: signing a squad up for an
+    // event the programme puts on day 2 must not file them all on day 1.
+    const swimDate = cleanEntryDay(meet, args.swimDate, line);
 
     if (args.swimmerIds.length > 100) {
       throw new ConvexError(

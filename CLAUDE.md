@@ -208,6 +208,18 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   it on the calendar now and a re-import fills it in. A meet's printed start time is kept
   (`meets.startTime`, 24-hour `"HH:MM"`; absent = not stated, never guessed), because a gala-vs-training
   clash is a *time* question and `/attendance` draws both on one grid.
+- **A programme line may say WHICH DAY it runs on, as an INDEX not a date.** `meets.events[].day`
+  is 1-based into the meet's own span (`meetDayCount`), absent when nobody has said. An index,
+  because a meet's dates get corrected (an import moves the 1st seeded gala from the 12th to the
+  11th) while its running order does not — a stored ISO date would be stranded by that ordinary fix.
+  Out of range is **dropped, never clamped**: shortening a three-day gala leaves its day-3 lines
+  reading "Day not set" for a person to re-place, because moving them to day 2 is a claim about the
+  schedule nothing supports (`cleanMeetDay`, one copy, used by `cleanEvents` and `groupEventsByDay`).
+  A one-day meet never sections at all. The day is the DEFAULT for a sign-up's `swimDate`
+  (`cleanEntryDay`) — not a rule, so an explicit day still wins — which is what stops a coach
+  re-picking the date on sixty sheets. The importer reads days from the programme's own headings
+  ("Day 2 — Sunday 29 November 2026"); such a line is a DAY, never a new meet, and
+  `parseMeetWorkbook` must keep skipping it or one championship imports as three.
 - **A programme LINE has an identity, and sign-ups point at it.** Every `meets.events[]` object
   carries a stable `id`, minted in `cleanEvents` (the one seam every programme write passes through)
   and preserved across edits and re-imports by `reconcileLines` — by the line's own id first, then by

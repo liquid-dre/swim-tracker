@@ -569,3 +569,116 @@ describe("parsePrintedTime", () => {
     expect(parsePrintedTime("Les Brown")).toBeNull();
   });
 });
+
+/*
+  Multi-day programmes.
+
+  A three-day championship prints "Day 2 — Sunday 29 November 2026" over the
+  Sunday half of its list. That line is DATED with text in front of it, which is
+  exactly the shape `parseMeetWorkbook` splits meets on — so before days were
+  understood, one gala imported as three one-day meets each holding a third of
+  its events. These lock both halves of the fix: the split no longer happens,
+  and the events land on the day the document put them on.
+*/
+describe("day headings", () => {
+  const threeDay = [
+    "HAS Senior Champs 2026\tSaturday, 28 November 2026\t8:00 AM\tLes Brown",
+    "Day 1 - Saturday, 28 November 2026",
+    "1 Girls 11-12 100 Freestyle",
+    "2 Boys 11-12 100 Freestyle",
+    "Day 2 - Sunday, 29 November 2026",
+    "3 Girls 11-12 200 Breaststroke",
+    "Day 3 - Monday, 30 November 2026",
+    "4 Boys 11-12 400 Freestyle",
+  ].join("\n");
+
+  it("reads one meet, not three, and dates its last day", () => {
+    const drafts = parseMeetWorkbook(threeDay);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].name).toBe("HAS Senior Champs 2026");
+    expect(drafts[0].startDate).toBe("2026-11-28");
+    expect(drafts[0].endDate).toBe("2026-11-30");
+    expect(drafts[0].events).toHaveLength(4);
+  });
+
+  it("puts every event on the day its heading opened", () => {
+    const draft = parseMeetProgramme(threeDay);
+    expect(draft.events.map((e) => e.day)).toEqual([1, 1, 2, 3]);
+    // And the day count matches the span it derived, so the server keeps them.
+    expect(meetDates({ startDate: draft.startDate!, endDate: draft.endDate })).
+      toHaveLength(3);
+  });
+
+  it("takes the DATE over the heading's own number when they disagree", () => {
+    // A programme that skips the Sunday: "Day 2" is the meet's THIRD day, and
+    // the date is the only reading that keeps the events on the Monday.
+    const skipped = [
+      "Winter Gala\tSaturday, 28 November 2026",
+      "1 Girls 100 Freestyle",
+      "Day 2 - Monday, 30 November 2026",
+      "2 Boys 100 Freestyle",
+    ].join("\n");
+    const draft = parseMeetProgramme(skipped);
+    expect(draft.endDate).toBe("2026-11-30");
+    expect(draft.events.map((e) => e.day)).toEqual([undefined, 3]);
+  });
+
+  it("reads numbered days with no dates, and says the end date is still needed", () => {
+    const undated = [
+      "Winter Gala\tSaturday, 28 November 2026",
+      "Day 1",
+      "1 Girls 100 Freestyle",
+      "Day 2",
+      "2 Boys 100 Freestyle",
+    ].join("\n");
+    const draft = parseMeetProgramme(undated);
+    expect(draft.events.map((e) => e.day)).toEqual([1, 2]);
+    // Nothing dated the second day, so nothing may claim one.
+    expect(draft.endDate).toBeNull();
+    expect(
+      draft.warnings.some((w) => w.includes("never dates the last one")),
+    ).toBe(true);
+  });
+
+  it("a name in front of a date is still a meet, not a day", () => {
+    const season = [
+      "1st Seeded Gala\tFriday, 11 September 2026\t6:00 PM\tLes Brown",
+      "1 Girls 100 Freestyle",
+      "2nd Seeded Gala\tSunday, 27 September 2026\t6:00 PM\tLes Brown",
+      "2 Boys 100 Freestyle",
+    ].join("\n");
+    const drafts = parseMeetWorkbook(season);
+    expect(drafts.map((d) => d.name)).toEqual([
+      "1st Seeded Gala",
+      "2nd Seeded Gala",
+    ]);
+    // Neither is multi-day, and neither line gave its events a day.
+    expect(drafts.every((d) => d.endDate === null)).toBe(true);
+    expect(drafts.flatMap((d) => d.events).every((e) => e.day === undefined))
+      .toBe(true);
+  });
+
+  it("a date printed BEFORE the meet's own is not a second day", () => {
+    // Entries close before the gala. Reading that as a day heading would date
+    // the meet backwards and move every event onto a day that never happened.
+    const withCutoff = [
+      "Winter Gala\tSaturday, 28 November 2026",
+      "Entries close 14 November 2026",
+      "1 Girls 100 Freestyle",
+    ].join("\n");
+    const draft = parseMeetProgramme(withCutoff);
+    expect(draft.endDate).toBeNull();
+    expect(draft.events[0].day).toBeUndefined();
+  });
+
+  it("leaves a one-day programme exactly as it was", () => {
+    const oneDay = [
+      "HAS 1ST SEEDED GALA 2026 - 11/9/2026",
+      "1 Mixed 100 Freestyle",
+      "2 Mixed 50 Backstroke",
+    ].join("\n");
+    const draft = parseMeetProgramme(oneDay);
+    expect(draft.endDate).toBeNull();
+    expect(draft.events.every((e) => e.day === undefined)).toBe(true);
+  });
+});

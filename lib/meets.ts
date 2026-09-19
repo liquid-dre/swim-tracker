@@ -68,6 +68,23 @@ export type MeetEvent = {
   gender?: MeetEventGender;
   distance?: Distance;
   stroke?: Stroke;
+  /**
+   * Which day of the meet this line is swum on — 1 for the first day, 2 for
+   * the second. Absent means nobody has said, which on a three-day gala is a
+   * real and visible state (`DAY_NOT_LISTED`) rather than a quiet day 1.
+   *
+   * An INDEX, not a date, because the two things move independently: a meet's
+   * dates get corrected (importing the HAS programme moves the 1st seeded gala
+   * from the 12th to the 11th — see `MEET_SEED`) while its running order does
+   * not. A stored ISO date would be stranded outside the meet by that ordinary
+   * correction; "day 2" survives it. `meetDayDate` resolves the index whenever
+   * an actual date is needed.
+   *
+   * Out of range is NOT clamped anywhere — a line on day 3 of a meet since
+   * shortened to two reads as unplaced, because moving it to day 2 would be a
+   * guess about the running order and this module does not guess (§4.2).
+   */
+  day?: number;
 };
 
 /** A meet as every read surface sees it. */
@@ -126,6 +143,41 @@ export function meetDates(meet: {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return out;
+}
+
+/** How many days the meet runs. Always at least 1. */
+export function meetDayCount(meet: {
+  startDate: string;
+  endDate?: string | null;
+}): number {
+  return Math.max(1, meetDates(meet).length);
+}
+
+/**
+ * The ISO date day `day` (1-based) falls on, or null when the meet is not that
+ * long. Null is the honest answer for a line left on day 3 of a meet since
+ * shortened to two — the caller shows it as unplaced rather than inventing one.
+ */
+export function meetDayDate(
+  meet: { startDate: string; endDate?: string | null },
+  day: number,
+): string | null {
+  if (!Number.isInteger(day) || day < 1) return null;
+  return meetDates(meet)[day - 1] ?? null;
+}
+
+/**
+ * A day index off the wire (a form, an import) bounded by the meet's own span,
+ * or undefined for "not stated". Anything that is not a real day of this meet
+ * comes back undefined, never clamped — see `MeetEvent.day`.
+ */
+export function cleanMeetDay(
+  value: number | null | undefined,
+  dayCount: number,
+): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (!Number.isInteger(value) || value < 1 || value > dayCount) return undefined;
+  return value;
 }
 
 /** Does the meet touch any date in [from, to] (inclusive, ISO strings)? */
@@ -467,6 +519,203 @@ export function lineById(
 }
 
 // ---------------------------------------------------------------------------
+// 5b. Programme days
+// ---------------------------------------------------------------------------
+//
+// A three-day gala's programme is sixty lines, and the question a coach or a
+// parent actually asks it is "what is being swum on Saturday". The day lives on
+// the LINE (see `MeetEvent.day`); this is the one place that turns a flat list
+// into the sections every surface draws.
+
+/** The one wording for the lines no day was ever set on. Read by coaches AND
+ *  by parents, so it describes the PROGRAMME rather than the coach's to-do
+ *  list: "not listed" is a fact about the document, "not set" is a chore. */
+export const DAY_NOT_LISTED = "Day not listed";
+
+/** One day's worth of a programme as POSITIONS in the caller's own array. */
+export type MeetDayIndexGroup = {
+  /** 1-based day of the meet, or null for the lines no day was set on. */
+  day: number | null;
+  date: string | null;
+  label: string;
+  /** Indices into the array passed in, in that array's own order. */
+  indices: number[];
+};
+
+/** One day's worth of a programme, ready to render as a section. */
+export type MeetDayGroup = {
+  /** 1-based day of the meet, or null for the lines no day was set on. */
+  day: number | null;
+  /** The ISO date that day falls on, or null when there is no day. */
+  date: string | null;
+  /** "Day 2 · Sun 29 Nov", `DAY_NOT_LISTED`, or "" when there is nothing to say. */
+  label: string;
+  events: MeetEvent[];
+};
+
+/**
+ * Split a programme into its days, in running order.
+ *
+ * A programme nobody has dayed at all comes back as ONE unlabelled group —
+ * which is exactly the flat list every surface drew before days existed, so a
+ * single-day meet and an unsorted multi-day one both render unchanged. Days
+ * appear only once someone has actually placed a line on one.
+ *
+ * Lines pointing at a day the meet no longer runs (its end date was pulled in)
+ * collect in a trailing `DAY_NOT_LISTED` group rather than being folded into the
+ * last real day: they need a person to say where they went, and a section
+ * heading is how that person finds them. A meet collapsed all the way back to
+ * ONE day is the exception — there is no second day to distinguish it from, so
+ * it sections not at all.
+ */
+export function groupEventsByDay(
+  events: ReadonlyArray<MeetEvent>,
+  meet: { startDate: string; endDate?: string | null },
+): MeetDayGroup[] {
+  return groupLineIndicesByDay(events, meet).map((group) => ({
+    day: group.day,
+    date: group.date,
+    label: group.label,
+    events: group.indices.map((i) => events[i]).sort(compareMeetEvents),
+  }));
+}
+
+/**
+ * The programme in CONTIGUOUS RUNS of the same day, in the caller's array order.
+ *
+ * This is what the EDITOR bands with, and it is deliberately not
+ * `groupLineIndicesByDay`. Bucketing reorders: picking a day for row 30 of an
+ * unplaced programme lifts that row out of the trailing group and drops it
+ * thirty positions up the screen, out from under the finger that just set it —
+ * and every "and everything below" count then describes the array while the
+ * coach reads the screen. An editor whose job is stating a running order may
+ * not shuffle itself while the order is being stated.
+ *
+ * So the editor bands where the day CHANGES. On a contiguous programme — which
+ * is every real one, and what `setDayFrom` produces — the runs and the buckets
+ * are the same bands in the same order, so the editor and the meet page agree.
+ * When they are NOT contiguous the editor draws a day's band twice, which is
+ * the honest report: the running order and the days disagree, and the meet page
+ * will merge what the editor shows separately. `daysAreContiguous` is how the
+ * editor knows to say so.
+ */
+export function groupLineRunsByDay(
+  lines: ReadonlyArray<MeetEvent>,
+  meet: { startDate: string; endDate?: string | null },
+): MeetDayIndexGroup[] {
+  const dayCount = meetDayCount(meet);
+  if (dayCount <= 1 || lines.length === 0) {
+    return [
+      { day: null, date: null, label: "", indices: lines.map((_, i) => i) },
+    ];
+  }
+  const runs: MeetDayIndexGroup[] = [];
+  lines.forEach((line, i) => {
+    const day = cleanMeetDay(line.day, dayCount) ?? null;
+    const open = runs[runs.length - 1];
+    if (open !== undefined && open.day === day) {
+      open.indices.push(i);
+      return;
+    }
+    runs.push({
+      day,
+      date: day === null ? null : meetDayDate(meet, day),
+      label:
+        day === null ? DAY_NOT_LISTED : formatMeetDay(meet, day),
+      indices: [i],
+    });
+  });
+  // Nothing dayed at all: one unlabelled run, exactly as the read view gives
+  // one unlabelled group.
+  if (runs.length === 1 && runs[0].day === null) runs[0].label = "";
+  return runs;
+}
+
+/** Does each day appear in ONE unbroken run? The state the two views agree in. */
+export function daysAreContiguous(
+  lines: ReadonlyArray<MeetEvent>,
+  meet: { startDate: string; endDate?: string | null },
+): boolean {
+  const seen = new Set<number | null>();
+  for (const run of groupLineRunsByDay(lines, meet)) {
+    if (seen.has(run.day)) return false;
+    seen.add(run.day);
+  }
+  return true;
+}
+
+/**
+ * The same grouping, as POSITIONS rather than lines.
+ *
+ * The programme editor needs the identical bands — it exists to show the
+ * grouping it is creating — but every one of its operations (move, split,
+ * remove, focus) is keyed on a line's index in the array it was handed. Handing
+ * it re-sorted lines would either break those indices or, worse, quietly band
+ * the editor differently from the page the coach lands on after saving, which
+ * is the kind of near-miss that looks verified.
+ *
+ * So both callers share ONE bucketing rule and differ only in what they do
+ * inside a bucket: the read view sorts into the meet's running order, the
+ * editor keeps the array order its handlers address.
+ */
+export function groupLineIndicesByDay(
+  lines: ReadonlyArray<MeetEvent>,
+  meet: { startDate: string; endDate?: string | null },
+): MeetDayIndexGroup[] {
+  const dayCount = meetDayCount(meet);
+  // A one-day meet has nothing to split, whatever its lines carry — a stale
+  // `day: 1` from a span since collapsed must not put a "Day 1" heading over
+  // the only day there is.
+  if (dayCount <= 1) {
+    return [
+      { day: null, date: null, label: "", indices: lines.map((_, i) => i) },
+    ];
+  }
+
+  const buckets = new Map<number | null, number[]>();
+  lines.forEach((line, i) => {
+    const day = cleanMeetDay(line.day, dayCount) ?? null;
+    const bucket = buckets.get(day);
+    if (bucket === undefined) buckets.set(day, [i]);
+    else bucket.push(i);
+  });
+
+  const placed = [...buckets.keys()]
+    .filter((d): d is number => d !== null)
+    .sort((a, b) => a - b);
+  if (placed.length === 0) {
+    return [
+      { day: null, date: null, label: "", indices: lines.map((_, i) => i) },
+    ];
+  }
+
+  // Every day up to the last one with events, INCLUDING the empty ones. A
+  // Sunday-only programme that skipped straight to "Day 2" is ambiguous
+  // otherwise: nothing swum on the Saturday and nobody having said yet look
+  // identical when the Saturday simply is not drawn. Days past the last placed
+  // one are left out — they are the ones still being worked on.
+  const groups: MeetDayIndexGroup[] = [];
+  for (let day = 1; day <= placed[placed.length - 1]; day += 1) {
+    groups.push({
+      day,
+      date: meetDayDate(meet, day),
+      label: formatMeetDay(meet, day),
+      indices: buckets.get(day) ?? [],
+    });
+  }
+  const unplaced = buckets.get(null);
+  if (unplaced !== undefined) {
+    groups.push({
+      day: null,
+      date: null,
+      label: DAY_NOT_LISTED,
+      indices: unplaced,
+    });
+  }
+  return groups;
+}
+
+// ---------------------------------------------------------------------------
 // 6. Formatting
 // ---------------------------------------------------------------------------
 
@@ -493,6 +742,58 @@ const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Sat" — an ISO date's weekday, for a control too narrow for the rest. */
+export function formatWeekday(iso: string): string {
+  if (!ISO_DATE.test(iso)) return "";
+  const day = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return Number.isNaN(day) ? "" : (WEEKDAYS[day] ?? "");
+}
+
+/**
+ * "Sat 28 Nov" — one day of a meet, short enough to sit in a section heading.
+ *
+ * The WEEKDAY leads because that is how a programme is read: a coach knows the
+ * gala is "the Saturday", not that it is the 28th. No year — the heading sits
+ * under a page that has already said which meet this is.
+ */
+export function formatMeetDayDate(iso: string): string {
+  const parts = parseParts(iso);
+  if (!parts) return iso;
+  return `${formatWeekday(iso)} ${parts.day} ${parts.month}`.trim();
+}
+
+/**
+ * A meet day has exactly TWO spellings, and every surface uses one of them.
+ *
+ * FULL — "Day 2 · Sun 29 Nov" — wherever there is room: section headings, the
+ * sign-up sheet's description, a viewer's own events. SHORT — "Day 2 · Sun" —
+ * only inside a control too narrow for the rest, which today means the two day
+ * pickers. Five spellings of one fact across five adjacent surfaces is how a
+ * reader stops trusting that they mean the same thing.
+ *
+ * Both degrade the same way: a day the meet no longer reaches keeps its number
+ * and loses its date, because the number is the part that is still true.
+ */
+export function formatMeetDay(
+  meet: { startDate: string; endDate?: string | null },
+  day: number,
+): string {
+  const date = meetDayDate(meet, day);
+  return date === null ? `Day ${day}` : `Day ${day} · ${formatMeetDayDate(date)}`;
+}
+
+/** "Day 2 · Sun" — the FULL form's short twin, for a narrow picker. */
+export function formatMeetDayShort(
+  meet: { startDate: string; endDate?: string | null },
+  day: number,
+): string {
+  const date = meetDayDate(meet, day);
+  const weekday = date === null ? "" : formatWeekday(date);
+  return weekday === "" ? `Day ${day}` : `Day ${day} · ${weekday}`;
+}
 
 function parseParts(iso: string): { day: number; month: string; year: number } | null {
   const m = ISO_DATE.test(iso) ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso) : null;

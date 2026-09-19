@@ -11,7 +11,7 @@ import { DateField } from "@/components/ui/DateField";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { notify } from "@/lib/notify";
-import { normaliseMeetName } from "@/lib/meets";
+import { groupEventsByDay, normaliseMeetName } from "@/lib/meets";
 import type { MeetDraft } from "@/lib/meetImport";
 import type { Course } from "@/lib/swim";
 import { courseMismatches } from "./programmeEditing";
@@ -57,6 +57,8 @@ export type ExistingMeet = {
 type RowEdits = {
   name: string;
   startDate: string;
+  /** "" = one day. Only ever set from a day heading the document itself dated. */
+  endDate: string;
   startTime: string;
   venue: string;
   /** "" = not chosen yet. Never pre-filled from the programme (§4.2). */
@@ -149,6 +151,7 @@ export function MultiMeetReview({
     drafts.map((d) => ({
       name: d.name,
       startDate: d.startDate ?? "",
+      endDate: d.endDate ?? "",
       startTime: d.startTime ?? "",
       venue: d.venue ?? "",
       course: "",
@@ -227,6 +230,13 @@ export function MultiMeetReview({
           meetId: row.target ? (row.target as Id<"meets">) : undefined,
           name: row.name.trim(),
           startDate: row.startDate,
+          // Only when the document dated a later day of its own. The course is
+          // held back for a person to answer because a workbook states none;
+          // this one it states, in the heading above the Sunday events.
+          endDate:
+            row.endDate !== "" && row.endDate > row.startDate
+              ? row.endDate
+              : undefined,
           startTime: row.startTime.trim() || undefined,
           venue: row.venue.trim() || undefined,
           course: (row.course || undefined) as Course | undefined,
@@ -300,8 +310,8 @@ export function MultiMeetReview({
       {/* Course is the one field with real downstream consequences, so it gets
           its own summary line and a single control for the whole workbook. */}
       {missingCourse > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning-200 bg-warning-50 px-4 py-3 text-sm">
-          <p className="text-warning-700">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm">
+          <p className="text-warning-ink">
             <AlertTriangle aria-hidden className="mr-1.5 inline size-4" />
             {missingCourse} meet{missingCourse === 1 ? " has" : "s have"} no
             course set. A meet without one cannot take times.
@@ -406,6 +416,14 @@ function MeetRow({
   const saved = outcome.status === "saved";
   const locked = disabled || saved || row.skip;
   const title = row.name.trim() === "" ? "Untitled meet" : row.name;
+  // Banded against the dates this row will actually be SAVED with, so editing
+  // the end date re-bands the summary rather than describing a meet the write
+  // will not produce.
+  const dayBands = groupEventsByDay(draft.events, {
+    startDate: row.startDate,
+    endDate:
+      row.endDate !== "" && row.endDate > row.startDate ? row.endDate : null,
+  });
 
   return (
     <li
@@ -422,10 +440,28 @@ function MeetRow({
           {title}
         </p>
         <div className="flex shrink-0 items-center gap-3">
-          <span className="text-xs tabular-nums text-ink-faint">
+          {/* The day split is stated, not applied unseen. A whole-season
+              workbook is exactly where a multi-day gala arrives, and this
+              sheet's discipline is to hold every inference up before it
+              commits — it does that for the course, so it does it for the
+              days the parser read out of the programme's own headings. */}
+          <span
+            className="text-xs tabular-nums text-ink-faint"
+            title={
+              dayBands.length > 1
+                ? dayBands
+                    .map((g) => `${g.events.length} on ${g.label}`)
+                    .join(", ")
+                : undefined
+            }
+          >
             {draft.events.length === 0
               ? "No events yet"
-              : `${draft.events.length} events`}
+              : dayBands.length > 1
+                ? `${dayBands.length} days · ${dayBands
+                    .map((g) => g.events.length)
+                    .join(" / ")}`
+                : `${draft.events.length} events`}
           </span>
           {/* Leaving a meet out is reversible and costs nothing, so it is a
               plain toggle rather than a destructive-looking delete: the file is
@@ -485,6 +521,20 @@ function MeetRow({
             aria-label={`${row.name} date`}
             value={row.startDate}
             onChange={(iso) => onChange({ startDate: iso })}
+            disabled={locked}
+          />
+          {/* Always, not only for a row the parser dated twice. Conditional,
+              it gave one row in twelve a fifth field and wrapped that row's
+              Venue onto a second grid line, breaking the Date column a
+              reviewer scans down — and it left no way to make a row multi-day
+              when the parser missed its day heading. */}
+          <DateField
+            label="Ends"
+            hint="Blank for one day."
+            aria-label={`${row.name} end date`}
+            value={row.endDate}
+            onChange={(iso) => onChange({ endDate: iso })}
+            min={row.startDate}
             disabled={locked}
           />
           <Input

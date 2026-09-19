@@ -5,6 +5,7 @@ import {
   addCustomLine,
   addWhitelistLine,
   canMoveLine,
+  countLinesByDay,
   courseMismatches,
   eventFitsCourse,
   eventOptions,
@@ -13,12 +14,15 @@ import {
   removeLine,
   reorderBlockedReason,
   resolveLine,
+  setDayFrom,
+  setLineDay,
   setLineGender,
   splitLine,
   unresolveLine,
   updateLine,
   validateLines,
 } from "./programmeEditing";
+import { rankedNotice } from "./ProgrammeEditor";
 
 /*
   The programme editor's rules, checked against the real whitelist rather than
@@ -294,5 +298,147 @@ describe("validateLines", () => {
     expect(validateLines(lines)).toEqual([]);
     expect(eventFitsCourse(100, "IM", "LCM")).toBe(false);
     expect(eventFitsCourse(100, "IM", "SCM")).toBe(true);
+  });
+});
+
+/*
+  DAYS. Which day a line is swum on is a fact about the meet's schedule, so it
+  outlives the two edits most likely to take it: clearing the line's event, and
+  clearing the day itself.
+*/
+describe("setLineDay", () => {
+  const lines: MeetEvent[] = [
+    { id: "a", rawLabel: "Mixed 100 Free", distance: 100, stroke: "FREE" },
+    { id: "b", rawLabel: "Mixed 50 Back", distance: 50, stroke: "BACK" },
+  ];
+
+  test("puts a line on a day, and leaves its neighbours alone", () => {
+    const next = setLineDay(lines, 1, 2);
+    expect(next[1].day).toBe(2);
+    expect(next[0]).toBe(lines[0]);
+  });
+
+  test("clearing a day REMOVES the key, rather than setting it undefined", () => {
+    // Convex validates the document it is handed, and an explicit `undefined`
+    // is not an omitted field.
+    const next = setLineDay(setLineDay(lines, 0, 3), 0, undefined);
+    expect("day" in next[0]).toBe(false);
+  });
+});
+
+describe("unresolveLine", () => {
+  test("keeps the day: a relay still happens on the Saturday", () => {
+    const next = unresolveLine(
+      [{ id: "a", rawLabel: "4 x 50 Medley Relay", distance: 50, stroke: "FREE", day: 2 }],
+      0,
+    );
+    expect(next[0].day).toBe(2);
+    expect(next[0].distance).toBeUndefined();
+  });
+});
+
+describe("setDayFrom", () => {
+  const lines: MeetEvent[] = [
+    { id: "a", rawLabel: "Mixed 100 Free" },
+    { id: "b", rawLabel: "Mixed 50 Back" },
+    { id: "c", rawLabel: "Mixed 200 Fly" },
+    { id: "d", rawLabel: "Mixed 400 Free" },
+  ];
+
+  test("places a three-day programme in three clicks, top down", () => {
+    // The domain's own interaction: a document states "Day 2" once, above a
+    // block. Setting each boundary from the top down must never need an undo.
+    const placed = setDayFrom(setDayFrom(setDayFrom(lines, 0, 1), 2, 2), 3, 3);
+    expect(placed.map((l) => l.day)).toEqual([1, 1, 2, 3]);
+  });
+
+  test("leaves everything above the boundary alone", () => {
+    const next = setDayFrom(setDayFrom(lines, 0, 1), 2, 2);
+    expect(next[0]).toEqual({ id: "a", rawLabel: "Mixed 100 Free", day: 1 });
+    expect(next[1].day).toBe(1);
+  });
+});
+
+describe("countLinesByDay", () => {
+  test("counts each day, and everything the meet's span cannot hold", () => {
+    const { byDay, unplaced } = countLinesByDay(
+      [
+        { rawLabel: "a", day: 1 },
+        { rawLabel: "b", day: 1 },
+        { rawLabel: "c", day: 2 },
+        { rawLabel: "d" },
+        // Day 4 of a three-day meet is unplaced, not a fourth bucket.
+        { rawLabel: "e", day: 4 },
+      ],
+      3,
+    );
+    expect(byDay).toEqual([2, 1, 0]);
+    expect(unplaced).toBe(2);
+  });
+});
+
+/*
+  The programme editor shows at most ONE message above its list. Ranking is the
+  whole point of that: suppressing four notices is only a saving if what it hid
+  was less urgent than what survived. An earlier pass claimed this order in a
+  comment and implemented the opposite, so it is tested rather than asserted.
+*/
+describe("rankedNotice", () => {
+  const none = {
+    reorderBlocked: null,
+    interleaved: false,
+    mismatched: 0,
+    wouldNumber: false,
+    teaching: false,
+  };
+
+  test("says nothing when there is nothing to say", () => {
+    expect(rankedNotice(none)).toBeNull();
+  });
+
+  test("an unexplained dead control outranks everything", () => {
+    // A reorder block kills both arrows on every row and nothing else on
+    // screen explains that.
+    const all = {
+      reorderBlocked: "Half these events have numbers.",
+      interleaved: true,
+      mismatched: 3,
+      wouldNumber: true,
+      teaching: true,
+    };
+    expect(rankedNotice(all)?.text).toBe("Half these events have numbers.");
+  });
+
+  test("the renumber warning outranks the mismatch, because only it is unique", () => {
+    // `wouldNumber` is the sole warning that moving one row renumbers sixty.
+    // The mismatch is also on the Details tab, in the tab label and on each
+    // offending row, so it is the one that loses least by being suppressed.
+    const both = { ...none, wouldNumber: true, mismatched: 3 };
+    expect(rankedNotice(both)?.text).toContain("will number them all");
+  });
+
+  test("the mismatch outranks interleaved days, which block nothing", () => {
+    // Interleaving changes how the meet page will look and nothing more; a
+    // mismatched line can never take a time.
+    const both = { ...none, mismatched: 3, interleaved: true };
+    expect(rankedNotice(both)?.text).toContain("can't be swum in this meet's course");
+  });
+
+  test("a warning always outranks teaching", () => {
+    const both = { ...none, interleaved: true, teaching: true };
+    const notice = rankedNotice(both)!;
+    expect(notice.tone).toBe("warn");
+    expect(notice.text).toContain("appears more than once");
+  });
+
+  test("teaching is what is left when nothing is wrong", () => {
+    const notice = rankedNotice({ ...none, teaching: true })!;
+    expect(notice.tone).toBe("muted");
+    expect(notice.text).toContain("…and below");
+  });
+
+  test("one event and many read differently", () => {
+    expect(rankedNotice({ ...none, mismatched: 1 })?.text).toMatch(/^One event/);
+    expect(rankedNotice({ ...none, mismatched: 4 })?.text).toMatch(/^4 events/);
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { useMutation } from "convex/react";
 import { AlertTriangle, ArrowRight, CheckCircle2, Upload } from "lucide-react";
 
@@ -20,7 +20,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { errorMessage, notify } from "@/lib/notify";
-import { formatMeetDates, meetEventLabel } from "@/lib/meets";
+import {
+  formatMeetDates,
+  groupEventsByDay,
+  meetEventLabel,
+} from "@/lib/meets";
 import { parseMeetWorkbook, type MeetDraft } from "@/lib/meetImport";
 import { MultiMeetReview } from "./MultiMeetReview";
 import type { Course } from "@/lib/swim";
@@ -56,6 +60,18 @@ import { COURSE_LABEL } from "./meetShared";
 
 /** How close a meet's date must be to the parsed one to be worth suggesting. */
 const SUGGEST_WITHIN_DAYS = 5;
+
+/** Matches MAX_SPAN_DAYS in convex/meets.ts, as MeetForm does. */
+const MAX_SPAN_DAYS = 31;
+
+/** `iso` + n days, as ISO; undefined for an unparseable start. */
+function addDays(iso: string, days: number): string | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return undefined;
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return undefined;
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 type MeetOption = {
   _id: Id<"meets">;
@@ -133,6 +149,10 @@ export function ImportMeetSheet({
   // the parsed value shows until the super-user types over it.
   const [nameEdit, setNameEdit] = useState<string | null>(null);
   const [dateEdit, setDateEdit] = useState<string | null>(null);
+  // Separately from the start: a document that heads its second half "Day 2 —
+  // Sunday 29 November" has stated a two-day meet, and the day each event is on
+  // cannot be saved against a meet the calendar thinks runs for one.
+  const [endEdit, setEndEdit] = useState<string | null>(null);
   const [venueEdit, setVenueEdit] = useState<string | null>(null);
   // `null` = untouched, so the control can mean different things in its two
   // situations without either being a silent default. Creating a meet, it opens
@@ -149,7 +169,23 @@ export function ImportMeetSheet({
 
   const name = nameEdit ?? draft?.name ?? "";
   const startDate = dateEdit ?? draft?.startDate ?? "";
+  const endDate = endEdit ?? draft?.endDate ?? "";
   const venue = venueEdit ?? draft?.venue ?? "";
+  // A meet that runs one day has no end date at all, exactly as the meet form
+  // stores it — "same as the start" and "not set" must not be two spellings of
+  // one fact.
+  const endToSend = endDate !== "" && endDate > startDate ? endDate : undefined;
+  // The preview, banded exactly as the meet page will band it — against the
+  // dates about to be SENT, so changing the end date re-bands the preview and a
+  // day the meet will not reach shows up here rather than after the write.
+  const previewDays = useMemo(
+    () =>
+      groupEventsByDay(draft?.events ?? [], {
+        startDate,
+        endDate: endToSend ?? null,
+      }),
+    [draft, startDate, endToSend],
+  );
 
   // The nearest existing meet by date — only ever offered from the meets LIST.
   // On a meet's own page `lockedMeet` settles it and this never runs.
@@ -198,10 +234,11 @@ export function ImportMeetSheet({
   // would leave the meet dated backwards, and `isUpcoming` reads the END date,
   // so a meet still to come would start reading as Past. Caught here so the
   // super-user learns it BEFORE confirming a destructive dialog, not after.
+  // The end date this import leaves the meet with: its own when it states one,
+  // the target's otherwise (an import that is silent never unsets it).
+  const effectiveEnd = endToSend ?? targetMeet?.endDate ?? null;
   const datesConflict =
-    targetMeet?.endDate != null &&
-    startDate !== "" &&
-    startDate > targetMeet.endDate;
+    effectiveEnd !== null && startDate !== "" && startDate > effectiveEnd;
 
   /** Exactly what changes on the target meet, so nothing is renamed silently. */
   const changes: Change[] = useMemo(() => {
@@ -223,7 +260,16 @@ export function ImportMeetSheet({
         // The import never touches `endDate`, so a multi-day meet keeps its
         // span — showing a bare single date here would claim a change the
         // write will not make.
-        to: formatMeetDates({ startDate, endDate: targetMeet.endDate }),
+        to: formatMeetDates({ startDate, endDate: effectiveEnd }),
+      });
+    }
+    // Stated separately, because a one-day row becoming a three-day one is a
+    // bigger change than the start moving and must not hide inside it.
+    if (endToSend !== undefined && (targetMeet.endDate ?? null) !== endToSend) {
+      out.push({
+        label: "Ends",
+        from: targetMeet.endDate ?? "One day",
+        to: endToSend,
       });
     }
     const nextVenue = venue.trim();
@@ -250,7 +296,17 @@ export function ImportMeetSheet({
       });
     }
     return out;
-  }, [targetMeet, name, startDate, venue, course, draft, datesConflict]);
+  }, [
+    targetMeet,
+    name,
+    startDate,
+    endToSend,
+    effectiveEnd,
+    venue,
+    course,
+    draft,
+    datesConflict,
+  ]);
 
   function clearInput() {
     setText("");
@@ -259,6 +315,7 @@ export function ImportMeetSheet({
     setDone(null);
     setNameEdit(null);
     setDateEdit(null);
+    setEndEdit(null);
     setVenueEdit(null);
     setCourseEdit(null);
     setTarget("");
@@ -330,12 +387,14 @@ export function ImportMeetSheet({
         meetId: effectiveTarget ? (effectiveTarget as Id<"meets">) : undefined,
         name: name.trim(),
         startDate,
+        endDate: endToSend,
         venue: venue.trim() || undefined,
         course: (course || undefined) as Course | undefined,
         allowDroppingEntries,
-        // No end date and no gala tag: a programme states neither, and the
-        // mutation leaves both alone when they are absent, so importing over an
-        // existing meet never silently unsets details someone entered by hand.
+        // No gala tag: a programme never states one, and the mutation leaves an
+        // absent field alone, so importing over an existing meet never silently
+        // unsets a detail someone entered by hand. The end date is sent only
+        // when this document actually stated one (or a person typed it here).
         events: draft.events,
       });
       setDone({ created: res.created, eventCount: res.eventCount });
@@ -592,6 +651,22 @@ export function ImportMeetSheet({
                     value={startDate}
                     onChange={setDateEdit}
                   />
+                  <DateField
+                    id="import-end"
+                    label="Ends"
+                    hint={
+                      draft?.endDate !== null && draft?.endDate !== undefined
+                        ? "Read from this programme's own day headings."
+                        : "Leave blank for a one-day meet."
+                    }
+                    value={endDate}
+                    onChange={setEndEdit}
+                    min={startDate || undefined}
+                    // The same 31-day cap `MeetForm` applies. One constraint
+                    // enforced in one place and not the other is how a typo'd
+                    // year reaches the server to be rejected there instead.
+                    max={addDays(startDate, MAX_SPAN_DAYS)}
+                  />
                   <Input
                     id="import-venue"
                     label="Venue"
@@ -702,9 +777,33 @@ export function ImportMeetSheet({
                   <p className="text-sm font-medium text-ink">
                     {draft.events.length} event
                     {draft.events.length === 1 ? "" : "s"} read
+                    {previewDays.length > 1 && (
+                      <span className="font-normal text-ink-muted">
+                        {" "}
+                        across {previewDays.length} days
+                      </span>
+                    )}
                   </p>
+                  {/* The day each event lands on is the newest and least-tested
+                      thing this parser infers, it reshapes the meet page, and it
+                      propagates into every entry's `swimDate`. This sheet flags
+                      an ambiguous date and refuses to apply a stated course, so
+                      it does not get to apply days unseen either. */}
                   <ul className="custom-scrollbar max-h-56 divide-y divide-border overflow-y-auto rounded-lg border border-border bg-white text-sm">
-                    {draft.events.map((event, i) => (
+                    {previewDays.map((group) => (
+                      <Fragment key={group.day ?? "unplaced"}>
+                        {previewDays.length > 1 && (
+                          <li className="bg-gray-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink">
+                            {group.label}
+                            <span className="ml-2 font-normal normal-case tracking-normal text-ink-muted">
+                              <span className="tabular-nums">
+                                {group.events.length}
+                              </span>{" "}
+                              {group.events.length === 1 ? "event" : "events"}
+                            </span>
+                          </li>
+                        )}
+                        {group.events.map((event, i) => (
                       <li
                         key={i}
                         className="flex items-baseline gap-2 px-3 py-1.5"
@@ -729,6 +828,8 @@ export function ImportMeetSheet({
                             : meetEventLabel(event)}
                         </span>
                       </li>
+                        ))}
+                      </Fragment>
                     ))}
                   </ul>
                 </div>

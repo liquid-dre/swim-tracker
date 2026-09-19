@@ -9,6 +9,18 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
+  A touch pointer, whatever the viewport is.
+
+  PRODUCT.md asks for ≥44px targets on touch, and every control in the app
+  spelled that `h-11 lg:h-9` — width, not pointer. An iPad in landscape is
+  1024–1366 CSS px, so it clears `lg` and the poolside coach, who is the primary
+  persona and the reason meets is one screen, got 32–36px on every control the
+  surface is built from. Declared after `dark` so its rules sort last and win
+  over the `lg:` they correct.
+*/
+@custom-variant touch (@media (pointer: coarse));
+
+/*
   Swim Tracker design system — see DESIGN.md (authoritative). TailAdmin-style
   admin aesthetic: soft off-white canvas, white cards with soft layered shadows,
   an indigo brand accent, Untitled-UI grays, the Outfit typeface.
@@ -57,6 +69,10 @@
   --color-success-50: #ecfdf3;
   --color-success-500: #12b76a;
   --color-success-600: #039855;
+  /* Success ink is read on --color-bg and --color-success-50, where 600 lands
+     at 3.57:1 — under AA. 700 is the same audit §2 already applied to warning
+     and danger, and was never applied here. */
+  --color-success-700: #027a48;
   --color-error-50: #fef3f2;
   --color-error-500: #f04438;
   --color-error-600: #d92d20;
@@ -214,7 +230,7 @@
   /* Semantic ink/tints */
   --success: var(--color-success-500);
   --success-fg: #ffffff;
-  --success-ink: var(--color-success-600);
+  --success-ink: var(--color-success-700); /* AA on the canvas (5.2:1) */
   --success-subtle: var(--color-success-50);
   --warning-ink: var(--color-warning-700); /* AA on --warning-subtle (7.2:1) */
   --warning-subtle: var(--color-warning-50);
@@ -682,5 +698,35 @@
     /* Also kill staggered menu delays so rows don't pop in one-by-one. */
     animation-delay: 0s !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+  iOS Safari zooms the page IN whenever a focused text control's font is under
+  16px, and it never zooms back out — so one tap on the sign-in email field
+  leaves the whole app magnified until the reader pinches it back. Our type ramp
+  makes `text-base` 14px (DESIGN.md §1), which is under that threshold, so every
+  input in the app tripped it.
+
+  Gated on a coarse POINTER as well as on width: an iPad in landscape is over
+  1024px and Safari zooms a focused sub-16px field there exactly as it does on a
+  phone. A mouse-driven narrow window keeps the dense type. Checkboxes and radios are excluded —
+  they have no text to zoom toward, and a font-size on them moves their box.
+
+  `[data-slot="select-trigger"]` is in the list because our `Select` is a Radix
+  BUTTON, not a `<select>`. Left out, a phone drew a 16px "No." field beside a
+  13px day picker in the same form row — the fix creating the inconsistency it
+  was meant to prevent. The rule is about touch-sized controls, not about which
+  element type happens to implement them.
+
+  Deliberately UNLAYERED: Tailwind's `text-base` lands in @layer utilities, so a
+  rule inside @layer base would lose to it on every field that sets its own size.
+*/
+@media (pointer: coarse), (max-width: 1023.98px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea,
+  [data-slot="select-trigger"] {
+    font-size: max(16px, var(--text-base));
   }
 }

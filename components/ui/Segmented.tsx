@@ -73,7 +73,15 @@ export function Segmented<T extends string>({
             className={
               // ≥44px segments on touch viewports (PRODUCT.md); h-8 from lg up
               // aligns with the h-9 toolbar controls in the dense desktop rows.
-              "h-11 lg:h-8 rounded-sm px-3.5 text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
+              //
+              // A literal 1rem below `lg`, NOT `text-base` — this project's
+              // ramp makes `text-base` 0.875rem (14px), which is still under
+              // iOS Safari's 16px zoom threshold and still smaller than the
+              // `max(16px, …)` its neighbours get from globals.css. This is a
+              // BUTTON, so that rule's selector never reached it, and a 14px
+              // segmented control beside a 16px field is the same mismatch one
+              // pixel smaller.
+              "h-11 lg:h-8 touch:h-11 rounded-sm px-3.5 text-[1rem] lg:text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
               (active
                 ? "bg-white text-gray-800 shadow-theme-xs"
                 : "text-gray-500 hover:text-gray-800")

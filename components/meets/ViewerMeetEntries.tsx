@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { formatMeetDay, formatMeetDayDate, meetDates, meetDayCount } from "@/lib/meets";
 import { formatTime } from "@/lib/swim";
 import { SwimOutcome } from "./SwimOutcome";
 
@@ -21,15 +22,23 @@ import { SwimOutcome } from "./SwimOutcome";
 
 export function ViewerMeetEntries({
   meetId,
+  meet,
   upcoming,
 }: {
   meetId: Id<"meets">;
+  /** The meet's dates: a one-day meet has no day worth naming on every row. */
+  meet: { startDate: string; endDate?: string | null };
   /** Before the meet there are no times to show, only what is scheduled. */
   upcoming: boolean;
 }) {
   const swimmers = useQuery(api.meetEntries.getMyMeetEntries, { meetId });
 
   if (swimmers === undefined || swimmers.length === 0) return null;
+
+  // "Which day do we need to be there" is the whole question a multi-day gala
+  // raises for a family, and it is a fact about each entry rather than about
+  // the meet — four events can fall across three mornings.
+  const multiDay = meetDayCount(meet) > 1;
 
   return (
     <section className="flex flex-col gap-2">
@@ -63,6 +72,17 @@ export function ViewerMeetEntries({
                   )}
                   <span className="min-w-0 flex-1 text-sm font-medium text-ink">
                     {entry.label}
+                    {multiDay && (
+                      <DayTag
+                        meet={meet}
+                        iso={entry.swimDate}
+                        // Only BEFORE the meet. Afterwards the entry's own
+                        // date is the one the time was recorded against and
+                        // the one `ageAtSwim` came from — striking it would
+                        // call the authoritative date wrong.
+                        superseded={upcoming && entry.dayMismatch !== null}
+                      />
+                    )}
                   </span>
 
                   {entry.timeMs === null ? (
@@ -76,6 +96,16 @@ export function ViewerMeetEntries({
                   <p className="w-full text-xs text-ink-muted">
                     <SwimOutcome row={entry} />
                   </p>
+                  {/* The programme moved after this entry was made. Said here
+                      because a family reading the old morning is the whole
+                      failure: they turn up on the wrong day, confidently. */}
+                  {entry.dayMismatch !== null && upcoming && (
+                    <p className="w-full text-xs text-warning-ink">
+                      The programme now swims this on{" "}
+                      <DayName meet={meet} iso={entry.dayMismatch} />. Check
+                      with the coach before the meet.
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
@@ -84,4 +114,48 @@ export function ViewerMeetEntries({
       </div>
     </section>
   );
+}
+
+/**
+ * A meet day in the app's FULL spelling — "Day 2 · Sun 29 Nov", the same words
+ * the programme's own bands use. A bare date here named one fact two ways on
+ * one screen, which is how a reader starts wondering whether they are the same
+ * fact.
+ */
+function DayTag({
+  meet,
+  iso,
+  superseded = false,
+}: {
+  meet: { startDate: string; endDate?: string | null };
+  iso: string;
+  /** The programme has moved this event; the warning below says where to. */
+  superseded?: boolean;
+}) {
+  // A parent skims the bold line. Printing the old day there in the ordinary
+  // style and correcting it in small text underneath means the literal reading
+  // is the wrong morning — so the stale one is struck through and named "was".
+  return (
+    <span
+      className={
+        "ml-2 whitespace-nowrap text-xs font-normal tabular-nums " +
+        (superseded ? "text-ink-faint line-through" : "text-ink-muted")
+      }
+    >
+      {superseded && <span className="sr-only">Was </span>}
+      <DayName meet={meet} iso={iso} />
+    </span>
+  );
+}
+
+/** The app's FULL day spelling from an ISO date. One phrasing, one place. */
+function DayName({
+  meet,
+  iso,
+}: {
+  meet: { startDate: string; endDate?: string | null };
+  iso: string;
+}) {
+  const day = meetDates(meet).indexOf(iso);
+  return <>{day >= 0 ? formatMeetDay(meet, day + 1) : formatMeetDayDate(iso)}</>;
 }

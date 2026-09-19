@@ -1,5 +1,6 @@
 import {
   buildRawLabel,
+  cleanMeetDay,
   newLineId,
   splitLineByGender,
   type MeetEvent,
@@ -167,6 +168,10 @@ export function unresolveLine(
           ...(line.eventNumber === undefined
             ? {}
             : { eventNumber: line.eventNumber }),
+          // The DAY survives: which day a line runs on is a fact about the
+          // programme's schedule, not about whether this app has an event for
+          // it. A relay still happens on the Saturday.
+          ...(line.day === undefined ? {} : { day: line.day }),
         }
       : line,
   );
@@ -188,6 +193,63 @@ export function setLineGender(
   gender: MeetEventGender,
 ): MeetEvent[] {
   return updateLine(lines, index, { gender });
+}
+
+/**
+ * Put every line from `index` to the end of the programme on one day.
+ *
+ * This is the interaction the DOMAIN has, and the per-line picker is not: a
+ * document states "Day 2" once, above a block, because a real programme is
+ * contiguous by day. Sixty independent index assignments is the same fact
+ * entered sixty times, on a touch screen, poolside. Setting each day boundary
+ * from the top down places a three-day gala in three clicks.
+ *
+ * To the END rather than to the next boundary, because that is what makes the
+ * top-down sequence work: Day 2 from row 25 then Day 3 from row 45 leaves
+ * 25–44 on Day 2, and no click ever has to be undone.
+ */
+export function setDayFrom(
+  lines: ReadonlyArray<MeetEvent>,
+  index: number,
+  day: number,
+): MeetEvent[] {
+  return lines.map((line, i) => (i < index ? line : { ...line, day }));
+}
+
+/** How many lines sit on each day, and how many sit on none. */
+export function countLinesByDay(
+  lines: ReadonlyArray<MeetEvent>,
+  dayCount: number,
+): { byDay: number[]; unplaced: number } {
+  const byDay = Array.from({ length: dayCount }, () => 0);
+  let unplaced = 0;
+  for (const line of lines) {
+    const day = cleanMeetDay(line.day, dayCount);
+    if (day === undefined) unplaced += 1;
+    else byDay[day - 1] += 1;
+  }
+  return { byDay, unplaced };
+}
+
+/**
+ * Put a line on a day of the meet, or take it off one.
+ *
+ * Not `updateLine`, because "no day" has to be the ABSENCE of the field rather
+ * than a `day: undefined` sitting in the object — Convex validates the document
+ * it is handed, and an explicit undefined is not the same as an omitted key.
+ */
+export function setLineDay(
+  lines: ReadonlyArray<MeetEvent>,
+  index: number,
+  day: number | undefined,
+): MeetEvent[] {
+  return lines.map((line, i) => {
+    if (i !== index) return line;
+    if (day !== undefined) return { ...line, day };
+    const cleared = { ...line };
+    delete cleared.day;
+    return cleared;
+  });
 }
 
 /** Does every line carry a number? Does none? Anything else is neither. */

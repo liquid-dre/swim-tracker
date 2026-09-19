@@ -818,3 +818,112 @@ describe("seeding the season's fixtures", () => {
     ).toBe("National Sprint");
   });
 });
+
+/*
+  PROGRAMME DAYS.
+
+  A day is an index into the meet's own span, so the server's job is to bound it
+  by that span — and to do so without ever moving a line to a day it was not on.
+  Dropping the assignment asks a person where the event went; clamping answers
+  for them, wrongly, and nothing downstream would flag it.
+*/
+describe("which day a programme line runs on", () => {
+  const weekend = { startDate: "2026-11-28", endDate: "2026-11-30" };
+
+  test("keeps a day the meet actually has", async () => {
+    const { asSuper } = await setup();
+    const meetId = await seedMeet(asSuper, {
+      ...weekend,
+      events: [
+        { rawLabel: "Mixed 100 Freestyle", distance: 100, stroke: "FREE", day: 1 },
+        { rawLabel: "Mixed 200 Breaststroke", distance: 200, stroke: "BREAST", day: 3 },
+      ],
+    });
+    const meet = await asSuper.query(api.meets.getMeet, { meetId });
+    expect(meet?.events.map((e) => e.day)).toEqual([1, 3]);
+  });
+
+  test("drops a day past the meet's end rather than clamping it", async () => {
+    const { asSuper } = await setup();
+    const meetId = await seedMeet(asSuper, {
+      ...weekend,
+      events: [
+        { rawLabel: "Mixed 100 Freestyle", distance: 100, stroke: "FREE", day: 4 },
+        { rawLabel: "Mixed 50 Freestyle", distance: 50, stroke: "FREE", day: 0 },
+      ],
+    });
+    const meet = await asSuper.query(api.meets.getMeet, { meetId });
+    expect(meet?.events.map((e) => e.day)).toEqual([undefined, undefined]);
+  });
+
+  test("a one-day meet holds no day at all", async () => {
+    const { asSuper } = await setup();
+    const meetId = await seedMeet(asSuper, {
+      startDate: "2026-09-12",
+      events: [
+        { rawLabel: "Mixed 100 Freestyle", distance: 100, stroke: "FREE", day: 2 },
+      ],
+    });
+    const meet = await asSuper.query(api.meets.getMeet, { meetId });
+    expect(meet?.events[0].day).toBeUndefined();
+  });
+
+  test("shortening the meet unplaces the lines its last day held, and keeps the rest", async () => {
+    const { asSuper } = await setup();
+    const events = [
+      { rawLabel: "Mixed 100 Freestyle", distance: 100 as const, stroke: "FREE" as const, day: 1 },
+      { rawLabel: "Mixed 200 Breaststroke", distance: 200 as const, stroke: "BREAST" as const, day: 3 },
+    ];
+    const meetId = await seedMeet(asSuper, { ...weekend, events });
+
+    const stored = await asSuper.query(api.meets.getMeet, { meetId });
+    await asSuper.mutation(api.meets.updateMeet, {
+      meetId,
+      name: "1st seeded",
+      startDate: "2026-11-28",
+      endDate: "2026-11-29",
+      events: stored!.events,
+    });
+
+    const after = await asSuper.query(api.meets.getMeet, { meetId });
+    expect(after?.events.map((e) => e.day)).toEqual([1, undefined]);
+    // The LINES survive — only the claim about which day they ran on goes.
+    expect(after?.events).toHaveLength(2);
+    expect(after?.events.map((e) => e.id)).toEqual(
+      stored!.events.map((e) => e.id),
+    );
+  });
+
+  test("an import may extend the meet's span, and its days then stick", async () => {
+    const { asSuper } = await setup();
+    const meetId = await seedMeet(asSuper, { startDate: "2026-11-28" });
+    await asSuper.mutation(api.meets.importMeet, {
+      meetId,
+      name: "HAS Senior Champs",
+      startDate: "2026-11-28",
+      endDate: "2026-11-29",
+      events: [
+        { rawLabel: "Mixed 100 Freestyle", distance: 100, stroke: "FREE", day: 2 },
+      ],
+    });
+    const meet = await asSuper.query(api.meets.getMeet, { meetId });
+    expect(meet?.endDate).toBe("2026-11-29");
+    expect(meet?.events[0].day).toBe(2);
+  });
+
+  test("a re-import that states no end date keeps the span, so the days survive", async () => {
+    const { asSuper } = await setup();
+    const meetId = await seedMeet(asSuper, { ...weekend });
+    await asSuper.mutation(api.meets.importMeet, {
+      meetId,
+      name: "HAS Senior Champs",
+      startDate: "2026-11-28",
+      events: [
+        { rawLabel: "Mixed 100 Freestyle", distance: 100, stroke: "FREE", day: 3 },
+      ],
+    });
+    const meet = await asSuper.query(api.meets.getMeet, { meetId });
+    expect(meet?.endDate).toBe("2026-11-30");
+    expect(meet?.events[0].day).toBe(3);
+  });
+});
