@@ -214,12 +214,18 @@ describe("the treatments opacity was rejected for", () => {
     );
   });
 
-  test("a skipped row's 60% is the floor: 40% is worse, and a nested 50% worse still", () => {
+  test("a skipped row's 60% clears the non-text floor and 40% does not", () => {
+    /*
+      A THRESHOLD, not an ordering. The first version of this asserted only
+      that 60% beats 40% and that 30% is worse again — both monotone in alpha,
+      so both are true of every colour in existence and neither locked the
+      choice they were written to justify. 3:1 is WCAG 1.4.11's non-text floor,
+      which is the bar a recessed-but-still-readable row is aiming at.
+    */
     const ink = token("color-gray-700");
-    expect(contrast(composite(ink, 0.6, WHITE), WHITE)).toBeGreaterThan(
-      contrast(composite(ink, 0.4, WHITE), WHITE),
-    );
-    // What a field's own `opacity-50` did inside that 60% row.
+    expect(contrast(composite(ink, 0.6, WHITE), WHITE)).toBeGreaterThanOrEqual(3);
+    expect(contrast(composite(ink, 0.4, WHITE), WHITE)).toBeLessThan(3);
+    // And what a field's own `opacity-50` did inside that 60% row: worse again.
     expect(contrast(composite(ink, 0.3, WHITE), WHITE)).toBeLessThan(
       contrast(composite(ink, 0.4, WHITE), WHITE),
     );

@@ -476,11 +476,20 @@ export function ImportMeetSheet({
         <div className="custom-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-1">
           {/* --- 1. the file ------------------------------------------------ */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* `disabled`, not just a guard on the Button beside it:
+                `sr-only` is `position:absolute;width:1px;clip-path:inset(50%)`
+                — it hides a control from SIGHT, not from the tab order. A
+                keyboard user could tab straight to this and pick a file,
+                `onFile` calls `clearInput()` unconditionally, and a live
+                twelve-row review would be gone with no undo. Guarding the
+                visible proxy guards nothing. */}
             <input
               ref={fileRef}
+              disabled={multi}
               type="file"
               accept=".pdf,application/pdf,.xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.csv,text/csv,.txt,text/plain"
               onChange={onFile}
+              aria-label="Choose a programme file"
               className="sr-only"
               id="meet-file"
             />

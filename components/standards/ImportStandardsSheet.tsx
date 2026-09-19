@@ -125,6 +125,7 @@ export function ImportStandardsSheet({
               type="file"
               accept=".csv,text/csv"
               onChange={onFile}
+              aria-label="Choose a standards CSV"
               className="sr-only"
               id="csv-file"
             />

@@ -317,7 +317,11 @@ function GalaEditor({
                 error={parsedMax === "invalid" ? "Whole number or blank" : undefined}
               />
             </div>
-            <p className="text-2xs text-ink-faint">
+            {/* Same treatment as the qualifying-window explainer below, and
+                for the same reason: two sentences of help under a paired-bounds
+                grid is prose, not the chart annotation `2xs` is documented for.
+                One card cannot set the same kind of text two ways. */}
+            <p className="text-xs text-ink-muted">
               Leave a field blank for no limit. Swimmers outside the range are
               never shown as qualified for this gala.
             </p>

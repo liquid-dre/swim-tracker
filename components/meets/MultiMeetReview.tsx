@@ -497,8 +497,14 @@ export function MultiMeetReview({
               on the button before it is pressed, and a retry after a partial
               failure says the two rows left rather than the twelve it started
               with, which is what the dialog it opens has always said. */}
-          {finished || outstanding.length === 0
-            ? "Imported"
+          {/* An empty plan is two different facts. Skipping every row leaves
+              nothing to write and nothing written — "Imported" there asserts a
+              completed state that never happened, beside a reason saying to
+              put a meet back. Only a pass that actually landed says Imported. */}
+          {outstanding.length === 0
+            ? outcomes.some((o) => o.status === "saved")
+              ? "Imported"
+              : "Nothing to import"
             : `Import ${outstanding.length} meet${outstanding.length === 1 ? "" : "s"}`}
         </Button>
         {/* The count that is not on the button, because the button's count is
@@ -829,6 +835,19 @@ function MeetRow({
                   label: `Replace — ${m.name} (${formatMeetDates(m)})`,
                   textValue: m.name,
                 })),
+                // A target that has left `meets` — deleted in another session,
+                // or the list re-scoped — still needs an option, or Radix finds
+                // no Item for the value and renders an EMPTY trigger while the
+                // plan goes on counting the row as a replacement. The
+                // confirmation already names this case; the control did not.
+                ...(row.target !== "" && target === null
+                  ? [
+                      {
+                        value: row.target,
+                        label: "Replace — a meet no longer on this list",
+                      },
+                    ]
+                  : []),
               ]}
             />
             {/* Only claim the match when there IS one. `target` is whatever

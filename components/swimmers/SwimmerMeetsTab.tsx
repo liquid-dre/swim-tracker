@@ -167,7 +167,11 @@ function EventList({
     return <p className="text-sm text-ink-muted">{emptyLabel}</p>;
   }
   return (
-    <ul className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200">
+    // No border or radius of its own: this list renders INSIDE a card in both
+    // of its call sites, and DESIGN.md bans card-in-card — "one card, internal
+    // sections divided by border-gray-100", which is exactly the `divide-y`
+    // already here.
+    <ul className="divide-y divide-gray-100">
       {events.map((event, i) => (
         <li
           key={event.lineId ?? `${event.label}-${event.swimDate}-${i}`}

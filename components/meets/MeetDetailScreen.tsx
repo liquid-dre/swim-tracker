@@ -183,7 +183,7 @@ export function MeetDetailScreen({
         }
       />
 
-      {/* The meet's facts, as a definition list — three short values that would
+      {/* The meet's facts, as a definition list — four short values that would
           each be a lonely card. "Not set" is stated rather than left blank: a
           missing course is a fact worth reading, not an empty cell. */}
       <dl className="flex flex-wrap gap-x-8 gap-y-3 rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-theme-sm">
