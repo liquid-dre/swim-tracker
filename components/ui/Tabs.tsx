@@ -118,10 +118,10 @@ export function Tabs({
                 onClick={() => onValueChange(item.value)}
                 onKeyDown={(e) => onKeyDown(e, i)}
                 className={cn(
-                  // `touch:min-h-11` for the app-wide pointer rule: `pb-3 pt-1`
+                  // `tap` for the app-wide 44px floor: `pb-3 pt-1`
                   // left these around 36px, and on a tablet the Details/Events
                   // switch is hit on every pass down a programme.
-                  "relative -mb-px inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-sm px-0.5 pb-3 pt-1 text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring touch:min-h-11",
+                  "relative -mb-px inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-sm px-0.5 pb-3 pt-1 text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring tap",
                   active ? "text-ink" : "text-ink-muted hover:text-ink",
                 )}
               >

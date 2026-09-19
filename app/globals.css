@@ -26,6 +26,51 @@
 @custom-variant touch (@media (pointer: coarse));
 
 /*
+  The 44px idiom, once.
+
+  `h-11 lg:h-9 touch:h-11` is the rule for a control with a fixed height, and
+  the shared primitives spell it out. For everything that only needs a FLOOR —
+  a text button, a menu row, a table cell's tap area — the same rule had grown
+  three spellings that behave differently where it matters: `min-h-11
+  lg:min-h-0 touch:min-h-11` is 44px on a small fine-pointer window, while a
+  bare `touch:min-h-11` is whatever the text happens to be. That put the
+  multi-meet skip toggle — the control deciding whether a meet is written at
+  all — at 28px on a laptop, beside a 44px link.
+
+  `tap` is the first spelling: 44px everywhere a finger might be, released only
+  on a pointer-driven large screen. The `coarse` query comes last so it wins
+  back from `lg` at equal specificity, which is the same reason the `touch`
+  variant above works.
+
+  `tap-box` adds the width and the centring, for a square icon control.
+*/
+@utility tap {
+  min-height: calc(var(--spacing) * 11);
+  @media (width >= 64rem) {
+    min-height: 0;
+  }
+  @media (pointer: coarse) {
+    min-height: calc(var(--spacing) * 11);
+  }
+}
+
+@utility tap-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(var(--spacing) * 11);
+  min-width: calc(var(--spacing) * 11);
+  @media (width >= 64rem) {
+    min-height: 0;
+    min-width: 0;
+  }
+  @media (pointer: coarse) {
+    min-height: calc(var(--spacing) * 11);
+    min-width: calc(var(--spacing) * 11);
+  }
+}
+
+/*
   Swim Tracker design system — see DESIGN.md (authoritative). TailAdmin-style
   admin aesthetic: soft off-white canvas, white cards with soft layered shadows,
   an indigo brand accent, Untitled-UI grays, the Outfit typeface.

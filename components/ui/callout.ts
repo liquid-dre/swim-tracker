@@ -19,10 +19,19 @@
   keeps a consistent box without drawing an outline.
 */
 
+/*
+  The FILLS are the `-subtle` aliases, not the literal `warning-50`/`error-50`
+  palette entries. `--warning-ink` and `--danger-ink` flip under `.dark`
+  (globals.css §7) and the literals do not, so pairing them put amber ink on a
+  cream fill at 1.76:1 the moment a theme toggle is added — the "without
+  rework" DESIGN.md §7 promises, booked as rework. In light mode the two
+  spellings are the same colour, so this costs nothing today.
+*/
+
 /** Amber notice: something is off but the action can still proceed. */
 export const WARNING_SURFACE =
-  "border border-warning-500/30 bg-warning-50 text-warning-ink";
+  "border border-warning-500/30 bg-warning-subtle text-warning-ink";
 
 /** Red notice: the action is blocked, or has already gone wrong. */
 export const DANGER_SURFACE =
-  "border border-error-500/40 bg-error-50 text-danger-ink";
+  "border border-error-500/40 bg-danger-subtle text-danger-ink";

@@ -527,7 +527,6 @@ export function ProgrammeEditor({
                           : (entryCounts.get(line.id) ?? 0)
                     }
                     problem={problemsByLine.get(i) ?? null}
-                    mismatched={mismatched.includes(i)}
                     focusMe={focusTarget === i}
                     onFocused={onFocused}
                     onFocusedLocal={clearFocusAfter}
@@ -713,7 +712,7 @@ function AddEvent({
                   className={
                     option.allowed
                       ? `${MENU_ITEM} justify-between ${index === active ? "bg-accent text-brand-600" : ""}`
-                      // `touch:min-h-11` to match MENU_ITEM above, and the
+                      // `tap` to match MENU_ITEM above, and the
                       // active state for the same reason: arrows traverse the
                       // disabled options deliberately, `aria-activedescendant`
                       // moves onto them and the list scrolls to them — so
@@ -722,7 +721,7 @@ function AddEvent({
                       // on a list that also alternated 44px and 34px rows.
                       // Neutral, not brand: it is where you are, not something
                       // you can pick.
-                      : "flex cursor-not-allowed select-none items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-gray-500 touch:min-h-11" +
+                      : "flex cursor-not-allowed select-none items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-gray-500 tap" +
                         (index === active ? " bg-gray-100 text-gray-700" : "")
                   }
                   onMouseDown={(e) => {
@@ -768,7 +767,6 @@ const ProgrammeLine = memo(function ProgrammeLine({
   dayOptions,
   entered,
   problem,
-  mismatched,
   focusMe,
   onFocused,
   onFocusedLocal,
@@ -789,8 +787,6 @@ const ProgrammeLine = memo(function ProgrammeLine({
   entered: number | undefined;
   /** Why the save is blocked on THIS line, or null. */
   problem: string | null;
-  /** This line's event cannot be swum in the meet's course. */
-  mismatched: boolean;
   focusMe: boolean;
   onFocused?: () => void;
   onFocusedLocal: () => void;
@@ -1040,7 +1036,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
           {problem}
         </p>
       )}
-      {(mismatched || !resolved || entered === undefined || entered > 0) && (
+      {(!resolved || entered === undefined || entered > 0) && (
         <p className="mt-2 flex flex-wrap gap-x-2 text-xs text-ink-muted">
           {!resolved && (
             <span>Not an event this app tracks, so it can take no time.</span>

@@ -236,6 +236,13 @@ function RowTime({
   const display = digits === "" ? "" : `${minutes}:${ss}:${hh}`;
   const parsed = parseDigits(digits);
   const dirty = normaliseDigits(stored) !== digits;
+  // Emptying the box is not how a swim is removed — `deleteResult` is, and it
+  // is tombstoned, which is the whole point of it. But `parseDigits("")`
+  // returns a null `ms` like any other uncommittable run, so a coach who
+  // backspaced a recorded time and tabbed away got no write, no error, and a
+  // blank field above a line still reading "New personal best, 1.20s faster"
+  // about the time they could no longer see. Say what happened instead.
+  const clearing = dirty && digits === "" && row.timeMs !== null;
 
   function commit() {
     if (!dirty || parsed.ms === null) return;
@@ -249,7 +256,9 @@ function RowTime({
         aria-label={`Time for ${row.name}`}
         aria-invalid={parsed.error !== null ? true : undefined}
         aria-describedby={
-          parsed.error !== null ? `${row._id}-time-error` : undefined
+          parsed.error !== null || clearing
+            ? `${row._id}-time-error`
+            : undefined
         }
         disabled={busy}
         value={display}
@@ -263,17 +272,26 @@ function RowTime({
           }
         }}
         className={
-          "h-11 w-32 rounded-lg border bg-white px-2 text-right text-sm tabular-nums text-gray-800 lg:h-9 touch:h-11 lg:w-28 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50 " +
+          // A FIELD, so it authors its disabled state the way `Input`,
+          // `Select` and `DateField` now do — `opacity-50` on a field that
+          // sets its own `bg-white` and ink composites with whatever the row
+          // around it is already dimming by.
+          "h-11 w-32 rounded-lg border bg-white px-2 text-right text-sm tabular-nums text-gray-800 lg:h-9 touch:h-11 lg:w-28 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring " +
+          "disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-ink-faint disabled:placeholder:text-gray-400 disabled:hover:border-gray-200 " +
           (parsed.error !== null
             ? "border-error-500 bg-error-50"
             : "border-gray-300 hover:border-gray-400")
         }
       />
-      {parsed.error !== null && (
+      {parsed.error !== null ? (
         <span id={`${row._id}-time-error`} className="text-xs text-danger-ink">
           {parsed.error}
         </span>
-      )}
+      ) : clearing ? (
+        <span id={`${row._id}-time-error`} className="text-xs text-warning-ink">
+          The saved time is still there — delete the time itself to remove it.
+        </span>
+      ) : null}
     </span>
   );
 }

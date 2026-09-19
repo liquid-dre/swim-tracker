@@ -123,7 +123,7 @@ function SetupBanner({
         <span key={step.href} className="flex items-center gap-3 text-sm">
           <Link
             href={step.href}
-            className="inline-flex min-h-11 items-center gap-1 rounded-sm font-medium text-brand-500 outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0"
+            className="tap inline-flex items-center gap-1 rounded-sm font-medium text-brand-500 outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
           >
             {step.label}
             <ArrowRight aria-hidden className="size-3.5" />

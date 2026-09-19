@@ -29,7 +29,7 @@ import { parseMeetWorkbook, type MeetDraft } from "@/lib/meetImport";
 import { MultiMeetReview } from "./MultiMeetReview";
 import type { Course } from "@/lib/swim";
 import { COURSE_LABEL } from "./meetShared";
-import { WARNING_SURFACE } from "@/components/ui/callout";
+import { DANGER_SURFACE, WARNING_SURFACE } from "@/components/ui/callout";
 
 /*
   Import a meet programme (super-user only; `importMeet` enforces that).
@@ -496,7 +496,7 @@ export function ImportMeetSheet({
               <button
                 type="button"
                 onClick={clearInput}
-                className="inline-flex items-center rounded-md px-2 py-1 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring touch:min-h-11"
+                className="tap inline-flex items-center rounded-md px-2 py-1 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Clear
               </button>
@@ -506,7 +506,7 @@ export function ImportMeetSheet({
           {readError && (
             <p
               role="alert"
-              className="rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2 text-sm text-danger-ink"
+              className={`rounded-lg px-3 py-2 text-sm ${DANGER_SURFACE}`}
             >
               {readError}
             </p>
@@ -608,7 +608,7 @@ export function ImportMeetSheet({
                 {datesConflict && targetMeet && (
                   <p
                     role="alert"
-                    className="flex gap-2 rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2.5 text-sm text-danger-ink"
+                    className={`flex gap-2 rounded-lg px-3 py-2.5 text-sm ${DANGER_SURFACE}`}
                   >
                     <AlertTriangle
                       aria-hidden
@@ -825,8 +825,8 @@ export function ImportMeetSheet({
                         <span
                           className={
                             event.distance === undefined
-                              ? "shrink-0 text-2xs font-medium text-warning-ink"
-                              : "shrink-0 text-2xs text-ink-muted"
+                              ? "shrink-0 text-xs font-medium text-warning-ink"
+                              : "shrink-0 text-xs text-ink-muted"
                           }
                         >
                           {event.distance === undefined
@@ -1026,7 +1026,7 @@ function ChangeSummary({
   changes: Change[];
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-error-500/40 bg-danger-subtle px-3 py-2.5">
+    <div className={`flex flex-col gap-2 rounded-lg px-3 py-2.5 ${DANGER_SURFACE}`}>
       <p className="text-sm text-danger-ink">
         Replaces <span className="font-medium">{targetName}</span>&rsquo;s{" "}
         {eventCount === 0 ? "empty programme" : `${eventCount}-event programme`}

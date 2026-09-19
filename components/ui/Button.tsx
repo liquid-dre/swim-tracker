@@ -8,7 +8,12 @@ const base =
   "transition-[background-color,border-color,color,transform] [transition-duration:var(--dur-1)] " +
   "[transition-timing-function:var(--ease-standard)] " +
   "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
-  "active:scale-[0.98] disabled:pointer-events-none " +
+  // `:not([aria-busy])` on the pointer rule too: `loading` sets the native
+  // `disabled`, so a busy button always carried it, and `pointer-events: none`
+  // killed the progress cursor below outright. Native `disabled` still blocks
+  // activation, so letting the pointer through while busy changes nothing but
+  // the cursor.
+  "active:scale-[0.98] [&:disabled:not([aria-busy])]:pointer-events-none " +
   // Only a NATIVE disabled (a caller passing `disabled`) fades. `loading` is
   // handled separately below, because it also sets `disabled` — and a button
   // that was `aria-disabled` as well then compounded the inert fill with this
@@ -38,7 +43,7 @@ const base =
   // the override spelling tried here first reset the background to the CSS
   // `initial` value under an aria-busy variant — but that value is
   // TRANSPARENT, not "whatever the variant said", so every primary button
-  // vanished to white-on-canvas (1.03:1) for
+  // vanished to white on the canvas — near enough 1:1 — for
   // the whole duration of its own write. It did not even win: the inert fill
   // compiled after it at equal specificity. A state this hard to reason about
   // in overrides is one to express as a condition.
@@ -51,7 +56,8 @@ const base =
   "[&[aria-disabled]:not([aria-busy])]:hover:bg-gray-100 " +
   "[&[aria-disabled]:not([aria-busy])]:hover:text-gray-500 " +
   // Busy keeps the variant's own fill untouched — a running action still reads
-  // as the action it is — and only says so through the cursor.
+  // as the action it is. The spinner says it is running; the cursor says so to
+  // a pointer.
   "aria-busy:cursor-progress";
 
 const variants: Record<Variant, string> = {

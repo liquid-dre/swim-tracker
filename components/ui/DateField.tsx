@@ -486,9 +486,12 @@ function FlipCalendar({
               className={cn(
                 // SQUARE, at both of the popover's two widths — that is the
                 // whole rule, and it is why the height has no `lg:` step of
-                // its own: 256px/7 gives a ~32px column and 344px/7 gives a
-                // 44px one, so the height simply follows the width that the
-                // same `touch:` variant chose. Sizing the two independently is
+                // its own. A column is (W − 24px of `p-3` − 6×2px of
+                // `gap-0.5`) / 7, so 256px gives 220/7 = 31.4 and 344px gives
+                // 308/7 = 44.0: the height simply follows the width that the
+                // same `touch:` variant chose. (Divide the popover width
+                // itself and you get 36.6 and 49.1 — wrong, and wrong in a way
+                // that only shows up when someone changes the padding.) Sizing the two independently is
                 // what produced a 44×31 cell once, and an `h-11` base would
                 // produce its mirror on a narrowed desktop window.
                 // (For the record: WCAG 2.5.8 Target Size (Minimum) is 24×24

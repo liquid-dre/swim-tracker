@@ -501,7 +501,7 @@ function MeetRow({
               type="button"
               onClick={() => onChange({ skip: !row.skip })}
               disabled={disabled}
-              className="rounded-md p-1.5 touch:min-h-11 touch:min-w-11 touch:inline-flex touch:items-center touch:justify-center text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-ink focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="tap-box rounded-md p-1.5 text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-ink focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               aria-label={
                 row.skip
                   ? `Include ${title} in this import`
@@ -551,7 +551,12 @@ function MeetRow({
             value={row.name}
             onChange={(e) => onChange({ name: e.target.value })}
             disabled={locked}
-            error={row.name.trim() === "" ? "Required" : undefined}
+            // Not on a skipped row: `rowsValid` counts only included rows, so this
+            // blocked nothing — it just put danger ink under a struck-through,
+            // disabled field whose border reads disabled, not error.
+            error={
+              !row.skip && row.name.trim() === "" ? "Required" : undefined
+            }
           />
           <DateField
             label="Date"
@@ -627,7 +632,7 @@ function MeetRow({
                 // a real height, because CLAUDE.md names this as how the
                 // multi-meet path resolves an unset course, and it was the
                 // smallest tap target on a twelve-row review.
-                className="inline-flex min-h-11 items-center self-start rounded-lg py-1 text-left text-xs text-brand-600 outline-none hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0 touch:min-h-11"
+                className="tap inline-flex items-center self-start rounded-lg py-1 text-left text-xs text-brand-600 outline-none hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {suggestion.reason} — use{" "}
                 {suggestion.course === "SCM" ? "short" : "long"} course
@@ -650,9 +655,15 @@ function MeetRow({
               aria-label={`${title}: Save as`}
               options={[
                 { value: "", label: "A new meet" },
+                // Dated, as the single-meet picker is: this is the screen
+                // built for a club's whole season, where "HAS 2nd Seeded Gala"
+                // arrives twice, and the date is the only thing telling them
+                // apart on the one control that destroys a programme.
+                // `textValue` so typeahead still matches the name.
                 ...meets.map((m) => ({
                   value: m._id as string,
-                  label: `Replace ${m.name}`,
+                  label: `Replace — ${m.name} (${m.startDate})`,
+                  textValue: m.name,
                 })),
               ]}
             />
