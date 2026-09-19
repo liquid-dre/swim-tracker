@@ -3,146 +3,136 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 /*
-  DESIGN.md's ban list, enforced.
+  DESIGN.md's structural rules, enforced.
 
-  The colour half of that document is already checked by `lib/contrast.test.ts`,
-  and that guard has caught real drift four times. The rest of the list — no
-  card-in-card, no gradients, no glassmorphism, no pure black — was enforced by
-  nothing, and a review found a card-in-card on a file that had simply never
-  been measured against it. A rule the codebase states and does not check is a
-  rule that holds until someone adds a file.
+  The colour half is checked by `lib/contrast.test.ts`, which has caught real
+  drift repeatedly. The rest — no card-in-card, no gradients, no
+  glassmorphism, no pure black, and the 44px floor restored wherever `lg:`
+  releases it — was enforced by nothing, and a review found violations in files
+  that had simply never been measured against a rule the project states three
+  times.
 
-  These are structural greps, so they are blunt by construction: they read
-  class strings, not a rendered tree. Where a ban is deliberately broken the
-  exception is listed here WITH its reason, so the next one has to be argued
-  rather than merely added.
+  The first version of this file was written, its scope asserted, and then
+  tested only against the shapes it had been designed for. A review walked past
+  it four ways: `.ts` files were not read, `app/` was not read, any class string
+  containing `&` or `!` was skipped by a "looks like a class string" filter, and
+  a card whose classes arrived in two literals was invisible. Every count in its
+  comments was also made up.
+
+  So: no counts here that a test does not compute, the scope is stated as what
+  is READ rather than as what is caught, and the known limits are listed at the
+  bottom rather than left for the next review to find.
 */
 
-/** Every component file, walked rather than globbed so `tsc` is happy too. */
+/** Every source file whose class strings ship — `.ts` too, and `app/` too. */
 function walk(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory()
-      ? walk(join(dir, e.name))
-      : e.name.endsWith(".tsx")
-        ? [join(dir, e.name)]
-        : [],
-  );
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) return walk(p);
+    if (!/\.tsx?$/.test(e.name) || /\.test\.tsx?$/.test(e.name)) return [];
+    return [p];
+  });
 }
-
-const FILES: string[] = walk("components").sort();
 
 /*
   `components/charts/` is the bklit UI registry, vendored per CLAUDE.md — code
-  this project did not author and does not restyle. It carries the one
-  `backdrop-blur-md` in the tree (a chart tooltip panel). Excluded by
-  PROVENANCE rather than listed file by file, so the carve-out is one stated
-  decision instead of a growing list of individual passes.
+  this project did not author and does not restyle. It holds the only
+  `backdrop-blur-md` in the tree, on a chart tooltip panel. Excluded by
+  PROVENANCE, so the carve-out is one stated decision rather than a growing
+  list of individual passes.
 */
 const VENDORED = /^components[/\\]charts[/\\]/;
-const OURS: string[] = FILES.filter((f) => !VENDORED.test(f));
+const ALL: string[] = [...walk("components"), ...walk("app")].sort();
+const OURS: string[] = ALL.filter((f) => !VENDORED.test(f));
 
 function read(f: string): string {
   return readFileSync(f, "utf8");
 }
 
 /**
- * Every class string in a file, with the line of the JSX TAG that owns it.
+ * The source with comments blanked, line lengths preserved.
  *
- * Two things the first version of this got wrong, both of which made the guard
- * look like it was working while it read almost nothing:
- *
- *  - It matched only `className="…"`. 183 of this repo's 2,501 className
- *    attributes are `className={cn(…)}`, including every shared primitive and
- *    the one live `backdrop-blur-md` in the tree, so 7.3% of the codebase —
- *    and two of this file's own three listed exceptions — were invisible. It
- *    now collects every string literal inside a balanced `{…}`.
- *
- *  - It reported the line the `className` sits on. Prettier puts a container's
- *    className on its own line as soon as the tag carries a second attribute,
- *    which shifts its apparent indent to the attribute level and made 19 of
- *    the repo's 121 cards immune to the nesting check in both directions. The
- *    owning tag is found by scanning back to the nearest `<Tag`.
+ * A class named in a comment does not ship, and these files discuss their own
+ * class names constantly, in backticks — which a literal scan reads as strings.
  */
-function classStrings(source: string): { at: number; value: string }[] {
-  const lines = source.split("\n");
-  const out: { at: number; value: string }[] = [];
+function code(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "))
+    .replace(/\/\/[^\n]*/g, (c) => " ".repeat(c.length));
+}
 
-  /** The line of the `<Tag` that opens the element this attribute belongs to. */
+/**
+ * Class strings grouped by the EXPRESSION that builds them, joined.
+ *
+ * `cn("rounded-xl border", "border-gray-200 shadow-theme-sm")` is one card, and
+ * `"h-11 lg:h-7" + " touch:h-11"` is one restored control — reading literals
+ * one at a time got both wrong, in opposite directions: it missed the split
+ * card and it failed the correctly-restored control.
+ *
+ * A group is a `className={…}` expression, or a `;`-delimited statement
+ * elsewhere (which is how `menu-styles.ts` and `callout.ts` build theirs).
+ */
+function styleGroups(source: string): { at: number; value: string }[] {
+  const src = code(source);
+  const lines = src.split("\n");
+  const groups: { at: number; value: string }[] = [];
+  const lineOf = (i: number) => src.slice(0, i).split("\n").length;
+
+  /** The line of the `<Tag` opening the element an attribute belongs to. */
   function ownerLine(charIndex: number): number {
-    const upto = source.slice(0, charIndex).split("\n");
-    for (let i = upto.length - 1; i >= 0; i -= 1) {
+    const upto = lineOf(charIndex);
+    for (let i = upto - 1; i >= 0; i -= 1) {
       if (/<[A-Za-z]/.test(lines[i] ?? "")) return i + 1;
     }
-    return upto.length;
+    return upto;
   }
 
+  const literals = (text: string) =>
+    (text.match(/["'`]([^"'`\n]*)["'`]/g) ?? [])
+      .map((l) => l.slice(1, -1))
+      .join(" ");
+
+  const covered: [number, number][] = [];
   const re = /className=/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(source)) !== null) {
-    const at = ownerLine(m.index);
+  while ((m = re.exec(src)) !== null) {
     let i = m.index + m[0].length;
-
-    if (source[i] === "{") {
-      // Walk the balanced braces, then take every string literal inside.
+    const start = i;
+    if (src[i] === "{") {
       let depth = 0;
-      const start = i;
-      for (; i < source.length; i += 1) {
-        if (source[i] === "{") depth += 1;
-        else if (source[i] === "}") {
+      for (; i < src.length; i += 1) {
+        if (src[i] === "{") depth += 1;
+        else if (src[i] === "}") {
           depth -= 1;
           if (depth === 0) break;
         }
       }
-      const expr = source.slice(start, i + 1);
-      for (const lit of expr.match(/["'`]([^"'`]*)["'`]/g) ?? []) {
-        out.push({ at, value: lit.slice(1, -1) });
-      }
     } else {
-      const lit = /^["'`]([^"'`]*)["'`]/.exec(source.slice(i));
-      if (lit !== null) out.push({ at, value: lit[1] });
+      const lit = /^["'`][^"'`\n]*["'`]/.exec(src.slice(i));
+      i = lit === null ? i : i + lit[0].length - 1;
     }
+    covered.push([start, i]);
+    groups.push({ at: ownerLine(m.index), value: literals(src.slice(start, i + 1)) });
   }
-  return out;
-}
 
-/**
- * Every string literal in a file that looks like a Tailwind class string.
- *
- * The nesting check above needs attributes, because it needs the owning tag.
- * The BAN checks do not, and scoping them to attributes missed the one live
- * `backdrop-blur-md` in the tree: it lives in `const panelClassName = cn(…)`
- * and reaches `className` through a variable, which no attribute scan can
- * follow. A ban is about what ships, not about how it got there.
- */
-function classLiterals(source: string): { at: number; value: string }[] {
-  const out: { at: number; value: string }[] = [];
-  /*
-    Comments blanked first, line lengths preserved so the reported line stays
-    right. A comment naming a class does not ship it — and these files discuss
-    their own class names constantly, in backticks, which this scan would
-    otherwise read as string literals. The first version of this flagged a
-    DateField comment explaining why `lg:size-7` had been REMOVED.
-  */
-  const code = source
-    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "))
-    .replace(/\/\/[^\n]*/g, (c) => " ".repeat(c.length));
-  const re = /["'`]([^"'`\n]*)["'`]/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(code)) !== null) {
-    // A class string, not prose: hyphenated tokens and no sentence spacing.
-    if (!/^[\w\-:/[\]().,%\s]+$/.test(m[1])) continue;
-    if (!/[a-z]+-[a-z0-9]/.test(m[1])) continue;
-    out.push({ at: code.slice(0, m.index).split("\n").length, value: m[1] });
+  // Everything else, per statement — where a `.ts` styles module lives.
+  let cursor = 0;
+  for (const chunk of src.split(";")) {
+    const start = cursor;
+    cursor += chunk.length + 1;
+    if (covered.some(([a, b]) => a >= start && b <= cursor)) continue;
+    const value = literals(chunk);
+    if (value !== "") groups.push({ at: lineOf(start), value });
   }
-  return out;
+  return groups;
 }
 
 describe("no card-in-card (DESIGN.md: one card, sections divided by a hairline)", () => {
   /*
-    A "card" here is the house spelling: a radius, a gray-200 border, and a
-    shadow. Nesting is judged by INDENTATION, which is exact for this
-    codebase's formatting and is why the check reports the lines rather than
-    just a count — a false positive should be visible at a glance.
+    A card is the house spelling: a radius, a gray-200 border and a shadow.
+    Nesting is judged by the indentation of the OWNING TAG — not of the
+    `className`, which prettier moves onto its own line as soon as a tag takes
+    a second attribute, and which made cards written that way immune.
   */
   const isCard = (c: string) =>
     /\brounded-(?:xl|2xl)\b/.test(c) &&
@@ -150,52 +140,41 @@ describe("no card-in-card (DESIGN.md: one card, sections divided by a hairline)"
     /\bshadow-theme-/.test(c);
 
   /*
-    The INNER test drops the shadow requirement. DESIGN.md bans a second
-    bordered, rounded panel inside a card — "one card, internal sections
-    divided by border-gray-100" — and a shadowless `rounded-xl border
-    border-gray-200` list is exactly that second panel, which is how the one
-    real instance in this codebase read.
+    The INNER test drops the shadow: DESIGN.md bans a second bordered, rounded
+    panel inside a card, and a shadowless `rounded-xl border border-gray-200`
+    list is exactly that second panel.
   */
   const isPanel = (c: string) =>
-    /\brounded-(?:lg|xl|2xl)\b/.test(c) && /\bborder-gray-200\b/.test(c);
+    /\brounded-(?:xl|2xl)\b/.test(c) &&
+    /\bborder-gray-200\b/.test(c) &&
+    // Not a CONTROL. `rounded-lg` is the control radius in this system (cards
+    // are 2xl), and a fixed height is what a button or field has and a panel
+    // does not — without this, every bordered toggle inside a card read as a
+    // nested panel. A previous review predicted this exact false positive
+    // would surface once the scan could see concatenated class strings, and
+    // it did, on the first run.
+    !/\b(?:h|size)-\d/.test(c);
 
-  /*
-    LEXICAL nesting only. A panel that renders inside a card through a
-    component boundary — `<Card><EventList /></Card>`, where EventList's own
-    root carries the border — is invisible to an indentation check, and that
-    is exactly how the one real instance in this codebase read. So the
-    composed case is checked separately below, by name.
-  */
-  test.each(FILES)("%s nests no card inside another", (file: string) => {
+  test.each(OURS)("%s nests no card inside another", (file: string) => {
     const source = read(file);
-    const lines = source.split("\n");
-    const all = classStrings(source);
-    const cards = all
+    const lines = code(source).split("\n");
+    const cards = styleGroups(source)
       .filter((c) => isCard(c.value) || isPanel(c.value))
       .map((c) => ({
         line: c.at,
-        source: c.value,
+        value: c.value,
         indent: (lines[c.at - 1] ?? "").search(/\S/),
       }));
 
-    /*
-      B is inside A when it is indented deeper AND nothing between them
-      dedents back to A's level. That second half is what separates nesting
-      from sibling cards in one parent — without it this flagged nineteen
-      files, every one of them a list of cards side by side.
-    */
     const nested: string[] = [];
     for (let i = 0; i < cards.length; i += 1) {
+      if (!isCard(cards[i].value)) continue; // only a card can be a container
       for (let j = i + 1; j < cards.length; j += 1) {
         if (cards[j].indent <= cards[i].indent) break;
-        // Only a real CARD can be the container; a panel inside a panel is a
-        // list inside a list, which the ban is not about.
-        if (!isCard(cards[i].source)) continue;
         const between = lines
           .slice(cards[i].line, cards[j].line - 1)
-          // Blank lines, and lines that are pure JSX punctuation, are not a
-          // dedent: a multi-attribute tag closes its own `>` back at the tag's
-          // indent, which made every card written that way immune.
+          // Blank lines and pure JSX punctuation are not a dedent: a
+          // multi-attribute tag closes its own `>` back at the tag's indent.
           .filter((l) => l.trim() !== "" && !/^[>/{}(),\s]+$/.test(l.trim()))
           .map((l) => l.search(/\S/));
         if (between.some((n) => n <= cards[i].indent)) continue;
@@ -207,43 +186,46 @@ describe("no card-in-card (DESIGN.md: one card, sections divided by a hairline)"
 });
 
 describe("no gradients, glassmorphism or pure black", () => {
-  /*
-    Three deliberate exceptions, each argued rather than assumed:
-
-    - Tabs.tsx: a scroll-edge fade. A gradient TO TRANSPARENT over the canvas
-      is an affordance saying "there is more to the right", not decoration —
-      it carries no colour of its own.
-    - LogScreen.tsx: the sticky poolside action bar, which must stay legible
-      over whatever scrolls under it.
-    - sheet.tsx: Radix's own modal scrim, vendored.
-
-    Anything else has to be added here with its reason, which is the point.
-  */
-  const ALLOWED: Record<string, Record<string, RegExp>> = {
-    // Per BAN, not per file. A single file-wide regex exempted whatever it
-    // matched from ALL THREE checks — so one argued gradient in Tabs.tsx would
-    // have licensed a blur and a pure black in the same class string. That is
-    // the same widening that made LogScreen's dead `bg-bg/` alternative worth
-    // removing; it deserved fixing in the mechanism, not just the entry.
-    "components/ui/Tabs.tsx": { gradient: /bg-gradient-to-[rl]\b/ },
-    "components/log/LogScreen.tsx": { glassmorphism: /backdrop-blur/ },
-    "components/ui/sheet.tsx": { "pure black": /bg-black\/50/ },
-    "components/ui/ConfirmDialog.tsx": { "pure black": /bg-black\/50/ },
-  };
-
   const BANNED = [
     { name: "gradient", re: /\bbg-gradient-to-\w+\b/ },
     { name: "glassmorphism", re: /\bbackdrop-blur\b/ },
     { name: "pure black", re: /\b(?:text|bg)-black\b/ },
   ];
 
+  /*
+    Per BAN, not per file: a single file-wide regex exempted whatever it
+    matched from ALL THREE checks, so one argued gradient would have licensed
+    a blur and a pure black in the same class string.
+
+    Four exceptions, each with its reason:
+  */
+  const ALLOWED: Record<string, Record<string, RegExp>> = {
+    // A scroll-edge fade TO TRANSPARENT over the canvas: an affordance saying
+    // "there is more to the right", carrying no colour of its own.
+    "components/ui/Tabs.tsx": { gradient: /bg-gradient-to-[rl]\b/ },
+    // The sticky poolside action bar, which must stay legible over whatever
+    // scrolls beneath it.
+    "components/log/LogScreen.tsx": { glassmorphism: /backdrop-blur/ },
+    // Radix's own modal scrim, vendored, in the two components that use it.
+    "components/ui/sheet.tsx": { "pure black": /bg-black\/50/ },
+    "components/ui/ConfirmDialog.tsx": { "pure black": /bg-black\/50/ },
+  };
+
   test.each(OURS)("%s uses none of them unargued", (file: string) => {
-    const source = read(file);
+    // EVERY string literal, not only those a "looks like a class string"
+    // filter admitted — that filter rejected any string containing `&` or
+    // `!`, which is the arbitrary-variant spelling this codebase uses
+    // constantly, and it let a blur through simply for having `[&_svg]:` in
+    // the same string.
+    const all = (code(read(file)).match(/["'`][^"'`\n]*["'`]/g) ?? []).map((l) => ({
+      value: l.slice(1, -1),
+      at: 0,
+    }));
     const allow = ALLOWED[file] ?? {};
     const hits = BANNED.flatMap(({ name, re }) =>
-      classLiterals(source)
+      all
         .filter((c) => re.test(c.value) && !allow[name]?.test(c.value))
-        .map((c) => `${name} at line ${c.at}`),
+        .map(() => name),
     );
     expect({ file, hits }).toEqual({ file, hits: [] });
   });
@@ -251,14 +233,11 @@ describe("no gradients, glassmorphism or pure black", () => {
 
 describe("panels that render inside a card through a component boundary", () => {
   /*
-    The lexical check above cannot see these, so each is named. A component
-    listed here is rendered inside a card by at least one call site — CHECKED
-    at that call site, never inferred from the name; the first draft of this
-    list carried one that turned out to be a top-level card in both of its —
-    and must therefore carry no border or radius of its own, dividing with a
-    hairline instead. `SwimmerMeetsTab`'s EventList is why this exists: it sat
-    inside a `rounded-2xl` card on one path and a `rounded-xl` Collapsible on
-    the other, and no grep over its own file could tell.
+    The lexical check cannot see these, so each is named. A component listed
+    here is rendered inside a card by at least one call site — CHECKED at that
+    call site, never inferred from the name; an earlier draft carried one that
+    turned out to be a top-level card in both of its — and must therefore
+    carry no border or radius of its own, dividing with a hairline instead.
   */
   const COMPOSED: { file: string; component: string }[] = [
     // Rendered inside a `rounded-2xl` card on one path and a `rounded-xl`
@@ -270,20 +249,16 @@ describe("panels that render inside a card through a component boundary", () => 
     const source = read(file);
     const start = source.indexOf(`function ${component}(`);
     expect(start).toBeGreaterThan(-1);
-    // Up to the next top-level `function`, which is this one's whole body.
     const rest = source.slice(start + 1);
     const end = rest.indexOf("\nfunction ");
     const body = end === -1 ? rest : rest.slice(0, end);
 
     // The WHOLE body, not its first class string: that was the early-return
     // empty state, so restoring the border on the list below it passed green.
-    const rootPanel = classStrings(body).filter(
-      (c) => /\bborder-gray-200\b/.test(c.value) && /\brounded-/.test(c.value),
-    );
-    expect({ component, rootPanel: rootPanel.map((c) => c.value) }).toEqual({
-      component,
-      rootPanel: [],
-    });
+    const rootPanel = styleGroups(body)
+      .filter((c) => /\bborder-gray-200\b/.test(c.value) && /\brounded-/.test(c.value))
+      .map((c) => c.value);
+    expect({ component, rootPanel }).toEqual({ component, rootPanel: [] });
   });
 });
 
@@ -291,21 +266,40 @@ describe("the 44px floor is restored wherever `lg:` releases it", () => {
   /*
     `globals.css` states the rule this branch exists for: an iPad in landscape
     is a COARSE pointer over 1024px, so it clears `lg` and takes whatever
-    compact size `lg:` set. Every `lg:h-*` / `lg:size-*` therefore needs a
-    `touch:` partner putting 44px back.
+    compact size `lg:` set. Every release therefore needs a `touch:` partner.
 
-    The branch introduced the variant, wrote the rule down, and swept the
-    shared primitives — leaving eight controls behind, one of them at 28px
-    beside 44px siblings. That is the rule outliving its own sweep, which is
-    exactly what a test is for. This one reads the class strings, so a ninth
-    cannot be added quietly.
+    `min-h` is in the pattern because `min-h-11 lg:min-h-0 touch:min-h-11` is
+    the floor idiom globals.css documents — and the first version of this
+    check, which matched only `h-` and `size-`, missed that whole family.
   */
-  const RELEASES = /\blg:(?:h|size)-(\d+)\b/;
+  /*
+    A NUMERIC release only, and only of a height. `lg:h-auto` on a layout
+    column is not a control being compacted, and a column's `lg:w-[52%]` is
+    not a touch target — the first version of this pattern matched both and
+    reported a marketing page's two-pane split as an unrestored control.
+  */
+  const RELEASES = /\blg:(?:h|size|min-h)-\d/;
+  const RESTORES = /\btouch:(?:h|size|min-h)-/;
 
   test.each(OURS)("%s restores every size it releases", (file: string) => {
-    const unrestored = classLiterals(read(file))
-      .filter((c) => RELEASES.test(c.value) && !/\btouch:(?:h|size|min-h)-/.test(c.value))
+    const unrestored = styleGroups(read(file))
+      .filter((c) => RELEASES.test(c.value) && !RESTORES.test(c.value))
       .map((c) => `line ${c.at}: ${RELEASES.exec(c.value)?.[0]}`);
     expect({ file, unrestored }).toEqual({ file, unrestored: [] });
   });
 });
+
+/*
+  KNOWN LIMITS, stated rather than left to be discovered.
+
+  - A size built by interpolation (`` `h-11 lg:h-${n}` ``) cannot be read from
+    source, and nothing here pretends to.
+  - A class assembled across separate statements — built in one `const` and
+    spread into another file — is grouped per statement, so the two halves are
+    judged apart.
+  - Card nesting is lexical plus the named list above; a panel reaching a card
+    through a prop is invisible to both.
+  - A control that is under 44px WITHOUT ever releasing at `lg:` is not a
+    release and is not checked here. A repo-wide audit of those is a separate
+    job from this rule.
+*/

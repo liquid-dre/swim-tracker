@@ -323,6 +323,11 @@ export function ImportMeetSheet({
   ]);
 
   function clearInput() {
+    // Including `multiDone`: without it, Clear left the footer reading "Done"
+    // over an empty sheet, and over a fresh single-meet programme whose own
+    // button had never been pressed — the same false claim this flag was
+    // added to remove one step earlier.
+    setMultiDone(false);
     setText("");
     setTruncated(null);
     setReadError(null);

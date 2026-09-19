@@ -11,7 +11,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DateField } from "@/components/ui/DateField";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { notify } from "@/lib/notify";
+import { errorMessage, notify } from "@/lib/notify";
+import { cn } from "@/lib/utils";
 import {
   formatMeetDates,
   groupEventsByDay,
@@ -304,7 +305,7 @@ export function MultiMeetReview({
     included.length > 0 &&
     rowsValid &&
     plan.duplicateId === null &&
-    // ===== 5. An empty plan is finished, not "Import 0 meets". After a
+    // An empty plan is finished, not "Import 0 meets". After a
     // partial failure, skipping the row that failed leaves nothing to write —
     // and the press still ran, wrote nothing, and toasted the previous pass's
     // count as though it had just happened.
@@ -357,10 +358,13 @@ export function MultiMeetReview({
       } catch (err) {
         next[i] = {
           status: "failed",
-          message:
-            err instanceof Error
-              ? err.message
-              : "That meet could not be saved.",
+          // `errorMessage`, not `err.message`: convex/meets.ts throws
+          // ConvexError, which extends Error, and `lib/notify` records why
+          // that matters — in production Convex redacts a plain Error's
+          // message, so the server's own words survive only inside `data`.
+          // This loop is sequential precisely so a failure says exactly which
+          // row stopped it, and it was printing the wrapper.
+          message: errorMessage(err, "That meet could not be saved."),
         };
       }
       setOutcomes([...next]);
@@ -472,7 +476,20 @@ export function MultiMeetReview({
         </label>
       )}
 
-      <div className="flex items-center gap-3">
+      {/* STICKY at the foot of the scroll container.
+
+          A twelve-row review is several thousand pixels tall, and this button
+          sat at the bottom of it while the sheet's own persistent footer
+          offered only "Cancel" — so the commit control for a season import
+          was off-screen from the moment the file parsed, and the blocked
+          reason beside it (suppressed in the footer for this path) went with
+          it. The single-meet path puts its primary action in the footer; this
+          keeps the same promise without splitting the button from the count
+          and the replace-warning that explain it.
+
+          `-mx-4 px-4` so the bar spans the scroll container's padding, and an
+          opaque `bg-background` so twelve rows do not read through it. */}
+      <div className="sticky bottom-0 -mx-4 flex flex-wrap items-center gap-3 border-t border-border bg-background px-4 py-3">
         <Button
           variant="primary"
           // `aria-disabled` so the reason beside it is reachable by tab, and
@@ -707,7 +724,13 @@ function MeetRow({
           // then did inside this one). The dashed
           // border, the struck title and the "Left out" sentence carry the
           // state; the opacity only needs to recede it.
-          row.skip ? "pointer-events-none select-none opacity-60" : undefined
+          // `flex flex-col gap-3` because this wrapper holds two sibling
+          // grids and `gap-3` does not cross a grid boundary: Course sat flush
+          // against Venue at 0px where every other field pair has 12px.
+          cn(
+            "flex flex-col gap-3",
+            row.skip && "pointer-events-none select-none opacity-60",
+          )
         }
       >
         {/* Two tracks, matching the Course / Save-as grid below. NOT four:
