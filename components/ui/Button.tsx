@@ -32,12 +32,27 @@ const base =
   // a dead control with no cursor, no hover, no tooltip and no click — and it
   // silently killed the two rules beside it. The click is stopped by the
   // caller's own guard.
-  "aria-disabled:bg-gray-100 aria-disabled:text-gray-500 aria-disabled:border-gray-300 " +
-  "aria-disabled:shadow-none aria-disabled:cursor-default aria-disabled:active:scale-100 " +
-  "aria-disabled:hover:bg-gray-100 aria-disabled:hover:text-gray-500 " +
-  // Busy keeps the live variant so a running action still reads as the action
-  // it is, and wins over the inert treatment above.
-  "aria-busy:bg-[initial] aria-busy:cursor-progress";
+  //
+  // Every rule is gated `:not([aria-busy])` rather than being overridden by a
+  // busy rule afterwards. `loading` sets BOTH `disabled` and `aria-busy`, and
+  // the override spelling tried here first reset the background to the CSS
+  // `initial` value under an aria-busy variant — but that value is
+  // TRANSPARENT, not "whatever the variant said", so every primary button
+  // vanished to white-on-canvas (1.03:1) for
+  // the whole duration of its own write. It did not even win: the inert fill
+  // compiled after it at equal specificity. A state this hard to reason about
+  // in overrides is one to express as a condition.
+  "[&[aria-disabled]:not([aria-busy])]:bg-gray-100 " +
+  "[&[aria-disabled]:not([aria-busy])]:text-gray-500 " +
+  "[&[aria-disabled]:not([aria-busy])]:border-gray-300 " +
+  "[&[aria-disabled]:not([aria-busy])]:shadow-none " +
+  "[&[aria-disabled]:not([aria-busy])]:cursor-default " +
+  "[&[aria-disabled]:not([aria-busy])]:active:scale-100 " +
+  "[&[aria-disabled]:not([aria-busy])]:hover:bg-gray-100 " +
+  "[&[aria-disabled]:not([aria-busy])]:hover:text-gray-500 " +
+  // Busy keeps the variant's own fill untouched — a running action still reads
+  // as the action it is — and only says so through the cursor.
+  "aria-busy:cursor-progress";
 
 const variants: Record<Variant, string> = {
   primary: "bg-brand-500 text-white shadow-theme-xs hover:bg-brand-600",

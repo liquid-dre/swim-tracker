@@ -15,8 +15,13 @@
   spelled that `h-11 lg:h-9` — width, not pointer. An iPad in landscape is
   1024–1366 CSS px, so it clears `lg` and the poolside coach, who is the primary
   persona and the reason meets is one screen, got 32–36px on every control the
-  surface is built from. Declared after `dark` so its rules sort last and win
-  over the `lg:` they correct.
+  surface is built from.
+
+  It wins over those `lg:` rules because Tailwind emits CUSTOM variants after
+  its own built-ins, whatever order they are declared in. (An earlier note here
+  credited the declaration order, having put this after `dark` on purpose —
+  but compiling it before, after and alone lands the rule at the same offset
+  all three times. The outcome was right for the wrong reason.)
 */
 @custom-variant touch (@media (pointer: coarse));
 

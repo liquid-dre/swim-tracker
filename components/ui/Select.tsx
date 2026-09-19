@@ -116,7 +116,15 @@ export function Select({
         aria-describedby={ariaDescribedBy}
         data-slot="select-trigger"
         className={cn(
-          "group inline-flex w-full items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-ink-faint",
+          "group inline-flex w-full items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring data-[placeholder]:text-ink-faint",
+          // Authored, as `Input` authors it, not `opacity-50`. `bg-white` and
+          // `text-gray-800` above override the UA's disabled rendering anyway,
+          // and an opacity COMPOSITES: inside MultiMeetReview's skipped row,
+          // which already dims itself to 60% to show what is being declined,
+          // 0.6 × 0.5 landed the ink at 1.85:1 — below the 2.11:1 that row's
+          // own comment rejects — while the Inputs beside it stayed at 60%.
+          // One row, two recession depths, neither of them the stated one.
+          "disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-ink-faint disabled:hover:border-gray-200",
           // Both sizes carry the same height rule - 44px everywhere a finger
           // reaches (PRODUCT.md), compacting only on a pointer-driven lg+
           // surface. They differ in TYPE, not in target. `md` was swept with

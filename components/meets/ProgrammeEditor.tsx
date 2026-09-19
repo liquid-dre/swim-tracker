@@ -713,11 +713,17 @@ function AddEvent({
                   className={
                     option.allowed
                       ? `${MENU_ITEM} justify-between ${index === active ? "bg-accent text-brand-600" : ""}`
-                      // `touch:min-h-11` to match MENU_ITEM above: arrows
-                      // traverse the disabled options too, so they are rows a
-                      // coach reads, and a list alternating 44px and 34px is
-                      // ragged on the surface this exists for.
-                      : "flex cursor-not-allowed select-none items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-gray-500 touch:min-h-11"
+                      // `touch:min-h-11` to match MENU_ITEM above, and the
+                      // active state for the same reason: arrows traverse the
+                      // disabled options deliberately, `aria-activedescendant`
+                      // moves onto them and the list scrolls to them — so
+                      // without it the highlight simply disappeared at the one
+                      // option whose reason the coach had arrowed over to read,
+                      // on a list that also alternated 44px and 34px rows.
+                      // Neutral, not brand: it is where you are, not something
+                      // you can pick.
+                      : "flex cursor-not-allowed select-none items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-gray-500 touch:min-h-11" +
+                        (index === active ? " bg-gray-100 text-gray-700" : "")
                   }
                   onMouseDown={(e) => {
                     e.preventDefault();
@@ -1036,11 +1042,6 @@ const ProgrammeLine = memo(function ProgrammeLine({
       )}
       {(mismatched || !resolved || entered === undefined || entered > 0) && (
         <p className="mt-2 flex flex-wrap gap-x-2 text-xs text-ink-muted">
-          {mismatched && (
-            <span className="text-warning-ink">
-              Not swum in this meet&rsquo;s course, so it can take no time.
-            </span>
-          )}
           {!resolved && (
             <span>Not an event this app tracks, so it can take no time.</span>
           )}
@@ -1158,9 +1159,16 @@ function EventPair({
       )}
       {/* Plain text, not a `role="status"` per row: switching the course fired
           one region per offending line at once, and the sentence that mattered
-          was lost in the crawl. The strip above announces the count. */}
+          was lost in the crawl. The strip above announces the count.
+
+          WARNING ink, not danger: `programmeEditing.ts` is explicit that a
+          course mismatch is a per-line warning and not a problem — the line
+          saves. Danger ink belongs to the one problem that stops a save. The
+          row note below said this same thing in warning ink, so a mismatched
+          row stated one fact twice in two semantic colours; that copy is gone
+          and this is the single carrier. */}
       {conflict !== null && (
-        <span className="text-xs text-danger-ink">{conflict}</span>
+        <span className="text-xs text-warning-ink">{conflict}</span>
       )}
     </div>
   );

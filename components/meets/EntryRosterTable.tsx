@@ -85,27 +85,33 @@ export function EntryRosterTable({
               {row.name}
             </span>
 
+            {/* Sized wrapper: a Select trigger is `w-full`, so as a bare flex
+                item it resolves to the whole row and pushes the time field and
+                the delete control onto lines of their own. The same rule, and
+                the same spelling, as the programme editor's EventPair. */}
             {days.length > 1 && (
-              <Select
-                aria-label={`Which day ${row.name} swims`}
-                // The control whose value the warning below contradicts, tied
-                // to it so a screen reader meets the reason with the control
-                // rather than a paragraph away.
-                aria-invalid={row.dayMismatch !== null ? true : undefined}
-                aria-describedby={
-                  row.dayMismatch !== null
-                    ? `${row._id}-day-mismatch`
-                    : undefined
-                }
-                value={row.swimDate}
-                onValueChange={(value) => onSetDay(row._id, value)}
-                size="sm"
-                // The same short spelling as the programme editor's picker —
-                // "Day 2" alone left the roster naming the day a third way.
-                // `textValue` is what typeahead matches, so it has to be the
-                // label: nobody jumps to a row by typing "2026-11-29".
-                options={dayOptions}
-              />
+              <div className="w-32 shrink-0">
+                <Select
+                  aria-label={`Which day ${row.name} swims`}
+                  // The control whose value the warning below contradicts, tied
+                  // to it so a screen reader meets the reason with the control
+                  // rather than a paragraph away.
+                  aria-invalid={row.dayMismatch !== null ? true : undefined}
+                  aria-describedby={
+                    row.dayMismatch !== null
+                      ? `${row._id}-day-mismatch`
+                      : undefined
+                  }
+                  value={row.swimDate}
+                  onValueChange={(value) => onSetDay(row._id, value)}
+                  size="sm"
+                  // The same short spelling as the programme editor's picker —
+                  // "Day 2" alone left the roster naming the day a third way.
+                  // `textValue` is what typeahead matches, so it has to be the
+                  // label: nobody jumps to a row by typing "2026-11-29".
+                  options={dayOptions}
+                />
+              </div>
             )}
 
             {resolved && courseKnown ? (

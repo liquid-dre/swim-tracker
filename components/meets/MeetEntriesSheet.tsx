@@ -369,17 +369,22 @@ export function MeetEntriesSheet({
                     className="h-11 w-full rounded-lg border border-gray-300 bg-white pl-8 pr-2 text-sm text-gray-800 lg:h-9 touch:h-11 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
                   />
                 </div>
+                {/* Sized wrapper, the spelling EventPair uses: a Select
+                    trigger is `w-full`, so bare in a flex row it claims the
+                    whole line and the field beside it wraps. */}
                 {squads.length > 0 && (
-                  <Select
-                    aria-label="Filter by squad"
-                    value={squadFilter}
-                    onValueChange={setSquadFilter}
-                    size="sm"
-                    options={[
-                      { value: "", label: "Any squad" },
-                      ...squads.map((q) => ({ value: q._id, label: q.name })),
-                    ]}
-                  />
+                  <div className="w-40 shrink-0">
+                    <Select
+                      aria-label="Filter by squad"
+                      value={squadFilter}
+                      onValueChange={setSquadFilter}
+                      size="sm"
+                      options={[
+                        { value: "", label: "Any squad" },
+                        ...squads.map((q) => ({ value: q._id, label: q.name })),
+                      ]}
+                    />
+                  </div>
                 )}
               </div>
 
@@ -435,15 +440,26 @@ export function MeetEntriesSheet({
               {/* VISIBLE, not sr-only. A sighted coach tapping a dead button
                   gets no cursor on touch, no hover and no tooltip — so a reason
                   only a screen reader can hear means nothing happens and
-                  nothing explains it. `MeetForm`'s blocked save does the same
-                  thing in the same slot. */}
+                  nothing explains it.
+
+                  Inked and announced exactly as `MeetForm`'s blocked save is:
+                  danger ink, because this is the reason a primary action will
+                  not fire, and a separate sr-only region, because the paragraph
+                  itself is the button's `aria-describedby` — which a screen
+                  reader reads on focus, not when it appears. This comment
+                  claimed parity with MeetForm before the code had either. */}
               {selected.length === 0 && (
-                <p
-                  id="meet-entries-add-blocked"
-                  className="mr-auto min-w-0 text-xs text-ink-muted"
-                >
-                  Tick at least one swimmer to add them to this event.
-                </p>
+                <>
+                  <span role="status" className="sr-only">
+                    Tick at least one swimmer to add them to this event.
+                  </span>
+                  <p
+                    id="meet-entries-add-blocked"
+                    className="mr-auto min-w-0 text-xs text-danger-ink"
+                  >
+                    Tick at least one swimmer to add them to this event.
+                  </p>
+                </>
               )}
               <Button
                 loading={adding}

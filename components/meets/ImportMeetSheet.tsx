@@ -914,8 +914,13 @@ export function ImportMeetSheet({
               {blockedReason}
             </p>
           )}
+          {/* `|| multi` because `done` is set only on the single-draft path:
+              the review list writes its own rows and reports per row, and is
+              mounted with no completion callback. Without it, twelve green
+              "Added" lines left this sheet's only exit reading "Cancel" — the
+              word for abandoning an irreversible write that already ran. */}
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            {done ? "Done" : "Cancel"}
+            {done || multi ? "Done" : "Cancel"}
           </Button>
           {!done && !multi && (
             // Replacing wears the destructive colour; adding a fixture does not.

@@ -277,10 +277,15 @@ export function DateField({
           "flex h-11 lg:h-9 touch:h-11 items-center gap-1 rounded-lg border bg-white pl-3 pr-1 text-base",
           "transition-[border-color,box-shadow] [transition-duration:var(--dur-1)]",
           "focus-within:border-brand-300 focus-within:shadow-focus-ring",
-          disabled && "cursor-not-allowed opacity-50",
           effectiveError
             ? "border-error-500 bg-error-50"
             : "border-gray-300 hover:border-gray-400",
+          // Authored rather than `opacity-50`, for the reason spelled out in
+          // `Select`: an opacity here composites with any the surrounding
+          // layout applies, and this field sits inside a row that dims itself.
+          // LAST, because `cn` is tailwind-merge — the error/idle border above
+          // would otherwise win and a blocked field would keep a live edge.
+          disabled && "cursor-not-allowed border-gray-200 bg-gray-50 hover:border-gray-200",
         )}
       >
         <input
@@ -306,7 +311,7 @@ export function DateField({
               commit(text);
             }
           }}
-          className="min-w-0 flex-1 bg-transparent text-gray-800 outline-none placeholder:text-gray-500 disabled:cursor-not-allowed"
+          className="min-w-0 flex-1 bg-transparent text-gray-800 outline-none placeholder:text-gray-500 disabled:cursor-not-allowed disabled:text-ink-faint disabled:placeholder:text-gray-400"
         />
 
         <Popover open={open} onOpenChange={setOpen}>
@@ -558,7 +563,7 @@ function YearField({
       }}
       // Matches the steppers beside it; `shrink-0` so the month label is what
       // gives way in the row, not the field you type into.
-      className="w-[3.25rem] shrink-0 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-center tabular-nums outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-200 focus:border-brand-300 focus:shadow-focus-ring touch:h-11"
+      className="h-8 w-[3.25rem] shrink-0 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-center tabular-nums outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-200 focus:border-brand-300 focus:shadow-focus-ring touch:h-11"
     />
   );
 }
@@ -577,11 +582,21 @@ function NavButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      // 44px. Four of these plus the month name and the year field use
-      // 2×(2×44+2) + 2×4 + 52 + 6 + ~26 = 272px of the 320px row the widened
-      // popover gives — they fit. An earlier note here said 4×44 did not fit,
-      // measured against the OLD 232px box and carried over unchecked.
-      className="flex size-11 shrink-0 lg:size-7 touch:size-11 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
+      // Follows the POPOVER WIDTH, the same rule as the day cell below, and
+      // for the same reason: the popover has two widths and the `touch:`
+      // variant picks both of them, so a step keyed to anything else can land
+      // four 44px buttons in a 232px row.
+      //
+      //   w-64  (256px) → row 232px: 4×32 + 2×2 + 2×4 + 52 + 6 = 198, so the
+      //                   month label gets 34px.
+      //   touch (344px) → row 320px: 4×44 + 2×2 + 2×4 + 52 + 6 = 246, so it
+      //                   gets 74px.
+      //
+      // The `lg:size-7` this replaces had a gap: between a fine pointer and
+      // 1024px neither it nor `touch:` applied, so the base 44px stood in the
+      // 232px row and overflowed it by about 14px with the label already
+      // truncated to nothing.
+      className="flex size-8 shrink-0 touch:size-11 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
     >
       {children}
     </button>

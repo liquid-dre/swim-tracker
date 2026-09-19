@@ -364,6 +364,7 @@ export function MeetForm({
                       <Select
                         id="meet-course"
                         aria-label="Course"
+                        aria-describedby="meet-course-hint"
                         value={course}
                         onValueChange={setCourse}
                         size="md"
@@ -392,6 +393,7 @@ export function MeetForm({
                       <Select
                         id="meet-gala"
                         aria-label="Gala tour"
+                        aria-describedby="meet-gala-hint"
                         value={galaCode}
                         onValueChange={setGalaCode}
                         size="md"
@@ -570,7 +572,16 @@ function SelectField({
         {label}
       </label>
       {children}
-      {hint && <p className="text-xs text-ink-muted">{hint}</p>}
+      {/* `id`, so the caller can hand it to the Select's `aria-describedby`.
+          `Input` and `DateField` both wire their own hints; this one was
+          visible and never announced, which left "A guessed course would
+          compare times against the wrong table" reaching nobody who could not
+          see it. */}
+      {hint && (
+        <p id={`${id}-hint`} className="text-xs text-ink-muted">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }

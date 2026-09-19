@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { AlertTriangle, Check, Info, Undo2, X } from "lucide-react";
 import { useMutation } from "convex/react";
 
@@ -439,6 +439,9 @@ function MeetRow({
 }) {
   const saved = outcome.status === "saved";
   const locked = disabled || saved || row.skip;
+  // Twelve of these render at once, so the label/control pairs below need ids
+  // unique to the ROW, not to the field.
+  const rowId = useId();
   const title = row.name.trim() === "" ? "Untitled meet" : row.name;
   // Banded against the dates this row will actually be SAVED with, so editing
   // the end date re-bands the summary rather than describing a meet the write
@@ -590,8 +593,18 @@ function MeetRow({
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-700">Course</label>
+            {/* `htmlFor`/`id` as well as the `aria-label`: the label carried
+                neither and wrapped nothing, so clicking the word "Course"
+                focused nothing at all. The name was fine; the affordance was
+                not. */}
+            <label
+              htmlFor={`${rowId}-course`}
+              className="text-sm font-medium text-gray-700"
+            >
+              Course
+            </label>
             <Select
+              id={`${rowId}-course`}
               value={row.course}
               onValueChange={(v) => onChange({ course: v })}
               disabled={locked}
@@ -623,8 +636,14 @@ function MeetRow({
           </div>
 
           <div className="flex min-w-0 flex-col gap-1.5">
-            <label className="text-sm font-medium text-gray-700">Save as</label>
+            <label
+              htmlFor={`${rowId}-target`}
+              className="text-sm font-medium text-gray-700"
+            >
+              Save as
+            </label>
             <Select
+              id={`${rowId}-target`}
               value={row.target}
               onValueChange={(v) => onChange({ target: v })}
               disabled={locked}
