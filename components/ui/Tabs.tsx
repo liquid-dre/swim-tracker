@@ -118,7 +118,10 @@ export function Tabs({
                 onClick={() => onValueChange(item.value)}
                 onKeyDown={(e) => onKeyDown(e, i)}
                 className={cn(
-                  "relative -mb-px inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-sm px-0.5 pb-3 pt-1 text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring",
+                  // `touch:min-h-11` for the app-wide pointer rule: `pb-3 pt-1`
+                  // left these around 36px, and on a tablet the Details/Events
+                  // switch is hit on every pass down a programme.
+                  "relative -mb-px inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-sm px-0.5 pb-3 pt-1 text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring touch:min-h-11",
                   active ? "text-ink" : "text-ink-muted hover:text-ink",
                 )}
               >
@@ -138,7 +141,7 @@ export function Tabs({
                       "inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold tabular-nums transition-colors [transition-duration:var(--dur-1)]",
                       active
                         ? "bg-brand-500 text-white"
-                        : "bg-brand-50 text-brand-500",
+                        : "bg-brand-50 text-brand-600",
                     )}
                   >
                     {count}

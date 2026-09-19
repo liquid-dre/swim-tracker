@@ -184,6 +184,8 @@ export function ProgrammeEditor({
   dayDates,
   undo,
   setUndo,
+  carriedDown,
+  setCarriedDown,
   onChange,
   entryCounts,
   problems = [],
@@ -213,6 +215,19 @@ export function ProgrammeEditor({
    */
   undo: ProgrammeUndo | null;
   setUndo: (undo: ProgrammeUndo | null) => void;
+  /**
+   * Has the coach USED the carry-down? Owned by the form for the same reason
+   * `undo` is — `Tabs` unmounts this panel.
+   *
+   * Deliberately not derived from "some line has a day": the importer reads
+   * days out of a document's own headings, so a re-imported three-day gala
+   * arrives part-dayed, which is exactly the state the hint exists for. Derived
+   * that way the hint vanished before the coach ever saw it, and "…and below"
+   * only appears once a row HAS a day — so the one sentence naming the control
+   * disappeared at the moment the control appeared.
+   */
+  carriedDown: boolean;
+  setCarriedDown: (used: boolean) => void;
   /** A state setter, so an edit can be expressed as a function of the list. */
   onChange: Dispatch<SetStateAction<MeetEvent[]>>;
   /**
@@ -231,11 +246,7 @@ export function ProgrammeEditor({
   onFocused?: () => void;
 }) {
   const [announcement, setAnnouncement] = useState("");
-  // DERIVED, not stored: kept as local state it died on the very tab switch
-  // the undo was lifted out of this component to survive, and the hint came
-  // back to a coach who had already used the control it teaches.
-  const usedCarryDown =
-    undo !== null || lines.some((l) => l.day !== undefined);
+
 
   // The row below is memoized, which only pays off if its props are stable —
   // and passing the whole `lines` array plus a closure over it would rebuild
@@ -317,7 +328,10 @@ export function ProgrammeEditor({
     mismatched: mismatched.length,
     wouldNumber: moveWouldNumber(lines),
     teaching:
-      dayOptions.length > 1 && lines.length > 0 && tally.unplaced > 0 && !usedCarryDown,
+      dayOptions.length > 1 &&
+      lines.length > 0 &&
+      tally.unplaced > 0 &&
+      !carriedDown,
   });
 
   const on = useMemo<LineHandlers>(
@@ -330,7 +344,10 @@ export function ProgrammeEditor({
       day: (i, d) =>
         apply(
           (ls) => setLineDay(ls, i, d),
-          d === undefined ? "Day cleared." : `Moved to day ${d}.`,
+          // The picker's own words, not a third spelling of a day.
+          d === undefined
+            ? "Day cleared."
+            : `Moved to ${dayOptions[d - 1]?.label ?? `day ${d}`}.`,
         ),
       // The one edit here that rewrites the whole list below the cursor, so
       // the one that keeps an undo. Used out of order — Day 1 from row 0 after
@@ -343,6 +360,7 @@ export function ProgrammeEditor({
         // pure — React calls it twice under StrictMode — so a `setUndo` inside
         // it would record the snapshot twice and, on the second call, record
         // the already-written list as the thing to go back to.
+        setCarriedDown(true);
         setUndo({
           lines: linesRef.current,
           count: below + 1,
@@ -362,7 +380,7 @@ export function ProgrammeEditor({
       split: (i, said) => apply((ls) => splitLine(ls, i), said),
       remove: (i, said) => apply((ls) => removeLine(ls, i), said),
     }),
-    [apply, onChange, setUndo, dayDates],
+    [apply, onChange, setUndo, setCarriedDown, dayDates, dayOptions],
   );
 
   return (
@@ -470,7 +488,7 @@ export function ProgrammeEditor({
         /* Banded where the day CHANGES, in array order, so the list never
            reorders itself while the order is being stated. */
         <ul
-          aria-label={`Programme, ${lines.length} events`}
+          aria-label={`Programme, ${lines.length} ${lines.length === 1 ? "event" : "events"}`}
           className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xs"
         >
           {dayGroups.map((group) => (
@@ -651,8 +669,10 @@ function AddEvent({
             variant="secondary"
             size="sm"
             className="shrink-0"
-            disabled={search.trim() === "" || exactMatch !== undefined}
+            aria-disabled={search.trim() === "" || exactMatch !== undefined}
+            aria-describedby="programme-add-hint"
             onClick={() => {
+              if (search.trim() === "" || exactMatch !== undefined) return;
               onChange(addCustomLine(lines, search));
               onAdded(search.trim());
               setSearch("");
@@ -688,7 +708,7 @@ function AddEvent({
                   aria-disabled={!option.allowed}
                   className={
                     option.allowed
-                      ? `${MENU_ITEM} justify-between ${index === active ? "bg-accent text-primary" : ""}`
+                      ? `${MENU_ITEM} justify-between ${index === active ? "bg-accent text-brand-600" : ""}`
                       : "flex cursor-not-allowed select-none items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-gray-500"
                   }
                   onMouseDown={(e) => {
@@ -707,11 +727,11 @@ function AddEvent({
           </ul>
         )}
       </div>
-      {/* A live region, because the sentence changes underneath a button that
-          is disabled and therefore cannot describe itself to a screen reader. */}
-      {/* Plain text: it changes on every keystroke, and a combobox already
-          announces its own options. */}
-      <p className="text-xs text-ink-muted">
+      {/* NOT a live region — it changes on every keystroke — but the sentence
+          below is the only explanation of why "Add as written" goes dead, and a
+          real `disabled` button is unfocusable and cannot describe itself. So
+          the button is `aria-disabled` and points here instead. */}
+      <p id="programme-add-hint" className="text-xs text-ink-muted">
         {exactMatch
           ? exactMatch.allowed
             ? `${exactMatch.label} is a real event, so add it from the list — a line typed by hand can never take a time.`
@@ -1169,7 +1189,13 @@ const IconButton = forwardRef<
       className={
         "inline-flex size-11 items-center justify-center rounded-lg transition-colors [transition-duration:var(--dur-1)] lg:size-9 touch:size-11 " +
         "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
-        "aria-disabled:opacity-40 aria-disabled:cursor-default " +
+        // `aria-disabled` keeps the button focusable, so its disabled state is
+        // NOT exempt from contrast the way a native `disabled` one is: 40% of
+        // gray-500 is about 1.9:1 to land on. Dimmer ink, full opacity, and no
+        // hover — a dead arrow that lights up under the finger and does nothing
+        // reads as "pressed and ignored" on a touch screen, where the hover
+        // state then sticks.
+        "aria-disabled:text-gray-400 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-gray-400 " +
         (danger
           ? "text-gray-500 hover:bg-error-50 hover:text-error-500"
           : "text-gray-500 hover:bg-gray-100 hover:text-gray-800")

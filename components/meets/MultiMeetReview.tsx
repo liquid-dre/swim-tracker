@@ -472,7 +472,7 @@ function MeetRow({
               type="button"
               onClick={() => onChange({ skip: !row.skip })}
               disabled={disabled}
-              className="rounded-md p-1.5 text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-ink focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="rounded-md p-1.5 touch:min-h-11 touch:min-w-11 touch:inline-flex touch:items-center touch:justify-center text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-ink focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               aria-label={
                 row.skip
                   ? `Include ${title} in this import`

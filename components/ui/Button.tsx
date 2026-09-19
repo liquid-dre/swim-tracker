@@ -15,7 +15,10 @@ const variants: Record<Variant, string> = {
   secondary:
     "bg-white text-gray-700 border border-gray-300 shadow-theme-xs hover:bg-gray-50",
   ghost: "bg-transparent text-gray-500 hover:bg-gray-100 hover:text-gray-800",
-  danger: "bg-error-500 text-white shadow-theme-xs hover:bg-error-600",
+  // error-600, not 500: white on #f04438 is 3.76:1 and a button label is
+  // normal-weight text needing 4.5. DESIGN.md §2 already made this call for
+  // danger INK and it was never applied to the fill.
+  danger: "bg-error-600 text-white shadow-theme-xs hover:bg-error-700",
 };
 
 // ≥44px targets on touch viewports (PRODUCT.md); compact from lg up so the

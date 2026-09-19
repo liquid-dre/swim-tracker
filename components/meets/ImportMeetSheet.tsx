@@ -495,7 +495,7 @@ export function ImportMeetSheet({
               <button
                 type="button"
                 onClick={clearInput}
-                className="rounded-md px-2 py-1 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex items-center rounded-md px-2 py-1 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring touch:min-h-11"
               >
                 Clear
               </button>

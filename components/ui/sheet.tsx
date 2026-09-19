@@ -74,8 +74,13 @@ function SheetContent({
         {...props}
       >
         {children}
+        {/* The control a coach hits most on this surface — open event 101,
+            type a time, close, open 103 — and it sat at 16px in the hardest
+            corner to reach one-handed while everything inside the sheet was
+            sized to 44. `focus-visible`, not `focus`, so a pointer dismiss does
+            not leave a ring behind. */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-secondary">
+          <SheetPrimitive.Close className="absolute top-2.5 right-2.5 inline-flex size-11 items-center justify-center rounded-lg opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none data-[state=open]:bg-secondary lg:size-8 touch:size-11">
             <XIcon className="size-4" />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>

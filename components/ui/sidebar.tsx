@@ -500,7 +500,7 @@ const sidebarMenuButtonVariants = cva(
       size: {
         // ≥44px nav targets in the mobile sheet (PRODUCT.md); compact on lg+
         // where the sidebar is pointer-driven.
-        default: "h-11 text-sm lg:h-8",
+        default: "h-11 text-sm lg:h-8 touch:h-11",
         sm: "h-11 text-xs lg:h-7",
         lg: "h-12 text-sm group-data-[collapsible=icon]:p-0!",
       },

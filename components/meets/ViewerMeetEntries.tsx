@@ -99,11 +99,25 @@ export function ViewerMeetEntries({
                   {/* The programme moved after this entry was made. Said here
                       because a family reading the old morning is the whole
                       failure: they turn up on the wrong day, confidently. */}
-                  {entry.dayMismatch !== null && upcoming && (
+                  {/* Kept for a meet already swum too — a parent reconciling a
+                      result against the printed programme needs the reason the
+                      two disagree. Only the STRIKE is wrong afterwards, because
+                      by then the entry's own date is the authoritative one. */}
+                  {entry.dayMismatch !== null && (
                     <p className="w-full text-xs text-warning-ink">
-                      The programme now swims this on{" "}
-                      <DayName meet={meet} iso={entry.dayMismatch} />. Check
-                      with the coach before the meet.
+                      {upcoming ? (
+                        <>
+                          The programme now swims this on{" "}
+                          <DayName meet={meet} iso={entry.dayMismatch} />. Check
+                          with the coach before the meet.
+                        </>
+                      ) : (
+                        <>
+                          The programme later moved this to{" "}
+                          <DayName meet={meet} iso={entry.dayMismatch} />; this
+                          time was recorded on the day above.
+                        </>
+                      )}
                     </p>
                   )}
                 </li>

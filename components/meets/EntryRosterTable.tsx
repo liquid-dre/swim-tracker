@@ -122,21 +122,33 @@ export function EntryRosterTable({
 
             <button
               type="button"
-              aria-label={`Take ${row.name} off this event`}
+              // Same idiom as the programme editor's IconButton: the REASON
+              // goes in the accessible name, because `title` is a mouse
+              // affordance an iPad never shows and a native `disabled` button
+              // is unfocusable, so neither touch nor keyboard could reach it —
+              // on the one destructive control here.
+              aria-label={
+                row.resultId === null
+                  ? `Take ${row.name} off this event`
+                  : `Take ${row.name} off this event — delete the recorded time first`
+              }
               title={
                 row.resultId === null
                   ? `Take ${row.name} off this event`
                   : "Delete the recorded time before taking this swimmer off"
               }
-              disabled={row.resultId !== null}
-              onClick={() => onRemove(row._id)}
-              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors lg:size-9 touch:size-11 [transition-duration:var(--dur-1)] outline-none hover:bg-error-50 hover:text-error-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-40 disabled:cursor-default"
+              aria-disabled={row.resultId !== null || undefined}
+              onClick={() => {
+                if (row.resultId !== null) return;
+                onRemove(row._id);
+              }}
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors lg:size-9 touch:size-11 [transition-duration:var(--dur-1)] outline-none hover:bg-error-50 hover:text-error-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 aria-disabled:text-gray-400 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
             >
               <Trash2 aria-hidden className="size-4" />
             </button>
           </div>
 
-          <p className="empty:hidden text-xs text-ink-muted">
+          <p className="text-xs text-ink-muted">
             <SwimOutcome row={row} />
             {row.genderMismatch && (
               <span className="text-warning-ink">

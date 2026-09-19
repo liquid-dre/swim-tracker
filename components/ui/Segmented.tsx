@@ -81,7 +81,7 @@ export function Segmented<T extends string>({
               // BUTTON, so that rule's selector never reached it, and a 14px
               // segmented control beside a 16px field is the same mismatch one
               // pixel smaller.
-              "h-11 lg:h-8 touch:h-11 rounded-sm px-3.5 text-[1rem] lg:text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
+              "h-11 lg:h-8 touch:h-11 rounded-sm px-3.5 text-[1rem] lg:text-sm touch:text-[1rem] font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
               (active
                 ? "bg-white text-gray-800 shadow-theme-xs"
                 : "text-gray-500 hover:text-gray-800")

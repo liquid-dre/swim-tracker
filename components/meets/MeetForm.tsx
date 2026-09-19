@@ -112,6 +112,9 @@ export function MeetForm({
   // showing, so an undo living in the editor died the moment a coach checked
   // the course on Details — while the sixty edits it would undo survived.
   const [undo, setUndo] = useState<ProgrammeUndo | null>(null);
+  // Also here, and for the same reason: the hint that names the carry-down must
+  // not come back to a coach who has already used it.
+  const [carriedDown, setCarriedDown] = useState(false);
   // The line the blocked reason is about, so the footer can take the coach to
   // it instead of naming an event number they then have to hunt for.
   const [focusLine, setFocusLine] = useState<number | null>(null);
@@ -319,7 +322,7 @@ export function MeetForm({
                       max={latestEnd}
                     />
                     {strandedByDates > 0 && (
-                      <p role="status" className="text-xs text-warning-ink">
+                      <p className="text-xs text-warning-ink">
                         {strandedByDates === 1
                           ? "One event is on a day this meet no longer runs"
                           : `${strandedByDates} events are on days this meet no longer runs`}
@@ -364,7 +367,7 @@ export function MeetForm({
                         ]}
                       />
                       {mismatched.length > 0 && (
-                        <p role="status" className="text-xs text-warning-ink">
+                        <p className="text-xs text-warning-ink">
                           {mismatched.length === 1
                             ? "One event on the programme can't be swum in this course."
                             : `${mismatched.length} events on the programme can't be swum in this course.`}{" "}
@@ -418,6 +421,8 @@ export function MeetForm({
                       dayDates={dayDates}
                       undo={undoIsCurrent ? undo : null}
                       setUndo={setUndo}
+                      carriedDown={carriedDown}
+                      setCarriedDown={setCarriedDown}
                       onChange={setEvents}
                       entryCounts={entryCounts}
                       problems={programmeProblems}
@@ -440,9 +445,15 @@ export function MeetForm({
               way TO that line. `aria-describedby` on the disabled button below
               cannot carry it — a disabled button is not focusable — so the live
               region is how a screen-reader user learns why Save is unavailable. */}
+          {/* The live region is a separate sr-only line. With `role="status"`
+              on the paragraph, its BUTTON was inside the region, so the whole
+              "Go to the first of 3" string was re-announced on every keystroke
+              that changed the count. */}
+          <span role="status" className="sr-only">
+            {blockedReason ?? ""}
+          </span>
           <p
             id="meet-form-blocked"
-            role="status"
             className="mr-auto min-w-0 text-xs text-danger-ink"
           >
             {blockedReason && firstProblem?.index != null ? (

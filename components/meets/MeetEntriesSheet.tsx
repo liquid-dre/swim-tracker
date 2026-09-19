@@ -394,7 +394,7 @@ export function MeetEntriesSheet({
                 <ul className="max-h-56 overflow-y-auto">
                   {candidates.map((swimmer) => (
                     <li key={swimmer._id}>
-                      <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-primary">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm touch:min-h-11 text-gray-700 transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-brand-600">
                         <input
                           type="checkbox"
                           checked={selected.includes(swimmer._id)}
