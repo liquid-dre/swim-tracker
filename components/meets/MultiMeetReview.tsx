@@ -11,7 +11,7 @@ import { DateField } from "@/components/ui/DateField";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { notify } from "@/lib/notify";
-import { normaliseMeetName } from "@/lib/meets";
+import { groupEventsByDay, normaliseMeetName } from "@/lib/meets";
 import type { MeetDraft } from "@/lib/meetImport";
 import type { Course } from "@/lib/swim";
 import { courseMismatches } from "./programmeEditing";
@@ -416,6 +416,14 @@ function MeetRow({
   const saved = outcome.status === "saved";
   const locked = disabled || saved || row.skip;
   const title = row.name.trim() === "" ? "Untitled meet" : row.name;
+  // Banded against the dates this row will actually be SAVED with, so editing
+  // the end date re-bands the summary rather than describing a meet the write
+  // will not produce.
+  const dayBands = groupEventsByDay(draft.events, {
+    startDate: row.startDate,
+    endDate:
+      row.endDate !== "" && row.endDate > row.startDate ? row.endDate : null,
+  });
 
   return (
     <li
@@ -432,10 +440,19 @@ function MeetRow({
           {title}
         </p>
         <div className="flex shrink-0 items-center gap-3">
+          {/* The day split is stated, not applied unseen. A whole-season
+              workbook is exactly where a multi-day gala arrives, and this
+              sheet's discipline is to hold every inference up before it
+              commits — it does that for the course, so it does it for the
+              days the parser read out of the programme's own headings. */}
           <span className="text-xs tabular-nums text-ink-faint">
             {draft.events.length === 0
               ? "No events yet"
-              : `${draft.events.length} events`}
+              : dayBands.length > 1
+                ? dayBands
+                    .map((g) => `${g.events.length} on ${g.label}`)
+                    .join(" · ")
+                : `${draft.events.length} events`}
           </span>
           {/* Leaving a meet out is reversible and costs nothing, so it is a
               plain toggle rather than a destructive-looking delete: the file is

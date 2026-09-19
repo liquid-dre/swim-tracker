@@ -15,7 +15,6 @@ import {
 import {
   ArrowDown,
   ArrowUp,
-  ChevronsDown,
   Plus,
   Split,
   Trash2,
@@ -28,6 +27,7 @@ import { MENU_ITEM, MENU_PANEL } from "@/components/ui/menu-styles";
 import {
   DAY_NOT_LISTED,
   MEET_GENDER_LABEL,
+  groupLineIndicesByDay,
   type MeetEvent,
   type MeetEventGender,
 } from "@/lib/meets";
@@ -89,7 +89,7 @@ type LineHandlers = {
   update: (i: number, patch: Partial<MeetEvent>) => void;
   gender: (i: number, g: MeetEventGender) => void;
   day: (i: number, day: number | undefined) => void;
-  dayFrom: (i: number, day: number, said: string) => void;
+  dayFrom: (i: number, day: number, below: number, overwrites: number) => void;
   resolve: (i: number, event: { distance: Distance; stroke: Stroke }) => void;
   clear: (i: number) => void;
   move: (i: number, delta: -1 | 1, said: string) => void;
@@ -104,6 +104,7 @@ export function ProgrammeEditor({
   lines,
   course,
   dayOptions,
+  dayDates,
   onChange,
   entryCounts,
   problems = [],
@@ -122,6 +123,8 @@ export function ProgrammeEditor({
    * Must be referentially stable — every row is memoized on it.
    */
   dayOptions: ReadonlyArray<DayOption>;
+  /** The meet's dates, so the editor bands with the read view's own function. */
+  dayDates: { startDate: string; endDate?: string | null };
   /** A state setter, so an edit can be expressed as a function of the list. */
   onChange: Dispatch<SetStateAction<MeetEvent[]>>;
   /**
@@ -140,6 +143,10 @@ export function ProgrammeEditor({
   onFocused?: () => void;
 }) {
   const [announcement, setAnnouncement] = useState("");
+  /** The list as it stood before the last carry-down, for one step of undo. */
+  const [undo, setUndo] = useState<{ lines: MeetEvent[]; count: number } | null>(
+    null,
+  );
 
   // The row below is memoized, which only pays off if its props are stable —
   // and passing the whole `lines` array plus a closure over it would rebuild
@@ -169,6 +176,11 @@ export function ProgrammeEditor({
   }, [problems]);
 
   const reorderBlocked = reorderBlockedReason(lines);
+  // One grouping rule, shared with the programme the coach will land on.
+  const dayGroups = useMemo(
+    () => groupLineIndicesByDay(lines, dayDates),
+    [lines, dayDates],
+  );
   // Only meaningful on a multi-day meet; the tally below is gated on that.
   const tally = countLinesByDay(lines, dayOptions.length);
 
@@ -190,17 +202,30 @@ export function ProgrammeEditor({
     () => ({
       update: (i, patch) => apply((ls) => updateLine(ls, i, patch), ""),
       gender: (i, g) => apply((ls) => setLineGender(ls, i, g), ""),
-      // Announced, unlike the other field edits: a picker says its own new
-      // value, but "36 events moved" is a fact no control reports.
       day: (i, d) => apply((ls) => setLineDay(ls, i, d), ""),
-      dayFrom: (i, d, said) => apply((ls) => setDayFrom(ls, i, d), said),
+      // The one edit here that rewrites the whole list below the cursor, so
+      // the one that keeps an undo. Used out of order — Day 1 from row 0 after
+      // the Sunday and Monday were already placed — it collapses a full
+      // assignment pass, and the only other escape is discarding every edit in
+      // the sheet. A picker announces its own new value; "36 events moved"
+      // is a fact no control reports, so this one says it.
+      dayFrom: (i, d, below, overwrites) =>
+        onChange((prev) => {
+          setUndo({ lines: prev, count: below + 1 });
+          setAnnouncement(
+            `${below + 1} events moved to day ${d}.${
+              overwrites > 0 ? ` ${overwrites} were on another day.` : ""
+            } Undo is available.`,
+          );
+          return setDayFrom(prev, i, d);
+        }),
       resolve: (i, event) => apply((ls) => resolveLine(ls, i, event), ""),
       clear: (i) => apply((ls) => unresolveLine(ls, i), ""),
       move: (i, delta, said) => apply((ls) => moveLine(ls, i, delta), said),
       split: (i, said) => apply((ls) => splitLine(ls, i), said),
       remove: (i, said) => apply((ls) => removeLine(ls, i), said),
     }),
-    [apply],
+    [apply, onChange],
   );
 
   return (
@@ -242,30 +267,55 @@ export function ProgrammeEditor({
       {reorderBlocked !== null && (
         <p className="text-xs text-warning-ink">{reorderBlocked}</p>
       )}
+      {undo !== null && (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+          <span>
+            <span className="tabular-nums text-ink">{undo.count}</span> events
+            moved to one day.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              const restore = undo.lines;
+              setUndo(null);
+              onChange(() => restore);
+              setAnnouncement("Those events are back on the days they were on.");
+            }}
+            className="rounded-sm font-medium text-brand-600 underline underline-offset-2 outline-none hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          >
+            Undo
+          </button>
+        </p>
+      )}
+
       {/* The running total, ALWAYS on a multi-day meet — not only while
           something is unplaced. "Is Saturday about half of it?" is the question
           being answered while the days are assigned, and a note that vanishes
           the moment it reaches zero makes an absence the only completion
           signal. */}
+      {/* Spaced spans, not `·`-joined: the separator is already inside every
+          day's own label ("Day 2 · Sun"), so joining with it too produced one
+          unreadable run. */}
       {dayOptions.length > 1 && (
-        <p role="status" className="text-xs text-ink-muted">
+        <p
+          role="status"
+          className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-ink-muted"
+        >
           {tally.byDay.map((n, i) => (
             <span key={i}>
-              {i > 0 && " · "}
               {dayOptions[i].label}:{" "}
               <span className="tabular-nums text-ink">{n}</span>
             </span>
           ))}
           {tally.unplaced > 0 ? (
-            <>
-              {" · "}
+            <span>
               {DAY_NOT_LISTED}:{" "}
               <span className="tabular-nums text-warning-ink">
                 {tally.unplaced}
               </span>
-            </>
+            </span>
           ) : (
-            <span className="text-success-ink"> · every event has a day</span>
+            <span className="text-success-ink">Every event has a day.</span>
           )}
         </p>
       )}
@@ -286,55 +336,67 @@ export function ProgrammeEditor({
         /* One card of divided rows, not sixty stacked cards: at a real
            programme's length, sixty identical bordered panels give the one line
            that needs attention the same weight as the fifty-nine that do not. */
-        /* Banded by day, so the editor SHOWS the grouping it is creating — the
-           read view sections the programme, and doing that work in a flat list
-           meant saving and navigating just to see the result.
-
-           The bands are computed in ARRAY order and never reorder anything, so
-           every index the row handlers use is untouched. A band therefore opens
-           wherever the day CHANGES, which means a programme whose days are
-           interleaved draws its band twice. That is not a bug to hide: a real
-           programme is contiguous by day, so a repeated band is the editor
-           saying the running order and the days disagree. */
+        /* Banded by the SAME function the read view bands with
+           (`groupLineIndicesByDay`), over INDICES — so the grouping a coach
+           creates here is provably the grouping they land on after saving, and
+           every index the row handlers address is untouched. Banding on "the
+           day changed since the previous row" looked equivalent and was not: it
+           drew nothing for an empty day, drew a label twice for interleaved
+           days, and used the SHORT spelling this codebase reserves for narrow
+           pickers. */
         <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xs">
-          {lines.map((line, i) => (
-            <Fragment key={line.id ?? String(i)}>
-              {dayOptions.length > 1 &&
-                (i === 0 || lines[i - 1].day !== line.day) && (
-                  <li
-                    aria-hidden
-                    className="border-b border-gray-100 bg-gray-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink"
-                  >
-                    {line.day !== undefined && dayOptions[line.day - 1]
-                      ? dayOptions[line.day - 1].label
-                      : DAY_NOT_LISTED}
-                  </li>
-                )}
-            <ProgrammeLine
-              key={line.id ?? String(i)}
-              line={line}
-              index={i}
-              total={lines.length}
-              course={course}
-              dayOptions={dayOptions}
-              entered={
-                entryCounts === undefined
-                  ? undefined
-                  : line.id === undefined
-                    ? 0
-                    : (entryCounts.get(line.id) ?? 0)
-              }
-              problem={problemsByLine.get(i) ?? null}
-              mismatched={mismatched.includes(i)}
-              focusMe={focusTarget === i}
-              onFocused={onFocused}
-              onFocusedLocal={clearFocusAfter}
-              onRemoved={rememberFocusAfterRemove}
-              canMoveUp={canMoveLine(lines, i, -1)}
-              canMoveDown={canMoveLine(lines, i, 1)}
-              below={lines.length - i - 1}
-              on={on}
-            />
+          {dayGroups.map((group) => (
+            <Fragment key={group.day ?? "unplaced"}>
+              {group.label !== "" && (
+                <li className="border-b border-gray-100 bg-gray-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink">
+                  {group.label}
+                  <span className="ml-2 font-normal normal-case tracking-normal text-ink-muted">
+                    {group.indices.length === 0
+                      ? "nothing here yet"
+                      : `${group.indices.length} ${group.indices.length === 1 ? "event" : "events"}`}
+                  </span>
+                </li>
+              )}
+              {group.indices.map((i) => {
+                const line = lines[i];
+                return (
+                  <ProgrammeLine
+                    key={line.id ?? String(i)}
+                    line={line}
+                    index={i}
+                    total={lines.length}
+                    course={course}
+                    dayOptions={dayOptions}
+                    entered={
+                      entryCounts === undefined
+                        ? undefined
+                        : line.id === undefined
+                          ? 0
+                          : (entryCounts.get(line.id) ?? 0)
+                    }
+                    problem={problemsByLine.get(i) ?? null}
+                    mismatched={mismatched.includes(i)}
+                    focusMe={focusTarget === i}
+                    onFocused={onFocused}
+                    onFocusedLocal={clearFocusAfter}
+                    onRemoved={rememberFocusAfterRemove}
+                    canMoveUp={canMoveLine(lines, i, -1)}
+                    canMoveDown={canMoveLine(lines, i, 1)}
+                    below={lines.length - i - 1}
+                    overwrites={
+                      line.day === undefined
+                        ? 0
+                        : lines.filter(
+                            (l, n) =>
+                              n > i &&
+                              l.day !== undefined &&
+                              l.day !== line.day,
+                          ).length
+                    }
+                    on={on}
+                  />
+                );
+              })}
             </Fragment>
           ))}
         </ul>
@@ -543,6 +605,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
   canMoveUp,
   canMoveDown,
   below,
+  overwrites,
   on,
 }: {
   line: MeetEvent;
@@ -569,6 +632,8 @@ const ProgrammeLine = memo(function ProgrammeLine({
   canMoveDown: boolean;
   /** How many lines follow this one — the reach of "and everything below". */
   below: number;
+  /** How many of those are already on a DIFFERENT day, and would change. */
+  overwrites: number;
   on: LineHandlers;
 }) {
   const resolved = line.distance !== undefined && line.stroke !== undefined;
@@ -596,6 +661,10 @@ const ProgrammeLine = memo(function ProgrammeLine({
 
   const name =
     line.rawLabel.trim() === "" ? `event ${index + 1}` : line.rawLabel;
+  const dayName =
+    line.day === undefined
+      ? ""
+      : (dayOptions[line.day - 1]?.label ?? `day ${line.day}`);
   const problemId = `programme-line-${index}-problem`;
 
   return (
@@ -658,6 +727,41 @@ const ProgrammeLine = memo(function ProgrammeLine({
                 })),
               ]}
             />
+            {/* Beside the control it acts on, and in WORDS. As a fifth grey
+                icon in the action cluster it was the least discoverable thing
+                on the surface — and it is the entire reason the day feature is
+                workable at sixty rows, so not finding it costs the coach the
+                whole saving.
+
+                `aria-disabled` rather than `disabled`: the disabled state is
+                the one a coach meets FIRST (a line with no day yet), and
+                `disabled:pointer-events-none` suppressed the title carrying the
+                only explanation of why. */}
+            {below > 0 && (
+              <button
+                type="button"
+                aria-disabled={line.day === undefined}
+                title={
+                  line.day === undefined
+                    ? `Give ${name} a day first, then this puts the ${below} events below it on the same day.`
+                    : overwrites > 0
+                      ? `Puts ${name} and the ${below} events below it on ${dayName}, changing ${overwrites} already on another day.`
+                      : `Puts ${name} and the ${below} events below it on ${dayName}.`
+                }
+                onClick={() => {
+                  if (line.day === undefined) return;
+                  on.dayFrom(index, line.day, below, overwrites);
+                }}
+                className={
+                  "self-start rounded-sm text-xs underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
+                  (line.day === undefined
+                    ? "cursor-default text-ink-faint"
+                    : "text-ink-muted hover:text-ink")
+                }
+              >
+                {overwrites > 0 ? "…and below (changes others)" : "…and below"}
+              </button>
+            )}
           </div>
         )}
 
@@ -736,31 +840,6 @@ const ProgrammeLine = memo(function ProgrammeLine({
           >
             <ArrowDown aria-hidden className="size-4" />
           </IconButton>
-          {/* The day boundary, as one click. A programme is contiguous by day,
-              so "everything from here is the Sunday" is the statement the
-              document actually makes — and it replaces thirty selects. Only
-              once this line HAS a day: there is nothing to apply otherwise. */}
-          {dayOptions.length > 1 && below > 0 && (
-            <IconButton
-              label={
-                line.day === undefined
-                  ? `Set this event's day first to apply it to the ${below} events below`
-                  : `Put ${name} and the ${below} events below it on ${dayOptions[line.day - 1]?.label ?? `day ${line.day}`}`
-              }
-              disabled={line.day === undefined}
-              onClick={() =>
-                on.dayFrom(
-                  index,
-                  line.day!,
-                  `${below + 1} events moved to ${
-                    dayOptions[line.day! - 1]?.label ?? `day ${line.day}`
-                  }.`,
-                )
-              }
-            >
-              <ChevronsDown aria-hidden className="size-4" />
-            </IconButton>
-          )}
           <IconButton
             label={`Split ${name} into Boys and Girls`}
             onClick={() => on.split(index, `${name} split into two events.`)}

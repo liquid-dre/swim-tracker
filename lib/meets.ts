@@ -71,7 +71,7 @@ export type MeetEvent = {
   /**
    * Which day of the meet this line is swum on — 1 for the first day, 2 for
    * the second. Absent means nobody has said, which on a three-day gala is a
-   * real and visible state ("Day not set") rather than a quiet day 1.
+   * real and visible state (`DAY_NOT_LISTED`) rather than a quiet day 1.
    *
    * An INDEX, not a date, because the two things move independently: a meet's
    * dates get corrected (importing the HAS programme moves the 1st seeded gala
@@ -532,6 +532,16 @@ export function lineById(
  *  list: "not listed" is a fact about the document, "not set" is a chore. */
 export const DAY_NOT_LISTED = "Day not listed";
 
+/** One day's worth of a programme as POSITIONS in the caller's own array. */
+export type MeetDayIndexGroup = {
+  /** 1-based day of the meet, or null for the lines no day was set on. */
+  day: number | null;
+  date: string | null;
+  label: string;
+  /** Indices into the array passed in, in that array's own order. */
+  indices: number[];
+};
+
 /** One day's worth of a programme, ready to render as a section. */
 export type MeetDayGroup = {
   /** 1-based day of the meet, or null for the lines no day was set on. */
@@ -552,7 +562,7 @@ export type MeetDayGroup = {
  * appear only once someone has actually placed a line on one.
  *
  * Lines pointing at a day the meet no longer runs (its end date was pulled in)
- * collect in a trailing "Day not set" group rather than being folded into the
+ * collect in a trailing `DAY_NOT_LISTED` group rather than being folded into the
  * last real day: they need a person to say where they went, and a section
  * heading is how that person finds them. A meet collapsed all the way back to
  * ONE day is the exception — there is no second day to distinguish it from, so
@@ -562,40 +572,56 @@ export function groupEventsByDay(
   events: ReadonlyArray<MeetEvent>,
   meet: { startDate: string; endDate?: string | null },
 ): MeetDayGroup[] {
+  return groupLineIndicesByDay(events, meet).map((group) => ({
+    day: group.day,
+    date: group.date,
+    label: group.label,
+    events: group.indices.map((i) => events[i]).sort(compareMeetEvents),
+  }));
+}
+
+/**
+ * The same grouping, as POSITIONS rather than lines.
+ *
+ * The programme editor needs the identical bands — it exists to show the
+ * grouping it is creating — but every one of its operations (move, split,
+ * remove, focus) is keyed on a line's index in the array it was handed. Handing
+ * it re-sorted lines would either break those indices or, worse, quietly band
+ * the editor differently from the page the coach lands on after saving, which
+ * is the kind of near-miss that looks verified.
+ *
+ * So both callers share ONE bucketing rule and differ only in what they do
+ * inside a bucket: the read view sorts into the meet's running order, the
+ * editor keeps the array order its handlers address.
+ */
+export function groupLineIndicesByDay(
+  lines: ReadonlyArray<MeetEvent>,
+  meet: { startDate: string; endDate?: string | null },
+): MeetDayIndexGroup[] {
   const dayCount = meetDayCount(meet);
   // A one-day meet has nothing to split, whatever its lines carry — a stale
   // `day: 1` from a span since collapsed must not put a "Day 1" heading over
   // the only day there is.
   if (dayCount <= 1) {
     return [
-      {
-        day: null,
-        date: null,
-        label: "",
-        events: [...events].sort(compareMeetEvents),
-      },
+      { day: null, date: null, label: "", indices: lines.map((_, i) => i) },
     ];
   }
 
-  const buckets = new Map<number | null, MeetEvent[]>();
-  for (const event of events) {
-    const day = cleanMeetDay(event.day, dayCount) ?? null;
+  const buckets = new Map<number | null, number[]>();
+  lines.forEach((line, i) => {
+    const day = cleanMeetDay(line.day, dayCount) ?? null;
     const bucket = buckets.get(day);
-    if (bucket === undefined) buckets.set(day, [event]);
-    else bucket.push(event);
-  }
+    if (bucket === undefined) buckets.set(day, [i]);
+    else bucket.push(i);
+  });
 
   const placed = [...buckets.keys()]
     .filter((d): d is number => d !== null)
     .sort((a, b) => a - b);
   if (placed.length === 0) {
     return [
-      {
-        day: null,
-        date: null,
-        label: "",
-        events: [...events].sort(compareMeetEvents),
-      },
+      { day: null, date: null, label: "", indices: lines.map((_, i) => i) },
     ];
   }
 
@@ -604,13 +630,13 @@ export function groupEventsByDay(
   // otherwise: nothing swum on the Saturday and nobody having said yet look
   // identical when the Saturday simply is not drawn. Days past the last placed
   // one are left out — they are the ones still being worked on.
-  const groups: MeetDayGroup[] = [];
+  const groups: MeetDayIndexGroup[] = [];
   for (let day = 1; day <= placed[placed.length - 1]; day += 1) {
     groups.push({
       day,
       date: meetDayDate(meet, day),
       label: formatMeetDay(meet, day),
-      events: (buckets.get(day) ?? []).sort(compareMeetEvents),
+      indices: buckets.get(day) ?? [],
     });
   }
   const unplaced = buckets.get(null);
@@ -619,7 +645,7 @@ export function groupEventsByDay(
       day: null,
       date: null,
       label: DAY_NOT_LISTED,
-      events: unplaced.sort(compareMeetEvents),
+      indices: unplaced,
     });
   }
   return groups;

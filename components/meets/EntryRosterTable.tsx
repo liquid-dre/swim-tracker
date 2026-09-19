@@ -5,7 +5,7 @@ import { Trash2 } from "lucide-react";
 
 import { Select } from "@/components/ui/Select";
 import { normaliseDigits, parseDigits } from "@/components/log/TimeField";
-import { formatMeetDayDate, formatMeetDayShort } from "@/lib/meets";
+import { formatMeetDay, formatMeetDayDate, formatMeetDayShort } from "@/lib/meets";
 import { formatTime } from "@/lib/swim";
 import { SwimOutcome } from "./SwimOutcome";
 
@@ -79,6 +79,15 @@ export function EntryRosterTable({
             {days.length > 1 && (
               <Select
                 aria-label={`Which day ${row.name} swims`}
+                // The control whose value the warning below contradicts, tied
+                // to it so a screen reader meets the reason with the control
+                // rather than a paragraph away.
+                aria-invalid={row.dayMismatch !== null ? true : undefined}
+                aria-describedby={
+                  row.dayMismatch !== null
+                    ? `${row._id}-day-mismatch`
+                    : undefined
+                }
                 value={row.swimDate}
                 onValueChange={(value) => onSetDay(row._id, value)}
                 size="sm"
@@ -87,10 +96,7 @@ export function EntryRosterTable({
                 // `textValue` is what typeahead matches, so it has to be the
                 // label: nobody jumps to a row by typing "2026-11-29".
                 options={days.map((day, i) => {
-                  const label = formatMeetDayShort(
-                    { startDate: days[0], endDate: days[days.length - 1] },
-                    i + 1,
-                  );
+                  const label = formatMeetDayShort(datesOf(days), i + 1);
                   return { value: day, label, textValue: label };
                 })}
               />
@@ -136,20 +142,29 @@ export function EntryRosterTable({
                 beside a one-click fix, because the date drives `ageAtSwim` and
                 a swim on the wrong side of a birthday is judged against the
                 wrong cut with nothing downstream to flag it. */}
-            {row.dayMismatch !== null && (
-              <span className="text-warning-ink">
-                {" · "}The programme now swims this on{" "}
-                {formatMeetDayDate(row.dayMismatch)}.{" "}
-                <button
-                  type="button"
-                  className="rounded-sm font-medium underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                  onClick={() => onSetDay(row._id, row.dayMismatch!)}
-                >
-                  Move {row.name}
-                </button>
-              </span>
-            )}
           </p>
+          {/* Its own line with a real button, not a 16px link inside a 12px
+              sentence: this is a poolside tap on a tablet, and the button
+              rewrites a stored swim's date and `ageAtSwim`. */}
+          {row.dayMismatch !== null && (
+            <p
+              id={`${row._id}-day-mismatch`}
+              className="flex flex-wrap items-center gap-2 text-xs text-warning-ink"
+            >
+              <span>
+                The programme now swims this on{" "}
+                {dayLabel(days, row.dayMismatch)}.
+              </span>
+              <button
+                type="button"
+                disabled={busyId === row._id}
+                onClick={() => onSetDay(row._id, row.dayMismatch!)}
+                className="inline-flex h-11 items-center rounded-lg border border-warning-500/40 bg-white px-3 text-xs font-medium text-warning-ink outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-warning-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50 lg:h-8"
+              >
+                Move {row.name}
+              </button>
+            </p>
+          )}
         </li>
       ))}
     </ul>
@@ -220,4 +235,21 @@ function RowTime({
       )}
     </span>
   );
+}
+
+/**
+ * The meet's span, from the day list the sheet already holds.
+ *
+ * `meetDates` is contiguous, so first-and-last reconstructs it exactly. Kept in
+ * one place rather than rebuilt at each call site, because it is a projection
+ * being turned back into the thing it was projected from.
+ */
+function datesOf(days: ReadonlyArray<string>) {
+  return { startDate: days[0], endDate: days[days.length - 1] };
+}
+
+/** A day of the meet in the app's FULL spelling, from its ISO date. */
+function dayLabel(days: ReadonlyArray<string>, iso: string): string {
+  const i = days.indexOf(iso);
+  return i >= 0 ? formatMeetDay(datesOf(days), i + 1) : formatMeetDayDate(iso);
 }

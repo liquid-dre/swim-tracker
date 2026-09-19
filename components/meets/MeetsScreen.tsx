@@ -312,7 +312,11 @@ export function MeetsScreen({
                             );
                             return;
                           }
-                          if (e.shiftKey || e.altKey || e.button !== 0) return;
+                          // Shift and Alt are the browser's own (new window,
+                          // download); neither should become a navigation. A
+                          // middle click is not tested for because React's
+                          // `onClick` never fires for one.
+                          if (e.shiftKey || e.altKey) return;
                           router.push(`${base}/${meet._id}`);
                         }}
                         // `bg-brand-50` at full strength, not /40: at 40% over

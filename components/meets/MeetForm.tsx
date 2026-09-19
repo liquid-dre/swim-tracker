@@ -148,13 +148,18 @@ export function MeetForm({
   //
   // The SHORT form (`formatMeetDayShort`), because the control is 8rem wide
   // beside the event number. One of the app's two day spellings, never a third.
-  const dayOptions = useMemo(() => {
-    const dates = { startDate, endDate: multiDay ? endDate : null };
-    return meetDates(dates).map((_iso, i) => ({
-      value: i + 1,
-      label: formatMeetDayShort(dates, i + 1),
-    }));
-  }, [startDate, endDate, multiDay]);
+  const dayDates = useMemo(
+    () => ({ startDate, endDate: multiDay ? endDate : null }),
+    [startDate, endDate, multiDay],
+  );
+  const dayOptions = useMemo(
+    () =>
+      meetDates(dayDates).map((_iso, i) => ({
+        value: i + 1,
+        label: formatMeetDayShort(dayDates, i + 1),
+      })),
+    [dayDates],
+  );
   // Pulling the end date in leaves lines pointing at days the meet no longer
   // has. The server drops those assignments rather than guessing a new day
   // (see `cleanEvents`), so say so BEFORE saving — discovering it afterwards
@@ -396,6 +401,7 @@ export function MeetForm({
                       lines={events}
                       course={(course || null) as Course | null}
                       dayOptions={dayOptions}
+                      dayDates={dayDates}
                       onChange={setEvents}
                       entryCounts={entryCounts}
                       problems={programmeProblems}

@@ -863,6 +863,73 @@ describe("a sign-up takes its day from the programme line", () => {
     ).toBeNull();
   });
 
+  test("the viewer is told too — a parent must not read the wrong morning", async () => {
+    // The realistic way a day moves is a re-import of a corrected programme.
+    // Without this the family's own-events block keeps showing the old day
+    // with full confidence, which is the one question that block answers.
+    const { meetId, lines } = await weekend();
+    await c.asCoachA.mutation(api.meetEntries.addEntries, {
+      meetId,
+      lineId: lines["Mixed 100 Free"],
+      swimmerIds: [c.ids.jane],
+    });
+    const meet = await c.asSuper.query(api.meets.getMeet, { meetId });
+    await c.asSuper.mutation(api.meets.updateMeet, {
+      meetId,
+      name: "Senior Champs",
+      startDate: "2026-03-14",
+      endDate: "2026-03-16",
+      course: "LCM",
+      events: meet!.events.map((e) =>
+        e.id === lines["Mixed 100 Free"] ? { ...e, day: 3 } : e,
+      ),
+    });
+
+    const mine = await c.asParent.query(api.meetEntries.getMyMeetEntries, {
+      meetId,
+    });
+    const entry = mine[0].entries.find(
+      (e) => e.lineId === lines["Mixed 100 Free"],
+    )!;
+    expect(entry.swimDate).toBe("2026-03-14");
+    expect(entry.dayMismatch).toBe("2026-03-16");
+  });
+
+  test("the line's own mismatch count reaches the meet page", async () => {
+    const { meetId, lines } = await weekend();
+    await c.asCoachA.mutation(api.meetEntries.addEntries, {
+      meetId,
+      lineId: lines["Mixed 100 Free"],
+      swimmerIds: [c.ids.jane],
+    });
+    const before = await c.asCoachA.query(api.meetEntries.getMeetSignups, {
+      meetId,
+    });
+    expect(
+      before.lines.find((l) => l.lineId === lines["Mixed 100 Free"])!
+        .dayMismatched,
+    ).toBe(0);
+
+    const meet = await c.asSuper.query(api.meets.getMeet, { meetId });
+    await c.asSuper.mutation(api.meets.updateMeet, {
+      meetId,
+      name: "Senior Champs",
+      startDate: "2026-03-14",
+      endDate: "2026-03-16",
+      course: "LCM",
+      events: meet!.events.map((e) =>
+        e.id === lines["Mixed 100 Free"] ? { ...e, day: 2 } : e,
+      ),
+    });
+    const after = await c.asCoachA.query(api.meetEntries.getMeetSignups, {
+      meetId,
+    });
+    expect(
+      after.lines.find((l) => l.lineId === lines["Mixed 100 Free"])!
+        .dayMismatched,
+    ).toBe(1);
+  });
+
   test("a line with no day of its own never flags an entry", async () => {
     const { meetId, lines } = await weekend();
     await c.asCoachA.mutation(api.meetEntries.addEntries, {

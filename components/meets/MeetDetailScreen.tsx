@@ -84,6 +84,14 @@ export function MeetDetailScreen({
     }
     return out;
   }, [signups]);
+  // The realistic way days move is a RE-IMPORT, which shifts many lines at
+  // once. Without a total here, finding the drift means opening every line's
+  // sheet — and the drift feeds `ageAtSwim`, so it decides which exact-age cut
+  // a swim is judged against.
+  const movedDays = (signups?.lines ?? []).reduce(
+    (n, line) => n + line.dayMismatched,
+    0,
+  );
 
   const rootCrumb = isViewer
     ? { label: "My swimmers", href: "/me/swimmers" }
@@ -219,6 +227,15 @@ export function MeetDetailScreen({
           meet={meet}
           upcoming={isUpcoming(meet, today)}
         />
+      )}
+
+      {movedDays > 0 && (
+        <p className="rounded-2xl border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm text-warning-ink">
+          {movedDays === 1
+            ? "1 sign-up is on a day the programme has since moved"
+            : `${movedDays} sign-ups are on days the programme has since moved`}
+          . Open the event to see who, and move them in one click.
+        </p>
       )}
 
       <MeetProgrammeTable

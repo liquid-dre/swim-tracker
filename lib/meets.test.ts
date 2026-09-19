@@ -9,6 +9,7 @@ import {
   formatMeetDayShort,
   genderAllowsSwimmer,
   groupEventsByDay,
+  groupLineIndicesByDay,
   lineById,
   meetDayCount,
   meetDayDate,
@@ -390,5 +391,46 @@ describe("groupEventsByDay — empty days inside the placed range", () => {
       "Day 2 · Sun 29 Nov",
       DAY_NOT_LISTED,
     ]);
+  });
+});
+
+describe("groupLineIndicesByDay", () => {
+  const e = (rawLabel: string, day?: number, eventNumber?: number): MeetEvent => ({
+    rawLabel,
+    ...(day === undefined ? {} : { day }),
+    ...(eventNumber === undefined ? {} : { eventNumber }),
+  });
+
+  test("produces the SAME bands as the read view, over positions", () => {
+    // The editor bands with this and the meet page bands with
+    // `groupEventsByDay`. If they ever disagree, a coach assigns days against
+    // one shape and lands on another — a near-miss that looks verified.
+    const lines = [e("a", 2, 20), e("b"), e("c", 1, 1)];
+    const byIndex = groupLineIndicesByDay(lines, weekend);
+    const byEvent = groupEventsByDay(lines, weekend);
+    expect(byIndex.map((g) => g.label)).toEqual(byEvent.map((g) => g.label));
+    expect(byIndex.map((g) => g.day)).toEqual(byEvent.map((g) => g.day));
+    expect(byIndex.map((g) => g.indices.length)).toEqual(
+      byEvent.map((g) => g.events.length),
+    );
+  });
+
+  test("keeps the caller's ARRAY order inside a band, not the running order", () => {
+    // The editor addresses lines by index; re-sorting them would break every
+    // move, split and remove it performs.
+    const lines = [e("a", 1, 9), e("b", 1, 2)];
+    expect(groupLineIndicesByDay(lines, weekend)[0].indices).toEqual([0, 1]);
+    // The read view, by contrast, sorts into the meet's own running order.
+    expect(
+      groupEventsByDay(lines, weekend)[0].events.map((x) => x.eventNumber),
+    ).toEqual([2, 9]);
+  });
+
+  test("a one-day meet is one unlabelled band holding every index", () => {
+    const lines = [e("a", 1), e("b")];
+    const groups = groupLineIndicesByDay(lines, { startDate: "2026-09-11" });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe("");
+    expect(groups[0].indices).toEqual([0, 1]);
   });
 });

@@ -73,7 +73,13 @@ export function Segmented<T extends string>({
             className={
               // ≥44px segments on touch viewports (PRODUCT.md); h-8 from lg up
               // aligns with the h-9 toolbar controls in the dense desktop rows.
-              "h-11 lg:h-8 rounded-sm px-3.5 text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
+              //
+              // `text-base lg:text-sm` for the same reason the app-wide rule in
+              // globals.css gives inputs 16px below `lg`: this is a BUTTON, so
+              // that selector never reached it, and a 13px segmented control
+              // sat beside a 16px field in the very rows the rule was written
+              // for. The rule is about touch-sized controls, not element types.
+              "h-11 lg:h-8 rounded-sm px-3.5 text-base lg:text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring " +
               (active
                 ? "bg-white text-gray-800 shadow-theme-xs"
                 : "text-gray-500 hover:text-gray-800")

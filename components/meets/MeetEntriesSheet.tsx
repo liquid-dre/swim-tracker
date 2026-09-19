@@ -25,8 +25,9 @@ import {
 import { notify } from "@/lib/notify";
 import { GALA_FULL } from "@/lib/galas";
 import {
+  DAY_NOT_LISTED,
   MEET_GENDER_LABEL,
-  formatMeetDayDate,
+  formatMeetDay,
   genderAllowsSwimmer,
 } from "@/lib/meets";
 import { EntryRosterTable, type EntryRow } from "./EntryRosterTable";
@@ -208,8 +209,11 @@ export function MeetEntriesSheet({
                   days.length > 1
                     ? ` · ${
                         line.day !== null && days[line.day - 1] !== undefined
-                          ? `Day ${line.day} · ${formatMeetDayDate(days[line.day - 1])}`
-                          : "Day not set on the programme"
+                          ? formatMeetDay(
+                              { startDate: days[0], endDate: days[days.length - 1] },
+                              line.day,
+                            )
+                          : DAY_NOT_LISTED
                       }`
                     : ""
                 }`}
@@ -223,7 +227,7 @@ export function MeetEntriesSheet({
             SquadMembersSheet has always been arranged this way. */}
         <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-2">
           {signups !== undefined && !signups.courseKnown && (
-            <p className="shrink-0 rounded-xl border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-ink">
+            <p className="shrink-0 rounded-xl border border-warning-500/30 bg-warning-50 px-3 py-2 text-sm text-warning-ink">
               This meet has no course set, so times can&rsquo;t be recorded yet.
               A time in the wrong pool can never be compared with anything. Set
               it on the meet&rsquo;s Details tab.

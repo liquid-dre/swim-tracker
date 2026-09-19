@@ -780,10 +780,7 @@ export function ImportMeetSheet({
                     {previewDays.length > 1 && (
                       <span className="font-normal text-ink-muted">
                         {" "}
-                        across {previewDays.length} days &mdash;{" "}
-                        {previewDays
-                          .map((g) => `${g.events.length} on ${g.label}`)
-                          .join(", ")}
+                        across {previewDays.length} days
                       </span>
                     )}
                   </p>
@@ -798,8 +795,11 @@ export function ImportMeetSheet({
                         {previewDays.length > 1 && (
                           <li className="bg-gray-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink">
                             {group.label}
-                            <span className="ml-2 font-normal normal-case tracking-normal tabular-nums text-ink-muted">
-                              {group.events.length}
+                            <span className="ml-2 font-normal normal-case tracking-normal text-ink-muted">
+                              <span className="tabular-nums">
+                                {group.events.length}
+                              </span>{" "}
+                              {group.events.length === 1 ? "event" : "events"}
                             </span>
                           </li>
                         )}

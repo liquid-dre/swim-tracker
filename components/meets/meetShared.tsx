@@ -171,9 +171,9 @@ export function MeetProgrammeTable({
             </thead>
             {/* One tbody per day, so the band is a row of the same table the
                 column headers belong to rather than a heading floating above a
-                second table. `scope="colgroup"` ties the rows beneath it to the
-                day, which is what a screen reader needs to answer "which day
-                is this event on" without leaving the table. */}
+                second table. `scope="rowgroup"` — the band heads a ROW GROUP,
+                not a column, and that is what lets a screen reader answer
+                "which day is this event on" without leaving the table. */}
             {groups.map((group) => (
               <tbody
                 key={group.day ?? "unplaced"}
@@ -182,7 +182,7 @@ export function MeetProgrammeTable({
                 {group.label !== "" && (
                   <tr>
                     <th
-                      scope="colgroup"
+                      scope="rowgroup"
                       colSpan={columns}
                       className="bg-gray-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-ink"
                     >
@@ -195,11 +195,8 @@ export function MeetProgrammeTable({
                 )}
                 {group.events.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={columns}
-                      className="px-3 py-2 text-ink-muted"
-                    >
-                      Nothing listed for this day.
+                    <td colSpan={columns} className="px-3 py-2 text-ink-faint">
+                      &mdash;
                     </td>
                   </tr>
                 ) : (
@@ -243,9 +240,7 @@ export function MeetProgrammeTable({
                 </p>
               )}
               {group.events.length === 0 ? (
-                <p className="px-4 py-2.5 text-sm text-ink-muted">
-                  Nothing listed for this day.
-                </p>
+                <p className="px-4 py-2.5 text-sm text-ink-faint">&mdash;</p>
               ) : (
                 <ul
                   aria-label={group.label === "" ? caption : group.label}
@@ -296,12 +291,12 @@ export function MeetProgrammeTable({
   );
 }
 
-/** One count format for the whole programme: "24 events", never "(24)". */
+/** The one per-day count format. "Nothing" reads better than "0 events". */
 function DayCount({ n }: { n: number }) {
+  if (n === 0) return <>nothing listed</>;
   return (
     <>
-      <span className="tabular-nums">{n}</span>{" "}
-      {n === 1 ? "event" : "events"}
+      <span className="tabular-nums">{n}</span> {n === 1 ? "event" : "events"}
     </>
   );
 }
@@ -403,7 +398,10 @@ function SignupCell({
     <button
       type="button"
       onClick={() => onOpen(event.id!)}
-      className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-primary transition-colors [transition-duration:var(--dur-1)] hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+      // ≥44px on touch (PRODUCT.md): this is the only way into a sign-up
+      // sheet, and the table it sits in renders from `sm` up, which includes
+      // every tablet a coach works from poolside.
+      className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 py-1 text-sm text-primary transition-colors [transition-duration:var(--dur-1)] hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:min-h-0"
     >
       {summary === "" ? (
         <span className="text-ink-muted">Add swimmers</span>

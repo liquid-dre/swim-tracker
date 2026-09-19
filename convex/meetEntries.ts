@@ -94,6 +94,25 @@ const entryRow = v.object({
   firstTime: v.boolean(),
 });
 
+/**
+ * The day the PROGRAMME now puts this line on, when that is not the day the
+ * entry carries. Null otherwise, including for a line with no day at all.
+ *
+ * Derived at read time, never stored — the same reason `genderMismatch` is
+ * (CLAUDE.md: "a flag derived at read time cannot go stale"). A date rather
+ * than a boolean, so a row can name the day to move to and the one-click fix
+ * has something to send.
+ */
+function lineDayFor(
+  meet: Doc<"meets">,
+  line: MeetEvent | undefined,
+  swimDate: string,
+): string | null {
+  if (line?.day === undefined) return null;
+  const lineDay = meetDayDate(meet, line.day);
+  return lineDay !== null && lineDay !== swimDate ? lineDay : null;
+}
+
 const lineRow = v.object({
   lineId: v.string(),
   eventNumber: v.union(v.number(), v.null()),
@@ -108,6 +127,8 @@ const lineRow = v.object({
   resolved: v.boolean(),
   entered: v.number(),
   timed: v.number(),
+  /** Of those entered, how many sit on a day the programme has since moved. */
+  dayMismatched: v.number(),
   entries: v.array(entryRow),
 });
 
@@ -188,15 +209,12 @@ export const getMeetSignups = query({
             // the one this entry carries. A string rather than a boolean, so
             // the row can name the day to move to instead of only that it is
             // wrong — and so the one-click fix has something to send.
-            const lineDay =
-              line.day === undefined ? null : meetDayDate(meet, line.day);
             return {
               _id: entry._id,
               swimmerId: entry.swimmerId,
               name: swimmer?.name ?? "Unknown swimmer",
               swimDate: entry.swimDate,
-              dayMismatch:
-                lineDay !== null && lineDay !== entry.swimDate ? lineDay : null,
+              dayMismatch: lineDayFor(meet, line, entry.swimDate),
               genderMismatch:
                 swimmer !== undefined &&
                 !genderAllowsSwimmer(line.gender, swimmer.gender),
@@ -218,6 +236,7 @@ export const getMeetSignups = query({
           resolved: line.distance !== undefined && line.stroke !== undefined,
           entered: rows.length,
           timed: rows.filter((r) => r.resultId !== null).length,
+          dayMismatched: rows.filter((r) => r.dayMismatch !== null).length,
           entries: rows,
         };
       });
@@ -319,6 +338,13 @@ export const getMyMeetEntries = query({
           eventNumber: v.union(v.number(), v.null()),
           label: v.string(),
           swimDate: v.string(),
+          /**
+           * The day the programme now swims this on, when it is not the one
+           * this entry carries. A family reading "Day 1 · Sat" for an event a
+           * re-import has moved to the Sunday turns up on the wrong morning —
+           * which is the one question this block exists to answer.
+           */
+          dayMismatch: v.union(v.string(), v.null()),
           timeMs: v.union(v.number(), v.null()),
           pbBeforeMs: v.union(v.number(), v.null()),
           deltaMs: v.union(v.number(), v.null()),
@@ -362,6 +388,7 @@ export const getMyMeetEntries = query({
           // being re-worded and still says what it was for.
           label: line === undefined ? entry.rawLabel : meetEventLabel(line),
           swimDate: entry.swimDate,
+          dayMismatch: lineDayFor(meet, line, entry.swimDate),
           ...compareToPbBefore(result?.timeMs ?? null, pb?.timeMs ?? null),
         });
       }
