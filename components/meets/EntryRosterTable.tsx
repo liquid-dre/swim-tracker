@@ -127,7 +127,7 @@ export function EntryRosterTable({
               }
               disabled={row.resultId !== null}
               onClick={() => onRemove(row._id)}
-              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors lg:size-9 [transition-duration:var(--dur-1)] outline-none hover:bg-error-50 hover:text-error-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-40"
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors lg:size-9 [transition-duration:var(--dur-1)] outline-none hover:bg-error-50 hover:text-error-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-40 disabled:cursor-default"
             >
               <Trash2 aria-hidden className="size-4" />
             </button>
@@ -146,6 +146,7 @@ export function EntryRosterTable({
                 a swim on the wrong side of a birthday is judged against the
                 wrong cut with nothing downstream to flag it. */}
           </p>
+
           {/* Its own line with a real button, not a 16px link inside a 12px
               sentence: this is a poolside tap on a tablet, and the button
               rewrites a stored swim's date and `ageAtSwim`. */}

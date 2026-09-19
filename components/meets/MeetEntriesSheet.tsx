@@ -74,6 +74,27 @@ export function MeetEntriesSheet({
   const mismatchedDays = (line?.entries ?? []).filter(
     (e) => e.dayMismatch !== null,
   ).length;
+  const sheetNotice: { text: string; tone: "warn" | "muted" } | null =
+    signups !== undefined && !signups.courseKnown
+      ? {
+          tone: "warn",
+          text: "This meet has no course set, so times can't be recorded yet. A time in the wrong pool can never be compared with anything. Set it on the meet's Details tab.",
+        }
+      : line !== null && !line.resolved
+        ? {
+            tone: "muted",
+            text: "This isn't an event the app tracks, so no time can be recorded against it. A relay time belongs to the team.",
+          }
+        : mismatchedDays > 0
+          ? {
+              tone: "warn",
+              text: `${
+                mismatchedDays === 1
+                  ? "One swimmer is still entered for a different day"
+                  : `${mismatchedDays} swimmers are still entered for a different day`
+              } than the programme now swims this event on. Their rows say which, and move them in one click.`,
+            }
+          : null;
   const entered = useMemo(
     () => new Set((line?.entries ?? []).map((e) => String(e.swimmerId))),
     [line],
@@ -226,28 +247,21 @@ export function MeetEntriesSheet({
             to do) is what let a ~400px add block push the roster out of view;
             SquadMembersSheet has always been arranged this way. */}
         <div className="flex min-h-0 flex-1 flex-col gap-4 px-4 py-2">
-          {signups !== undefined && !signups.courseKnown && (
-            <p className="shrink-0 rounded-xl border border-warning-500/30 bg-warning-50 px-3 py-2 text-sm text-warning-ink">
-              This meet has no course set, so times can&rsquo;t be recorded yet.
-              A time in the wrong pool can never be compared with anything. Set
-              it on the meet&rsquo;s Details tab.
-            </p>
-          )}
-
-          {mismatchedDays > 0 && (
-            <p className="shrink-0 rounded-xl border border-warning-500/30 bg-warning-50 px-3 py-2 text-sm text-warning-ink">
-              {mismatchedDays === 1
-                ? "One swimmer is still entered for a different day"
-                : `${mismatchedDays} swimmers are still entered for a different day`}{" "}
-              than the programme now swims this event on. Their rows say which,
-              and move them in one click.
-            </p>
-          )}
-
-          {line !== null && !line.resolved && (
-            <p className="shrink-0 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-ink-muted">
-              This isn&rsquo;t an event the app tracks, so no time can be
-              recorded against it. A relay time belongs to the team.
+          {/* ONE banner, ranked, for the same reason the programme editor has
+              one strip: three full-width warning cards of equal weight above a
+              roster say nothing about which to act on. Blocking first — no
+              course means no time can be recorded at all — then the line being
+              untimeable, then the entries that merely need moving. */}
+          {sheetNotice !== null && (
+            <p
+              className={
+                "shrink-0 rounded-xl px-3 py-2 text-sm " +
+                (sheetNotice.tone === "warn"
+                  ? "border border-warning-500/30 bg-warning-50 text-warning-ink"
+                  : "border border-gray-200 bg-gray-50 text-ink-muted")
+              }
+            >
+              {sheetNotice.text}
             </p>
           )}
 

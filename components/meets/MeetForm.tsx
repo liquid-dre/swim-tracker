@@ -28,7 +28,7 @@ import {
   type MeetEvent,
 } from "@/lib/meets";
 import type { Course } from "@/lib/swim";
-import { ProgrammeEditor } from "./ProgrammeEditor";
+import { ProgrammeEditor, type ProgrammeUndo } from "./ProgrammeEditor";
 import { courseMismatches, validateLines } from "./programmeEditing";
 
 /*
@@ -108,6 +108,10 @@ export function MeetForm({
     [...(meet?.events ?? [])].sort(compareMeetEvents),
   );
   const [tab, setTab] = useState("details");
+  // Owned here, not in the editor: `Tabs` unmounts the panel that is not
+  // showing, so an undo living in the editor died the moment a coach checked
+  // the course on Details — while the sixty edits it would undo survived.
+  const [undo, setUndo] = useState<ProgrammeUndo | null>(null);
   // The line the blocked reason is about, so the footer can take the coach to
   // it instead of naming an event number they then have to hunt for.
   const [focusLine, setFocusLine] = useState<number | null>(null);
@@ -152,6 +156,16 @@ export function MeetForm({
     () => ({ startDate, endDate: multiDay ? endDate : null }),
     [startDate, endDate, multiDay],
   );
+
+  // DERIVED, not cleared in an effect: a snapshot taken against a different
+  // span can hold day indices the meet no longer reaches, so restoring it would
+  // put lines on days that do not exist. Comparing the span it was taken
+  // against says that without a second source of truth to keep in sync.
+  const undoIsCurrent =
+    undo !== null &&
+    undo.forSpan.startDate === dayDates.startDate &&
+    undo.forSpan.endDate === dayDates.endDate;
+
   const dayOptions = useMemo(
     () =>
       meetDates(dayDates).map((_iso, i) => ({
@@ -402,6 +416,8 @@ export function MeetForm({
                       course={(course || null) as Course | null}
                       dayOptions={dayOptions}
                       dayDates={dayDates}
+                      undo={undoIsCurrent ? undo : null}
+                      setUndo={setUndo}
                       onChange={setEvents}
                       entryCounts={entryCounts}
                       problems={programmeProblems}

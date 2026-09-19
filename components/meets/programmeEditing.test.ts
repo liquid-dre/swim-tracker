@@ -22,6 +22,7 @@ import {
   updateLine,
   validateLines,
 } from "./programmeEditing";
+import { rankedNotice } from "./ProgrammeEditor";
 
 /*
   The programme editor's rules, checked against the real whitelist rather than
@@ -373,5 +374,59 @@ describe("countLinesByDay", () => {
     );
     expect(byDay).toEqual([2, 1, 0]);
     expect(unplaced).toBe(2);
+  });
+});
+
+/*
+  The programme editor shows at most ONE message above its list. Ranking is the
+  whole point of that: suppressing four notices is only a saving if what it hid
+  was less urgent than what survived. An earlier pass claimed this order in a
+  comment and implemented the opposite, so it is tested rather than asserted.
+*/
+describe("rankedNotice", () => {
+  const none = {
+    reorderBlocked: null,
+    interleaved: false,
+    mismatched: 0,
+    wouldNumber: false,
+    teaching: false,
+  };
+
+  test("says nothing when there is nothing to say", () => {
+    expect(rankedNotice(none)).toBeNull();
+  });
+
+  test("what BLOCKS an action outranks what merely looks different", () => {
+    // A course mismatch still saves; a reorder block kills both arrows on every
+    // row and nothing else on screen explains that.
+    const both = {
+      ...none,
+      reorderBlocked: "Half these events have numbers.",
+      mismatched: 3,
+    };
+    expect(rankedNotice(both)?.text).toBe("Half these events have numbers.");
+  });
+
+  test("interleaved days outrank a course mismatch", () => {
+    const both = { ...none, interleaved: true, mismatched: 3 };
+    expect(rankedNotice(both)?.text).toContain("appears more than once");
+  });
+
+  test("a warning always outranks teaching", () => {
+    const both = { ...none, mismatched: 1, teaching: true };
+    const notice = rankedNotice(both)!;
+    expect(notice.tone).toBe("warn");
+    expect(notice.text).toContain("can't be swum in this meet's course");
+  });
+
+  test("teaching is what is left when nothing is wrong", () => {
+    const notice = rankedNotice({ ...none, teaching: true })!;
+    expect(notice.tone).toBe("muted");
+    expect(notice.text).toContain("…and below");
+  });
+
+  test("one event and many read differently", () => {
+    expect(rankedNotice({ ...none, mismatched: 1 })?.text).toMatch(/^One event/);
+    expect(rankedNotice({ ...none, mismatched: 4 })?.text).toMatch(/^4 events/);
   });
 });

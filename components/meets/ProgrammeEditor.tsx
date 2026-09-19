@@ -107,11 +107,77 @@ type LineHandlers = {
 /** One day of the meet, as the per-line picker offers it. */
 export type DayOption = { value: number; label: string };
 
+/** One reversible carry-down: the list as it stood, and what it did. */
+export type ProgrammeUndo = {
+  lines: MeetEvent[];
+  count: number;
+  /** Named, because the visible text was weaker than the announcement. */
+  dayName: string;
+  /** The meet's span when it was taken; a changed span retires it. */
+  forSpan: { startDate: string; endDate?: string | null };
+};
+
+/**
+ * The single most urgent thing to say about the list, or nothing.
+ *
+ * Ranked by whether the state BLOCKS something in this editor, because a
+ * suppressed message is only a saving when what it hid was less urgent than
+ * what survived. Reordering being disabled leads: it kills both arrows on every
+ * row and nothing else on screen explains that. A course mismatch is last of
+ * the warnings precisely because it does NOT block — those lines still save,
+ * and the Details tab and the tab label both already carry the count.
+ *
+ * Pure, and exported, so the ranking this whole strip exists for is tested
+ * rather than asserted in a comment.
+ */
+export function rankedNotice(state: {
+  reorderBlocked: string | null;
+  interleaved: boolean;
+  mismatched: number;
+  wouldNumber: boolean;
+  teaching: boolean;
+}): { text: string; tone: "warn" | "muted" } | null {
+  if (state.reorderBlocked !== null) {
+    return { tone: "warn", text: state.reorderBlocked };
+  }
+  if (state.interleaved) {
+    return {
+      tone: "warn",
+      text: "A day appears more than once in this running order, so the bands below repeat. The meet page groups each day together, so it will not look like this until the events of a day sit together here.",
+    };
+  }
+  if (state.mismatched > 0) {
+    return {
+      tone: "warn",
+      text:
+        (state.mismatched === 1
+          ? "One event here can't be swum in this meet's course."
+          : `${state.mismatched} events here can't be swum in this meet's course.`) +
+        " They will save, but no time can be recorded against them until the event or the meet's course changes.",
+    };
+  }
+  if (state.wouldNumber) {
+    return {
+      tone: "muted",
+      text: "These events have no numbers. Moving one will number them all in their current order, because the number is what a meet's running order is.",
+    };
+  }
+  if (state.teaching) {
+    return {
+      tone: "muted",
+      text: "A programme runs in order, so give the first event of each day its day, then use “…and below” under that row's Day picker to put the rest of the list on it.",
+    };
+  }
+  return null;
+}
+
 export function ProgrammeEditor({
   lines,
   course,
   dayOptions,
   dayDates,
+  undo,
+  setUndo,
   onChange,
   entryCounts,
   problems = [],
@@ -132,6 +198,15 @@ export function ProgrammeEditor({
   dayOptions: ReadonlyArray<DayOption>;
   /** The meet's dates, so the editor bands with the read view's own function. */
   dayDates: { startDate: string; endDate?: string | null };
+  /**
+   * The carry-down's one undo step, owned by the FORM rather than by this
+   * component. `Tabs` renders `{active && content}`, so the editor unmounts the
+   * moment a coach checks the course on Details — and the edits survive there
+   * while the undo did not. A coach has no reason to expect one without the
+   * other.
+   */
+  undo: ProgrammeUndo | null;
+  setUndo: (undo: ProgrammeUndo | null) => void;
   /** A state setter, so an edit can be expressed as a function of the list. */
   onChange: Dispatch<SetStateAction<MeetEvent[]>>;
   /**
@@ -151,12 +226,8 @@ export function ProgrammeEditor({
 }) {
   const [announcement, setAnnouncement] = useState("");
   /** The list as it stood before the last carry-down, for one step of undo. */
-  const [undo, setUndo] = useState<{
-    lines: MeetEvent[];
-    count: number;
-    /** Named, because the visible text was weaker than the announcement. */
-    dayName: string;
-  } | null>(null);
+  /** Set once the carry-down has been used: the hint has done its job. */
+  const [usedCarryDown, setUsedCarryDown] = useState(false);
 
   // The row below is memoized, which only pays off if its props are stable —
   // and passing the whole `lines` array plus a closure over it would rebuild
@@ -172,7 +243,7 @@ export function ProgrammeEditor({
       setUndo(null);
       if (said !== "") setAnnouncement(said);
     },
-    [onChange],
+    [onChange, setUndo],
   );
 
   // The current list, for the one handler that needs to read it without
@@ -232,41 +303,14 @@ export function ProgrammeEditor({
    * something that will merely look different, which outranks teaching. Only
    * the top one shows, so the strip always has one meaning.
    */
-  const notice: { text: string; tone: "warn" | "muted" } | null = (() => {
-    if (mismatched.length > 0) {
-      return {
-        tone: "warn",
-        text:
-          (mismatched.length === 1
-            ? "One event here can't be swum in this meet's course."
-            : `${mismatched.length} events here can't be swum in this meet's course.`) +
-          " They will save, but no time can be recorded against them until the event or the meet's course changes.",
-      };
-    }
-    if (reorderBlocked !== null) return { tone: "warn", text: reorderBlocked };
-    if (interleaved) {
-      return {
-        tone: "warn",
-        text: "A day appears more than once in this running order, so the bands below repeat. The meet page groups each day together, so it will not look like this until the events of a day sit together here.",
-      };
-    }
-    if (moveWouldNumber(lines)) {
-      return {
-        tone: "muted",
-        text: "These events have no numbers. Moving one will number them all in their current order, because the number is what a meet's running order is.",
-      };
-    }
-    // Teaching, and only while it is needed: once a day is set the coach has
-    // found the control, and a permanent instruction is just another line to
-    // read past.
-    if (dayOptions.length > 1 && tally.unplaced === lines.length) {
-      return {
-        tone: "muted",
-        text: "A programme runs in order, so give the first event of each day its day, then use “…and below” under that row's Day picker to put the rest of the list on it.",
-      };
-    }
-    return null;
-  })();
+  const notice = rankedNotice({
+    reorderBlocked,
+    interleaved,
+    mismatched: mismatched.length,
+    wouldNumber: moveWouldNumber(lines),
+    teaching:
+      dayOptions.length > 1 && lines.length > 0 && tally.unplaced > 0 && !usedCarryDown,
+  });
 
   const on = useMemo<LineHandlers>(
     () => ({
@@ -284,7 +328,13 @@ export function ProgrammeEditor({
         // pure — React calls it twice under StrictMode — so a `setUndo` inside
         // it would record the snapshot twice and, on the second call, record
         // the already-written list as the thing to go back to.
-        setUndo({ lines: linesRef.current, count: below + 1, dayName });
+        setUsedCarryDown(true);
+        setUndo({
+          lines: linesRef.current,
+          count: below + 1,
+          dayName,
+          forSpan: dayDates,
+        });
         onChange((prev) => setDayFrom(prev, i, d));
         setAnnouncement(
           `${below + 1} events moved to ${dayName}.${
@@ -298,7 +348,7 @@ export function ProgrammeEditor({
       split: (i, said) => apply((ls) => splitLine(ls, i), said),
       remove: (i, said) => apply((ls) => removeLine(ls, i), said),
     }),
-    [apply, onChange],
+    [apply, onChange, setUndo, dayDates],
   );
 
   return (
@@ -321,19 +371,27 @@ export function ProgrammeEditor({
 
       {/* One strip, not six stacked notices of equal weight: the tally is the
           standing state, and under it at most ONE message. */}
-      {(dayOptions.length > 1 || notice !== null || undo !== null) && (
+      {((dayOptions.length > 1 && lines.length > 0) ||
+        notice !== null ||
+        undo !== null) && (
         <div className="flex flex-col gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-          {dayOptions.length > 1 && (
-            <p
-              role="status"
-              className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-ink-muted"
-            >
-              {tally.byDay.map((n, i) => (
-                <span key={i}>
-                  {dayOptions[i].label}:{" "}
-                  <span className="tabular-nums text-ink">{n}</span>
-                </span>
-              ))}
+          {/* Plain text, not a second `role="status"`: the sr-only announcer
+              above already speaks every change, and two regions firing on one
+              carry-down talk over each other. */}
+          {dayOptions.length > 1 && lines.length > 0 && (
+            <p className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-ink-muted">
+              {/* A meet may run up to MAX_SPAN_DAYS; thirty-one counts above
+                  row 1 is a wall, not a tally. Past a week it reports the days
+                  that hold something. */}
+              {tally.byDay
+                .map((n, i) => ({ n, i }))
+                .filter(({ n }) => tally.byDay.length <= 7 || n > 0)
+                .map(({ n, i }) => (
+                  <span key={i}>
+                    {dayOptions[i].label}:{" "}
+                    <span className="tabular-nums text-ink">{n}</span>
+                  </span>
+                ))}
               {tally.unplaced > 0 ? (
                 <span>
                   {DAY_NOT_LISTED}:{" "}
@@ -365,7 +423,7 @@ export function ProgrammeEditor({
                     "Those events are back on the days they were on.",
                   );
                 }}
-                className="rounded-sm font-medium text-brand-600 underline underline-offset-2 outline-none hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                className="inline-flex h-11 items-center rounded-lg px-2 font-medium text-brand-600 underline underline-offset-2 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-50 hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:h-8"
               >
                 Undo
               </button>
@@ -433,6 +491,7 @@ export function ProgrammeEditor({
                     onRemoved={rememberFocusAfterRemove}
                     canMoveUp={canMoveLine(lines, i, -1)}
                     canMoveDown={canMoveLine(lines, i, 1)}
+                    reorderReason={reorderBlocked}
                     below={lines.length - i - 1}
                     overwrites={
                       line.day === undefined
@@ -655,6 +714,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
   onRemoved,
   canMoveUp,
   canMoveDown,
+  reorderReason,
   below,
   overwrites,
   on,
@@ -681,6 +741,8 @@ const ProgrammeLine = memo(function ProgrammeLine({
    */
   canMoveUp: boolean;
   canMoveDown: boolean;
+  /** Why reordering is off, when it is — so a dead arrow can say so itself. */
+  reorderReason: string | null;
   /** How many lines follow this one — the reach of "and everything below". */
   below: number;
   /** How many of those are already on a DIFFERENT day, and would change. */
@@ -771,9 +833,9 @@ const ProgrammeLine = memo(function ProgrammeLine({
               }
               size="sm"
               options={[
-                // The band's own words, not the app's generic "Not set": one
-                // state, one name, wherever it is read.
-                { value: "", label: "Not listed" },
+                // The band's own constant, not a fourth literal: one state,
+                // one name, wherever it is read.
+                { value: "", label: DAY_NOT_LISTED },
                 ...dayOptions.map((d) => ({
                   value: String(d.value),
                   label: d.label,
@@ -858,6 +920,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
           <IconButton
             ref={upRef}
             label={`Move ${name} earlier`}
+            reason={reorderReason}
             disabled={!canMoveUp}
             onClick={() => {
               // The button about to be pressed disables itself at the top of
@@ -873,6 +936,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
           <IconButton
             ref={downRef}
             label={`Move ${name} later`}
+            reason={reorderReason}
             disabled={!canMoveDown}
             onClick={() => {
               if (index + 1 === total - 1) upRef.current?.focus();
@@ -926,7 +990,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
             <span>Not an event this app tracks, so it can take no time.</span>
           )}
           {entered === undefined ? (
-            <span className="text-ink-faint">Checking sign-ups…</span>
+            <span>Checking sign-ups…</span>
           ) : (
             entered > 0 && (
               <span className="text-warning-ink">
@@ -1050,25 +1114,31 @@ const IconButton = forwardRef<
   HTMLButtonElement,
   {
     label: string;
+    /** Why the button is disabled, when it is. Shown instead of the label. */
+    reason?: string | null;
     onClick: () => void;
     disabled?: boolean;
     danger?: boolean;
     children: React.ReactNode;
   }
->(function IconButton({ label, onClick, disabled, danger, children }, ref) {
+>(function IconButton(
+  { label, reason, onClick, disabled, danger, children },
+  ref,
+) {
   return (
     <button
       ref={ref}
       type="button"
-      title={label}
+      title={disabled && reason ? reason : label}
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
       className={
         "inline-flex size-11 items-center justify-center rounded-lg transition-colors [transition-duration:var(--dur-1)] lg:size-9 " +
         "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
-        // NOT `disabled:pointer-events-none`: it suppresses the title, which
-        // is the only place a disabled button says why it is disabled.
+        // No `disabled:pointer-events-none`, so a disabled button can still
+        // surface its `title` — which callers set to the REASON when there is
+        // one, not merely to the label.
         "disabled:opacity-40 disabled:cursor-default " +
         (danger
           ? "text-gray-500 hover:bg-error-50 hover:text-error-500"

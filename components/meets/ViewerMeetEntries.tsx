@@ -72,7 +72,13 @@ export function ViewerMeetEntries({
                   )}
                   <span className="min-w-0 flex-1 text-sm font-medium text-ink">
                     {entry.label}
-                    {multiDay && <DayTag meet={meet} iso={entry.swimDate} />}
+                    {multiDay && (
+                      <DayTag
+                        meet={meet}
+                        iso={entry.swimDate}
+                        superseded={entry.dayMismatch !== null}
+                      />
+                    )}
                   </span>
 
                   {entry.timeMs === null ? (
@@ -115,12 +121,24 @@ export function ViewerMeetEntries({
 function DayTag({
   meet,
   iso,
+  superseded = false,
 }: {
   meet: { startDate: string; endDate?: string | null };
   iso: string;
+  /** The programme has moved this event; the warning below says where to. */
+  superseded?: boolean;
 }) {
+  // A parent skims the bold line. Printing the old day there in the ordinary
+  // style and correcting it in small text underneath means the literal reading
+  // is the wrong morning — so the stale one is struck through and named "was".
   return (
-    <span className="ml-2 whitespace-nowrap text-xs font-normal tabular-nums text-ink-muted">
+    <span
+      className={
+        "ml-2 whitespace-nowrap text-xs font-normal tabular-nums " +
+        (superseded ? "text-ink-faint line-through" : "text-ink-muted")
+      }
+    >
+      {superseded && <span className="sr-only">Was </span>}
       <DayName meet={meet} iso={iso} />
     </span>
   );
