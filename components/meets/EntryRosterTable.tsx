@@ -216,14 +216,25 @@ function RowTime({
   const stored = row.timeMs === null ? "" : formatTime(row.timeMs);
   const [digits, setDigits] = useState(() => normaliseDigits(stored));
   const lastStored = useRef(stored);
+  // The effect below runs on a Convex update, not on a keystroke, so it cannot
+  // read `digits` from the closure without re-subscribing on every character.
+  const digitsRef = useRef(digits);
+  digitsRef.current = digits;
 
   // A time changed elsewhere (another coach, or the log form filling this
   // entry) replaces what is shown — but never while it is being typed into.
+  //
+  // That second clause needs the `dirty` test to be TRUE: without it the
+  // effect fired on any `stored` change and overwrote half-typed digits in
+  // exactly the concurrent case the sentence describes — and CLAUDE.md has
+  // /log writing this entry through the same `resultsShared` seam, so it is a
+  // designed-for case, not a hypothetical. Unedited, the remote value still
+  // wins, which is the first clause.
   useEffect(() => {
-    if (lastStored.current !== stored) {
-      lastStored.current = stored;
-      setDigits(normaliseDigits(stored));
-    }
+    if (lastStored.current === stored) return;
+    const wasEditing = digitsRef.current !== normaliseDigits(lastStored.current);
+    lastStored.current = stored;
+    if (!wasEditing) setDigits(normaliseDigits(stored));
   }, [stored]);
 
   // Bound to the DISPLAY string, never to the parse result, exactly as

@@ -29,7 +29,8 @@ export type Threshold = {
   /**
    * Colour for the LABEL — the darker `-ink` variant, not `color`. The gala hues
    * are tuned to read as 1.5px strokes; at that lightness an 11px label fails
-   * contrast on white (SANJ gold is about 2.4:1). See TIER_STYLE.
+   * contrast on white (SANJ gold is a fill, not an ink — see
+   * lib/contrast.test.ts). See TIER_STYLE.
    */
   ink: string;
   dash: string;

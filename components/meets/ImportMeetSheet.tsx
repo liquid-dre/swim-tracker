@@ -927,8 +927,8 @@ export function ImportMeetSheet({
             // `aria-disabled`, not `disabled`: a native disabled button is out
             // of the tab order, so the `aria-describedby` below pointed at a
             // reason no keyboard user could ever reach. It also took the
-            // shared base's `disabled:opacity-50`, which put white on a 50%
-            // brand fill at 2.07:1.
+            // shared base's `disabled:opacity-50`, which leaves a blocked
+            // primary unreadable (locked in lib/contrast.test.ts).
             <Button
               variant={isReplace ? "danger" : "primary"}
               loading={importing}

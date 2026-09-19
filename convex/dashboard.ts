@@ -18,7 +18,12 @@ import {
   type StandardCut,
   type Stroke,
 } from "../lib/swim";
-import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
+import {
+  galaCodeValidator,
+  loadGalas,
+  qualifyingWindowsByGala,
+  toGalaRefs,
+} from "./galas";
 
 /*
   Coach dashboard squad overview (the "punchy home" — the vibrance revamp). One
@@ -98,6 +103,11 @@ const GALA_RANK: Record<GalaCode, number> = GALA_ORDER.reduce(
   {} as Record<GalaCode, number>,
 );
 
+const qualifyingWindowValidator = v.object({
+  qualifyingFrom: v.union(v.string(), v.null()),
+  qualifyingTo: v.union(v.string(), v.null()),
+});
+
 export const getCoachDashboard = query({
   args: {
     // The coach's PREVIOUS visit (from profiles.beginSession) — anchors the
@@ -127,6 +137,15 @@ export const getCoachDashboard = query({
       }),
     ),
     roster: v.array(rosterRow),
+    // Per gala, so the roster's time column can state its basis once. Matches
+    // the shape every other qualifying surface already receives.
+    qualifyingWindows: v.object({
+      SANS: v.optional(qualifyingWindowValidator),
+      SANY: v.optional(qualifyingWindowValidator),
+      SANJ: v.optional(qualifyingWindowValidator),
+      LEVEL_3: v.optional(qualifyingWindowValidator),
+      LEVEL_2: v.optional(qualifyingWindowValidator),
+    }),
   }),
   handler: async (ctx, args) => {
     await requireCoach(ctx);
@@ -327,6 +346,10 @@ export const getCoachDashboard = query({
         hasStandards: allStandards.length > 0,
         hasResults,
       },
+      // The roster's time column is the fastest official meet swim inside each
+      // gala's window, not the headline PB, so this surface owes the same
+      // one-line basis every other qualifying screen states (CLAUDE.md).
+      qualifyingWindows: qualifyingWindowsByGala(galas),
       digest:
         args.digestSince === undefined
           ? null

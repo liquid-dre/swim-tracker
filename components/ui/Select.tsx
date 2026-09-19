@@ -121,9 +121,9 @@ export function Select({
           // `text-gray-800` above override the UA's disabled rendering anyway,
           // and an opacity COMPOSITES: inside MultiMeetReview's skipped row,
           // which already dims itself to 60% to show what is being declined,
-          // 0.6 × 0.5 landed the ink at 1.85:1 — below the 2.11:1 that row's
-          // own comment rejects — while the Inputs beside it stayed at 60%.
-          // One row, two recession depths, neither of them the stated one.
+          // 0.6 × 0.5 landed the ink BELOW the 40% that row's own comment
+          // rejects, while the Inputs beside it stayed at 60%. One row, two
+          // recession depths, neither of them the stated one (locked in lib/contrast.test.ts).
           "disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-ink-faint disabled:hover:border-gray-200",
           // Both sizes carry the same height rule - 44px everywhere a finger
           // reaches (PRODUCT.md), compacting only on a pointer-driven lg+

@@ -17,8 +17,7 @@ const base =
   // Only a NATIVE disabled (a caller passing `disabled`) fades. `loading` is
   // handled separately below, because it also sets `disabled` — and a button
   // that was `aria-disabled` as well then compounded the inert fill with this
-  // fade and landed at 1.92:1, on the one state where someone is waiting and
-  // looking hardest.
+  // fade, on the one state where someone is waiting and looking hardest.
   "[&:disabled:not([aria-busy])]:opacity-50 " +
   // The SAME visual state for `aria-disabled`, which callers use when a
   // disabled control still has to explain itself — a native `disabled` button
@@ -26,12 +25,17 @@ const base =
   // Without these a button could be inert while still dimming for nobody,
   // lighting under the pointer and animating the press: reachable but
   // invisible, which is the trade the a11y fix was not meant to make.
-  // A muted FILL and muted ink, not opacity. `opacity-50`
-  // composited the whole button and put a blocked Save at 2.09:1 — on the one
-  // control `aria-disabled` exists to keep a low-vision keyboard user able to
-  // land on. The `ghost` hover moved off this fill so the two cannot be
-  // confused. Ratios are locked in lib/contrast.test.ts, not stated here —
-  // three prose figures in these files were wrong in three consecutive reviews.
+  // A muted FILL and muted ink, not opacity. `opacity-50` composited the whole
+  // button and left a blocked Save unreadable — on the one control
+  // `aria-disabled` exists to keep a low-vision keyboard user able to land on.
+  // The `ghost` hover moved off this fill so the two cannot be confused.
+  //
+  // NO RATIO IS WRITTEN IN THIS FILE, or in any of the files this branch
+  // touched: every treatment named here is locked in lib/contrast.test.ts instead.
+  // Four rounds of review each found a figure in these comments that the code
+  // no longer produced, and the last pair were BOTH right — on two different
+  // grounds, neither of which the sentence stating them named. A number that
+  // needs a sentence of context to be true belongs in a test.
   //
   // The pointer stays LIVE: `pointer-events-none` left a sighted coach tapping
   // a dead control with no cursor, no hover, no tooltip and no click — and it
@@ -43,7 +47,7 @@ const base =
   // the override spelling tried here first reset the background to the CSS
   // `initial` value under an aria-busy variant — but that value is
   // TRANSPARENT, not "whatever the variant said", so every primary button
-  // vanished to white on the canvas — near enough 1:1 — for
+  // vanished into the canvas for
   // the whole duration of its own write. It did not even win: the inert fill
   // compiled after it at equal specificity. A state this hard to reason about
   // in overrides is one to express as a condition.
@@ -68,9 +72,9 @@ const variants: Record<Variant, string> = {
   // hovered ghost Cancel and a blocked Save read identically — and on iOS the
   // hover sticks after the tap.
   ghost: "bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-800",
-  // error-600, not 500: white on #f04438 is 3.76:1 and a button label is
-  // normal-weight text needing 4.5. DESIGN.md §2 already made this call for
-  // danger INK and it was never applied to the fill.
+  // error-600, not 500: a button label is normal-weight text needing AA, and
+  // error-500 does not carry white at that size (locked in lib/contrast.test.ts).
+  // DESIGN.md §2 made this call for danger INK and it was never applied here.
   danger: "bg-error-600 text-white shadow-theme-xs hover:bg-error-700",
   // Destructive INK on a secondary shell. A solid red fill is the confirm
   // dialog's answer, not a toolbar's: three filled buttons in one header

@@ -61,7 +61,16 @@ export function SwimOutcome({ row }: { row: SwimOutcomeRow }) {
       Best going in{" "}
       <span className="tabular-nums">{formatTime(row.pbBeforeMs)}</span>
       {" · "}
-      <span className={row.newPb ? "font-medium text-success-ink" : undefined}>
+      {/* `tabular-nums` here too: DESIGN.md names the GAP value alongside the
+          time, and these render down a column of entry rows where a
+          proportional delta visibly ripples against the aligned PB above. */}
+      <span
+        className={
+          row.newPb
+            ? "font-medium tabular-nums text-success-ink"
+            : "tabular-nums"
+        }
+      >
         {row.newPb
           ? `New personal best, ${formatDelta(delta)} faster`
           : delta === 0

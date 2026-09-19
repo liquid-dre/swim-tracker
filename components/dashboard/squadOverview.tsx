@@ -20,6 +20,7 @@ import { formatTime, GALA_SHORT } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
+import { QualifyingBasis } from "@/components/qualifying/QualifyingBasis";
 
 /*
   Coach dashboard squad overview (the vibrance revamp). Four headline counts and
@@ -363,12 +364,17 @@ export function RosterOverview({ data }: { data: DashboardData | undefined }) {
                   {/* The QUALIFYING time, not the all-time PB: this table's
                       gala and gap columns are entry claims, so the time beside
                       them must be the one they were measured from (§4.9). */}
+                  {/* "Qualifying time", not "Qualifying": over a column of
+                      m:ss:hh the shorter word reads as a status, and the
+                      status is the "Best tier" column two along. The BASIS is
+                      stated once below the table by <QualifyingBasis> — the
+                      same line every other qualifying surface carries — rather
+                      than in a `title` no tablet ever shows. */}
                   <th
                     scope="col"
                     className="px-4 py-2.5 text-right font-medium"
-                    title="Fastest official meet swim inside the gala's qualifying window"
                   >
-                    Qualifying
+                    Qualifying time
                   </th>
                   <th scope="col" className="px-4 py-2.5 font-medium">Trend</th>
                   <th scope="col" className="px-4 py-2.5 font-medium">Best tier</th>
@@ -383,6 +389,13 @@ export function RosterOverview({ data }: { data: DashboardData | undefined }) {
           </div>
         )}
       </div>
+
+      {/* Once per surface, below the thing it describes — the invariant every
+          other qualifying screen follows. It renders nothing when no gala has
+          a window, so a club that has not set one sees no stray sentence. */}
+      {data !== undefined && data.setup.hasStandards && (
+        <QualifyingBasis windows={data.qualifyingWindows} />
+      )}
     </section>
   );
 }

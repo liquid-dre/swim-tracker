@@ -36,7 +36,8 @@ export const TIER_STYLE: Record<
   // `color` paints STROKES and swatches; `ink` is the darker variant for TEXT.
   // They are not interchangeable: the gala hues are picked to be legible as 1.5px
   // lines against the grid, and at that lightness a small label fails contrast on
-  // white — --color-tier-sanj is about 2.4:1, its -ink about 5.5:1. Any label
+  // white — --color-tier-sanj cannot carry text and its -ink can (locked in
+  // lib/contrast.test.ts). Any label
   // drawn in a gala's colour must use `ink` (DESIGN.md §3).
   //
   // Dash patterns give the lines a second, greyscale-legible signal beyond

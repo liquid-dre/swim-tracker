@@ -504,10 +504,10 @@ function FlipCalendar({
                 isSelected
                   ? "bg-brand-500 font-medium text-white"
                   : disabled
-                    // A solid recessive ink rather than 40% of a light grey,
-                    // which composited to 1.72:1 — legal (WCAG exempts
-                    // inactive components) and still unreadable, so you could
-                    // not tell WHICH dates were out of range.
+                    // A solid recessive ink rather than 40% of a light grey.
+                    // The fade was legal — WCAG exempts inactive components —
+                    // and still unreadable, so you could not tell WHICH dates
+                    // were out of range. Solid beats it; locked in lib/contrast.test.ts.
                     ? "cursor-not-allowed text-gray-400"
                     : "text-gray-700 hover:bg-accent hover:text-brand-600",
               )}

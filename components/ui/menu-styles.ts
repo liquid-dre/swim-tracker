@@ -22,16 +22,18 @@ export const MENU_PANEL =
 // picking days down a programme: 44px everywhere a finger might be, released
 // only on a pointer-driven large screen. (The rule this replaced was gated on
 // the pointer ALONE, and the sentence here still said so after the swap.) `text-brand-600`, not `text-primary`
-// (brand-500): on brand-50 that pair measures 4.34:1, under AA, and the
-// highlighted row is exactly the one a low-vision keyboard user is reading.
+// (brand-500): on brand-50 that pair is under AA (locked in lib/contrast.test.ts),
+// and the highlighted row is exactly the one a low-vision keyboard user is
+// reading.
 export const MENU_ITEM =
   "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 outline-hidden tap " +
   "transition-colors [transition-duration:var(--dur-1)] " +
   "hover:bg-accent hover:text-brand-600 focus:bg-accent focus:text-brand-600 " +
   "data-[highlighted]:bg-accent data-[highlighted]:text-brand-600 " +
   "data-[state=checked]:font-medium data-[state=checked]:text-brand-600 " +
-  // Solid recessive ink, not `opacity-50`: on `text-gray-700` that composites
-  // to 2.63:1 while the Add-event listbox — which authors its own disabled row
-  // and says it matches this one — sits at 4.98:1. One state, one depth.
+  // Solid recessive ink, not `opacity-50`: fading `text-gray-700` landed well
+  // under the Add-event listbox beside it, which authors its own disabled row
+  // and says in a comment that it matches this one. One state, one depth, and
+  // now literally one colour (locked in lib/contrast.test.ts).
   "data-[disabled]:pointer-events-none data-[disabled]:text-gray-500 " +
   "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";

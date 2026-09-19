@@ -208,6 +208,47 @@ export function MultiMeetReview({
   const rowsValid = included.every(
     (r) => r.name.trim() !== "" && ISO.test(r.startDate),
   );
+
+  /*
+    The rows a press of Import would actually WRITE.
+
+    `runAll` skips anything already saved, so on a retry after a partial
+    failure the committed rows are not in play — and counting them anyway made
+    the confirmation offer to replace programmes it would not touch.
+  */
+  const outstanding = included.filter((r, i) => outcomes[i]?.status !== "saved");
+
+  /*
+    How many of those DESTROY a programme.
+
+    A row whose normalised name and start date already match a fixture is
+    auto-targeted at it, which is what makes re-importing a season workbook in
+    November quietly aim at every meet already on the calendar. The single-meet
+    path treats ONE such replacement as worth a confirmation and a change
+    summary; twelve of them went through on one click, on a button that only
+    ever said how many meets would be written.
+  */
+  const replacing = outstanding.filter((r) => r.target !== "").length;
+
+  /** The meets those rows will replace, in order, each named once. */
+  const replaceTargets = outstanding
+    .map((r) => (r.target === "" ? null : (meets.find((m) => m._id === r.target) ?? null)))
+    .filter((m): m is ExistingMeet => m !== null)
+    .filter((m, i, all) => all.findIndex((x) => x._id === m._id) === i);
+
+  /*
+    Two rows cannot aim at one meet: the second write would silently overwrite
+    the first, and the confirmation would name the casualty twice. A blocked
+    reason, in the words of the thing to fix, like the others.
+  */
+  const duplicateTarget =
+    replaceTargets.length === outstanding.filter((r) => r.target !== "").length
+      ? null
+      : (meets.find(
+          (m) =>
+            outstanding.filter((r) => r.target === (m._id as string)).length > 1,
+        )?.name ?? null);
+
   /** Why the import cannot run, in the words of the thing to fix. */
   const blockedReason: string | null =
     included.length === 0
@@ -216,31 +257,25 @@ export function MultiMeetReview({
         ? "Every meet needs a name and a date."
         : missingCourse > 0 && !allowNoCourse
           ? `${missingCourse} ${missingCourse === 1 ? "meet needs" : "meets need"} a course before they can be imported.`
-          : null;
-  /*
-    How many of these DESTROY a programme.
-
-    A row whose normalised name and start date already match a fixture is
-    auto-targeted at it, which is what makes re-importing a season workbook in
-    November quietly aim at every meet already on the calendar. The single-meet
-    path treats one such replacement as worth a confirmation and a change
-    summary; twelve of them went through on one click, on a button that only
-    ever said how many meets would be imported.
-  */
-  const replacing = included.filter((r) => r.target !== "").length;
-
+          : duplicateTarget !== null
+            ? `Two meets are both set to replace ${duplicateTarget}. Only one can.`
+            : null;
   const canImport =
     !importing &&
     !finished &&
     included.length > 0 &&
     rowsValid &&
+    duplicateTarget === null &&
     (missingCourse === 0 || allowNoCourse);
 
   async function runAll() {
     if (!canImport) return;
     setImporting(true);
     const next: RowOutcome[] = [...outcomes];
-    let saved = 0;
+    // Seeded from what a previous pass committed, not 0: the loop below skips
+    // those rows, so counting from zero made a retry report "2 imported" after
+    // ten had landed.
+    let saved = next.filter((o) => o.status === "saved").length;
 
     // Sequential, not parallel: each row is an independent decision and a
     // failure part-way through must leave the rows before it committed and say
@@ -327,7 +362,7 @@ export function MultiMeetReview({
               type="button"
               onClick={includeAll}
               disabled={importing || finished}
-              className="rounded-sm font-medium text-brand-600 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="tap inline-flex items-center rounded-sm font-medium text-brand-600 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             >
               Put them all back
             </button>
@@ -393,9 +428,9 @@ export function MultiMeetReview({
       <div className="flex items-center gap-3">
         <Button
           variant="primary"
-          // `aria-disabled` so the reason beside it is reachable by tab, and so
-          // the button does not take `disabled:opacity-50` — white on a 50%
-          // brand fill is 2.07:1.
+          // `aria-disabled` so the reason beside it is reachable by tab, and
+          // so the button does not take `disabled:opacity-50`, which leaves a
+          // blocked primary unreadable (locked in lib/contrast.test.ts).
           // Not while it is RUNNING: a busy button is not a blocked one, and
           // both states at once compounded their two treatments.
           aria-disabled={(!canImport && !importing) || undefined}
@@ -454,32 +489,35 @@ export function MultiMeetReview({
             ? "Replace 1 programme?"
             : `Replace ${replacing} programmes?`
         }
+        // `span`s, not `p`/`ul`: Radix renders `description` inside
+        // `Dialog.Description`, which IS a `<p>`, so a paragraph or a list
+        // here nests block elements in a `<p>` — invalid DOM, a React
+        // `validateDOMNesting` error on every open, and unparseable if this
+        // ever renders server-side. ImportMeetSheet builds the same shape out
+        // of `span.block` for exactly this reason; this is that spelling.
         description={
           <>
-            <p>
-              Importing writes {included.length} meet
-              {included.length === 1 ? "" : "s"}.{" "}
+            <span className="block">
+              Importing writes {outstanding.length} meet
+              {outstanding.length === 1 ? "" : "s"}.{" "}
               {replacing === 1 ? "One of them" : `${replacing} of them`}{" "}
               {replacing === 1 ? "replaces" : "replace"} a programme already on
               the calendar, wholesale. This cannot be undone.
-            </p>
-            <ul className="mt-2 flex flex-col gap-1">
-              {included
-                .map((r) => meets.find((m) => m._id === r.target) ?? null)
-                .filter((m): m is ExistingMeet => m !== null)
-                .map((m) => (
-                  <li key={m._id} className="text-ink">
-                    {m.name}{" "}
-                    <span className="text-ink-muted">
-                      ({formatMeetDates(m)}
-                      {m.eventCount > 0
-                        ? `, ${m.eventCount} event${m.eventCount === 1 ? "" : "s"} today`
-                        : ", empty programme"}
-                      )
-                    </span>
-                  </li>
-                ))}
-            </ul>
+            </span>
+            <span className="mt-2 flex flex-col gap-1">
+              {replaceTargets.map((m) => (
+                <span key={m._id} className="block text-ink">
+                  {m.name}{" "}
+                  <span className="text-ink-muted">
+                    ({formatMeetDates(m)}
+                    {m.eventCount > 0
+                      ? `, ${m.eventCount} event${m.eventCount === 1 ? "" : "s"} today`
+                      : ", empty programme"}
+                    )
+                  </span>
+                </span>
+              ))}
+            </span>
           </>
         }
         confirmLabel={replacing === 1 ? "Replace it" : "Replace them"}
@@ -609,8 +647,10 @@ function MeetRow({
           thing this block exists to say. */}
       <div
         className={
-          // 60%, not 40%: the point is to show WHAT is being declined, and at
-          // 40% the labels composite to about 2.1:1 — unreadable. The dashed
+          // 60%, not 40%: the point is to show WHAT is being declined, and
+          // 40% composites the labels past unreadable (locked in
+          // lib/contrast.test.ts, along with what a field's own `opacity-50`
+          // then did inside this one). The dashed
           // border, the struck title and the "Left out" sentence carry the
           // state; the opacity only needs to recede it.
           row.skip ? "pointer-events-none select-none opacity-60" : undefined

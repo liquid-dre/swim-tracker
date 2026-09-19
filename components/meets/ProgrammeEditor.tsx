@@ -907,6 +907,16 @@ const ProgrammeLine = memo(function ProgrammeLine({
             {below > 0 && line.day !== undefined && (
               <button
                 type="button"
+                // The same string in BOTH, the idiom IconButton and the entry
+                // roster use. The visible text is "…and below (3 change day)",
+                // which is not a sentence, so `title` alone left the only full
+                // statement of what this rewrites on a mouse affordance an
+                // iPad never shows — on the surface the comment above is about.
+                aria-label={
+                  overwrites > 0
+                    ? `Puts ${name} and the ${below} events below it on ${dayName}, changing ${overwrites} already on another day.`
+                    : `Puts ${name} and the ${below} events below it on ${dayName}.`
+                }
                 title={
                   overwrites > 0
                     ? `Puts ${name} and the ${below} events below it on ${dayName}, changing ${overwrites} already on another day.`
