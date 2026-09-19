@@ -35,13 +35,20 @@ function walk(dir: string): string[] {
 }
 
 /*
-  `components/charts/` is the bklit UI registry, vendored per CLAUDE.md — code
-  this project did not author and does not restyle. It holds the only
-  `backdrop-blur-md` in the tree, on a chart tooltip panel. Excluded by
-  PROVENANCE, so the carve-out is one stated decision rather than a growing
-  list of individual passes.
+  Vendored code only: the bklit UI registry, which this project did not author
+  and does not restyle. It holds the only `backdrop-blur-md` in the tree, on a
+  chart tooltip panel.
+
+  `components/charts/swim/` is NOT vendored — those 17 files are ours, which
+  DESIGN.md §5b says in words and `eslint.config.mjs` encodes by carving them
+  back in by name. The first version of this constant swallowed the whole
+  subtree under a comment asserting the project did not author it, which put
+  our own chart parts outside every ban on this list — including a file
+  changed on this branch. That is the failure this file's own header names:
+  a scope property asserted rather than measured. The negative lookahead is
+  the same one eslint uses, so the two carve-outs cannot drift apart.
 */
-const VENDORED = /^components[/\\]charts[/\\]/;
+const VENDORED = /^components[/\\]charts[/\\](?!swim[/\\])/;
 const ALL: string[] = [...walk("components"), ...walk("app")].sort();
 const OURS: string[] = ALL.filter((f) => !VENDORED.test(f));
 
@@ -50,15 +57,73 @@ function read(f: string): string {
 }
 
 /**
- * The source with comments blanked, line lengths preserved.
+ * One pass over the source, tracking whether we are inside a string.
  *
- * A class named in a comment does not ship, and these files discuss their own
- * class names constantly, in backticks — which a literal scan reads as strings.
+ * Three escapes came from doing this with regexes. An apostrophe in an earlier
+ * attribute (`title="the coach's view"`) desynchronised naive quote-pairing and
+ * hid the className after it. A `//` inside a string (`href="https://…"`) was
+ * blanked as a comment, taking the rest of the line with it. And a class
+ * string broken across lines was never matched at all, because the pattern
+ * excluded newlines.
+ *
+ * A scanner that knows what a string is has none of those, so it is worth the
+ * twenty lines. Returns the code with comments blanked (line lengths kept, so
+ * reported line numbers stay right) and every string literal it found.
  */
+function scan(source: string): { code: string; literals: { at: number; value: string }[] } {
+  const out: string[] = [];
+  const literals: { at: number; value: string }[] = [];
+  let line = 1;
+  let i = 0;
+
+  const push = (ch: string) => {
+    out.push(ch);
+    if (ch === "\n") line += 1;
+  };
+  const blank = (ch: string) => push(ch === "\n" ? "\n" : " ");
+
+  while (i < source.length) {
+    const ch = source[i];
+    const next = source[i + 1];
+
+    if (ch === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") blank(source[i++]);
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      while (i < stop) blank(source[i++]);
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      const at = line;
+      let value = "";
+      push(source[i++]);
+      while (i < source.length) {
+        if (source[i] === "\\") {
+          value += source[i] + (source[i + 1] ?? "");
+          push(source[i++]);
+          if (i < source.length) push(source[i++]);
+          continue;
+        }
+        if (source[i] === quote) break;
+        value += source[i];
+        push(source[i++]);
+      }
+      if (i < source.length) push(source[i++]);
+      literals.push({ at, value });
+      continue;
+    }
+    push(source[i++]);
+  }
+  return { code: out.join(""), literals };
+}
+
+/** The source with comments blanked — a class named in a comment does not ship. */
 function code(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "))
-    .replace(/\/\/[^\n]*/g, (c) => " ".repeat(c.length));
+  return scan(source).code;
 }
 
 /**
@@ -88,8 +153,8 @@ function styleGroups(source: string): { at: number; value: string }[] {
   }
 
   const literals = (text: string) =>
-    (text.match(/["'`]([^"'`\n]*)["'`]/g) ?? [])
-      .map((l) => l.slice(1, -1))
+    scan(text)
+      .literals.map((l) => l.value)
       .join(" ");
 
   const covered: [number, number][] = [];
@@ -117,12 +182,19 @@ function styleGroups(source: string): { at: number; value: string }[] {
 
   // Everything else, per statement — where a `.ts` styles module lives.
   let cursor = 0;
-  for (const chunk of src.split(";")) {
+  for (const statement of src.split(";")) {
     const start = cursor;
-    cursor += chunk.length + 1;
+    cursor += statement.length + 1;
     if (covered.some(([a, b]) => a >= start && b <= cursor)) continue;
-    const value = literals(chunk);
-    if (value !== "") groups.push({ at: lineOf(start), value });
+    // Split at object-key boundaries: `{ button: "…", label: "…" }` is two
+    // controls, and joining them let one key's `touch:` answer another key's
+    // `lg:` release. A `cn(a, b)` argument list has no `key:` and stays whole.
+    let offset = 0;
+    for (const part of statement.split(/,(?=\s*[A-Za-z_$][\w$]*\s*:)/)) {
+      const value = literals(part);
+      if (value !== "") groups.push({ at: lineOf(start + offset), value });
+      offset += part.length + 1;
+    }
   }
   return groups;
 }
@@ -217,10 +289,7 @@ describe("no gradients, glassmorphism or pure black", () => {
     // `!`, which is the arbitrary-variant spelling this codebase uses
     // constantly, and it let a blur through simply for having `[&_svg]:` in
     // the same string.
-    const all = (code(read(file)).match(/["'`][^"'`\n]*["'`]/g) ?? []).map((l) => ({
-      value: l.slice(1, -1),
-      at: 0,
-    }));
+    const all = scan(read(file)).literals;
     const allow = ALLOWED[file] ?? {};
     const hits = BANNED.flatMap(({ name, re }) =>
       all
@@ -279,7 +348,13 @@ describe("the 44px floor is restored wherever `lg:` releases it", () => {
     reported a marketing page's two-pane split as an unrestored control.
   */
   const RELEASES = /\blg:(?:h|size|min-h)-\d/;
-  const RESTORES = /\btouch:(?:h|size|min-h)-/;
+  /*
+    A restore that RESTORES something: 11 units (44px) or more, or an
+    arbitrary value. `RELEASES` was narrowed to numeric last commit and its
+    partner was left open, so `touch:h-4` and `touch:min-h-0` counted as
+    restoring the floor in a test named for that floor.
+  */
+  const RESTORES = /\btouch:(?:h|size|min-h)-(?:1[1-9]|[2-9]\d|\[)/;
 
   test.each(OURS)("%s restores every size it releases", (file: string) => {
     const unrestored = styleGroups(read(file))
@@ -292,6 +367,12 @@ describe("the 44px floor is restored wherever `lg:` releases it", () => {
 /*
   KNOWN LIMITS, stated rather than left to be discovered.
 
+  The previous version of this list was written from the shapes the file had
+  been designed for, so the shapes it had not considered were absent from both
+  the tests and the limits — which is how a review walked past it six ways.
+  Everything below was reached by trying to break the scan, not by reasoning
+  about it, and each one that COULD be closed was closed rather than listed.
+
   - A size built by interpolation (`` `h-11 lg:h-${n}` ``) cannot be read from
     source, and nothing here pretends to.
   - A class assembled across separate statements — built in one `const` and
@@ -299,7 +380,9 @@ describe("the 44px floor is restored wherever `lg:` releases it", () => {
     judged apart.
   - Card nesting is lexical plus the named list above; a panel reaching a card
     through a prop is invisible to both.
-  - A control that is under 44px WITHOUT ever releasing at `lg:` is not a
-    release and is not checked here. A repo-wide audit of those is a separate
-    job from this rule.
+  - A control under 44px that never releases at `lg:` is not a release and is
+    not checked here. A repo-wide audit of those is a separate job.
+  - A ban reached through a variable in ANOTHER file (`import { X }` then
+    `className={X}`) is judged where X is written, not where it is used —
+    which is right for the ban and wrong for card nesting.
 */
