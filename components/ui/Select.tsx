@@ -32,9 +32,27 @@ import { MENU_ITEM, MENU_PANEL } from "./menu-styles";
  */
 const EMPTY = "__none__";
 
-/** "" → the sentinel, so Radix is never handed `undefined` and never flips. */
-export function toRadixValue(value: string): string {
-  return value === "" ? EMPTY : value;
+/**
+ * "" → the sentinel, but ONLY where the caller offers an empty option.
+ *
+ * Two different situations wear the same `value=""`, and they want opposite
+ * things from Radix:
+ *
+ *   an empty OPTION exists ("Not set", "All squads", "Not listed") — the
+ *     trigger should read that option's own label, so it needs a real value
+ *     Radix can match an `Item` against, hence the sentinel.
+ *
+ *   no empty option — "" means nothing is chosen yet and the trigger should
+ *     read the PLACEHOLDER. Radix gates that on
+ *     `shouldShowPlaceholder(v) = v === "" || v === undefined`, so "" has to
+ *     pass straight through. Sending the sentinel here is what blanked
+ *     "Choose a club" and eight other pickers.
+ *
+ * Either way the value is a string, never `undefined`, so the component stays
+ * controlled for its whole life — which is the bug this pair exists for.
+ */
+export function toRadixValue(value: string, hasEmptyOption: boolean): string {
+  return value === "" && hasEmptyOption ? EMPTY : value;
 }
 
 /** The sentinel → "", so the sentinel never escapes this module. */
@@ -84,9 +102,10 @@ export function Select({
   className?: string;
   contentClassName?: string;
 }) {
+  const hasEmptyOption = options.some((o) => o.value === "");
   return (
     <SelectPrimitive.Root
-      value={toRadixValue(value)}
+      value={toRadixValue(value, hasEmptyOption)}
       onValueChange={(next) => onValueChange(fromRadixValue(next))}
       disabled={disabled}
     >
@@ -100,20 +119,15 @@ export function Select({
           "group inline-flex w-full items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-ink-faint",
           // "sm" is still ≥44px on touch viewports (PRODUCT.md), compacting
           // to h-9 only in the dense lg+ toolbars.
-          size === "sm" ? "h-11 px-3 text-sm lg:h-9" : "h-11 px-3 text-base",
+          size === "sm" ? "h-11 px-3 text-sm lg:h-9 touch:h-11" : "h-11 px-3 text-base",
           className,
         )}
       >
         <span className="truncate text-left">
-          {/* The empty option now has a real value (`EMPTY`), so Radix renders
-              its own label and the placeholder is only reached when a caller
-              supplies no empty option at all. Kept as the fallback for that
-              case, and because an explicit `placeholder` should still win. */}
-          <SelectPrimitive.Value
-            placeholder={
-              placeholder ?? options.find((o) => o.value === "")?.label ?? undefined
-            }
-          />
+          {/* With an empty option the trigger reads that option's own label,
+              because it has a real value for Radix to match. Without one, ""
+              reaches Radix untouched and this placeholder is what shows. */}
+          <SelectPrimitive.Value placeholder={placeholder} />
         </span>
         <SelectPrimitive.Icon asChild>
           <ChevronDown
@@ -137,7 +151,7 @@ export function Select({
             {options.map((o) => (
               <SelectPrimitive.Item
                 key={o.value}
-                value={toRadixValue(o.value)}
+                value={toRadixValue(o.value, hasEmptyOption)}
                 disabled={o.disabled}
                 textValue={
                   o.textValue ?? (typeof o.label === "string" ? o.label : undefined)

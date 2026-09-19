@@ -41,6 +41,7 @@ don't strip the system to chase points.
 
   /* Semantic */
   --color-success-50:#ecfdf3; --color-success-500:#12b76a; --color-success-600:#039855;
+--color-success-700: #027a48;  /* success ink: 600 is 3.57:1 on the canvas, under AA */
   --color-error-50:#fef3f2;   --color-error-500:#f04438;   --color-error-600:#d92d20;
   --color-error-700:#b42318; /* danger INK: 600 on error-50 is 4.4:1 and misses AA; 700 is 6.0:1 */
   --color-warning-50:#fffaeb; --color-warning-500:#f79009; --color-warning-600:#dc6803;

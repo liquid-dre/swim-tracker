@@ -76,7 +76,11 @@ export function ViewerMeetEntries({
                       <DayTag
                         meet={meet}
                         iso={entry.swimDate}
-                        superseded={entry.dayMismatch !== null}
+                        // Only BEFORE the meet. Afterwards the entry's own
+                        // date is the one the time was recorded against and
+                        // the one `ageAtSwim` came from — striking it would
+                        // call the authoritative date wrong.
+                        superseded={upcoming && entry.dayMismatch !== null}
                       />
                     )}
                   </span>
@@ -95,11 +99,11 @@ export function ViewerMeetEntries({
                   {/* The programme moved after this entry was made. Said here
                       because a family reading the old morning is the whole
                       failure: they turn up on the wrong day, confidently. */}
-                  {entry.dayMismatch !== null && (
+                  {entry.dayMismatch !== null && upcoming && (
                     <p className="w-full text-xs text-warning-ink">
-                      The programme{upcoming ? " now swims" : " swam"} this on{" "}
-                      <DayName meet={meet} iso={entry.dayMismatch} />.
-                      {upcoming && " Check with the coach before the meet."}
+                      The programme now swims this on{" "}
+                      <DayName meet={meet} iso={entry.dayMismatch} />. Check
+                      with the coach before the meet.
                     </p>
                   )}
                 </li>

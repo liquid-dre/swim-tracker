@@ -9,6 +9,18 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
+  A touch pointer, whatever the viewport is.
+
+  PRODUCT.md asks for ≥44px targets on touch, and every control in the app
+  spelled that `h-11 lg:h-9` — width, not pointer. An iPad in landscape is
+  1024–1366 CSS px, so it clears `lg` and the poolside coach, who is the primary
+  persona and the reason meets is one screen, got 32–36px on every control the
+  surface is built from. Declared after `dark` so its rules sort last and win
+  over the `lg:` they correct.
+*/
+@custom-variant touch (@media (pointer: coarse));
+
+/*
   Swim Tracker design system — see DESIGN.md (authoritative). TailAdmin-style
   admin aesthetic: soft off-white canvas, white cards with soft layered shadows,
   an indigo brand accent, Untitled-UI grays, the Outfit typeface.
@@ -696,9 +708,9 @@
   makes `text-base` 14px (DESIGN.md §1), which is under that threshold, so every
   input in the app tripped it.
 
-  The controls already switch to touch sizing below `lg` (`h-11 … lg:h-9`); this
-  is the same rule applied to their TEXT, and it stops at the same breakpoint so
-  the dense desktop forms are untouched. Checkboxes and radios are excluded —
+  Gated on a coarse POINTER as well as on width: an iPad in landscape is over
+  1024px and Safari zooms a focused sub-16px field there exactly as it does on a
+  phone. A mouse-driven narrow window keeps the dense type. Checkboxes and radios are excluded —
   they have no text to zoom toward, and a font-size on them moves their box.
 
   `[data-slot="select-trigger"]` is in the list because our `Select` is a Radix
@@ -710,7 +722,7 @@
   Deliberately UNLAYERED: Tailwind's `text-base` lands in @layer utilities, so a
   rule inside @layer base would lose to it on every field that sets its own size.
 */
-@media (max-width: 1023.98px) {
+@media (pointer: coarse), (max-width: 1023.98px) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   select,
   textarea,

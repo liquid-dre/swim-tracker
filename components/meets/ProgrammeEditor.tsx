@@ -120,12 +120,14 @@ export type ProgrammeUndo = {
 /**
  * The single most urgent thing to say about the list, or nothing.
  *
- * Ranked by whether the state BLOCKS something in this editor, because a
- * suppressed message is only a saving when what it hid was less urgent than
- * what survived. Reordering being disabled leads: it kills both arrows on every
- * row and nothing else on screen explains that. A course mismatch is last of
- * the warnings precisely because it does NOT block — those lines still save,
- * and the Details tab and the tab label both already carry the count.
+ * Ranked by what a coach loses if it is NOT said, because suppressing four
+ * messages is only a saving when what was hidden is said somewhere else or
+ * matters less. Reordering being disabled leads: it kills both arrows on every
+ * row and nothing else explains that. Then the numbering warning, the only
+ * notice of an irreversible bulk renumber and stated nowhere else. The course
+ * mismatch comes after both — it does not block, and the Details tab, the tab
+ * label and each offending row all carry it too. Interleaved days are last of
+ * the warnings: they change how the meet page will look, and nothing more.
  *
  * Pure, and exported, so the ranking this whole strip exists for is tested
  * rather than asserted in a comment.
@@ -140,10 +142,14 @@ export function rankedNotice(state: {
   if (state.reorderBlocked !== null) {
     return { tone: "warn", text: state.reorderBlocked };
   }
-  if (state.interleaved) {
+  // Second, because it is the only notice that warns a move will renumber all
+  // sixty lines, and it is stated NOWHERE else. The mismatch below survives on
+  // the Details tab, in the tab's own label and on each offending row, so it is
+  // the one that loses least by being suppressed.
+  if (state.wouldNumber) {
     return {
-      tone: "warn",
-      text: "A day appears more than once in this running order, so the bands below repeat. The meet page groups each day together, so it will not look like this until the events of a day sit together here.",
+      tone: "muted",
+      text: "These events have no numbers. Moving one will number them all in their current order, because the number is what a meet's running order is.",
     };
   }
   if (state.mismatched > 0) {
@@ -156,10 +162,10 @@ export function rankedNotice(state: {
         " They will save, but no time can be recorded against them until the event or the meet's course changes.",
     };
   }
-  if (state.wouldNumber) {
+  if (state.interleaved) {
     return {
-      tone: "muted",
-      text: "These events have no numbers. Moving one will number them all in their current order, because the number is what a meet's running order is.",
+      tone: "warn",
+      text: "A day appears more than once in this running order, so the bands below repeat. The meet page groups each day together, so it will not look like this until the events of a day sit together here.",
     };
   }
   if (state.teaching) {
@@ -225,9 +231,11 @@ export function ProgrammeEditor({
   onFocused?: () => void;
 }) {
   const [announcement, setAnnouncement] = useState("");
-  /** The list as it stood before the last carry-down, for one step of undo. */
-  /** Set once the carry-down has been used: the hint has done its job. */
-  const [usedCarryDown, setUsedCarryDown] = useState(false);
+  // DERIVED, not stored: kept as local state it died on the very tab switch
+  // the undo was lifted out of this component to survive, and the hint came
+  // back to a coach who had already used the control it teaches.
+  const usedCarryDown =
+    undo !== null || lines.some((l) => l.day !== undefined);
 
   // The row below is memoized, which only pays off if its props are stable —
   // and passing the whole `lines` array plus a closure over it would rebuild
@@ -316,7 +324,14 @@ export function ProgrammeEditor({
     () => ({
       update: (i, patch) => apply((ls) => updateLine(ls, i, patch), ""),
       gender: (i, g) => apply((ls) => setLineGender(ls, i, g), ""),
-      day: (i, d) => apply((ls) => setLineDay(ls, i, d), ""),
+      // Said, not silent: this is the one field edit whose consequence is a
+      // band moving somewhere else in the list, and the tally that used to
+      // announce it is now plain text.
+      day: (i, d) =>
+        apply(
+          (ls) => setLineDay(ls, i, d),
+          d === undefined ? "Day cleared." : `Moved to day ${d}.`,
+        ),
       // The one edit here that rewrites the whole list below the cursor, so
       // the one that keeps an undo. Used out of order — Day 1 from row 0 after
       // the Sunday and Monday were already placed — it collapses a full
@@ -328,7 +343,6 @@ export function ProgrammeEditor({
         // pure — React calls it twice under StrictMode — so a `setUndo` inside
         // it would record the snapshot twice and, on the second call, record
         // the already-written list as the thing to go back to.
-        setUsedCarryDown(true);
         setUndo({
           lines: linesRef.current,
           count: below + 1,
@@ -405,9 +419,11 @@ export function ProgrammeEditor({
             </p>
           )}
 
-          {/* The undo outranks the notice: it is the only thing here that
-              expires, and it expires on the coach's very next edit. */}
-          {undo !== null ? (
+          {/* BOTH, not either. The undo is an ACTION and the notice is a
+              message; rendering one instead of the other meant an active undo
+              suppressed `reorderBlocked` — the very message ranked first
+              because nothing else on screen explains sixty dead arrows. */}
+          {undo !== null && (
             <p className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
               <span>
                 <span className="tabular-nums text-ink">{undo.count}</span>{" "}
@@ -423,22 +439,21 @@ export function ProgrammeEditor({
                     "Those events are back on the days they were on.",
                   );
                 }}
-                className="inline-flex h-11 items-center rounded-lg px-2 font-medium text-brand-600 underline underline-offset-2 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-50 hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:h-8"
+                className="inline-flex h-11 items-center rounded-lg px-2 font-medium text-brand-600 underline underline-offset-2 outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-50 hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:h-8 touch:h-11"
               >
                 Undo
               </button>
             </p>
-          ) : (
-            notice !== null && (
-              <p
-                className={
-                  "text-xs " +
-                  (notice.tone === "warn" ? "text-warning-ink" : "text-ink-muted")
-                }
-              >
-                {notice.text}
-              </p>
-            )
+          )}
+          {notice !== null && (
+            <p
+              className={
+                "text-xs " +
+                (notice.tone === "warn" ? "text-warning-ink" : "text-ink-muted")
+              }
+            >
+              {notice.text}
+            </p>
           )}
         </div>
       )}
@@ -454,16 +469,24 @@ export function ProgrammeEditor({
            that needs attention the same weight as the fifty-nine that do not. */
         /* Banded where the day CHANGES, in array order, so the list never
            reorders itself while the order is being stated. */
-        <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xs">
+        <ul
+          aria-label={`Programme, ${lines.length} events`}
+          className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xs"
+        >
           {dayGroups.map((group) => (
             <Fragment key={group.day ?? "unplaced"}>
               {group.label !== "" && (
-                <li className="border-b border-gray-100 bg-gray-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink">
+                /* A real heading, so a screen-reader user can jump between the
+                   days of a sixty-row programme instead of tabbing through
+                   seven hundred controls in a line. */
+                <li className="border-b border-gray-100 bg-gray-50 px-3 py-1.5">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-ink">
                   {group.label}
                   <span className="ml-2 font-normal normal-case tracking-normal text-ink-muted">
                     <span className="tabular-nums">{group.indices.length}</span>{" "}
                     {group.indices.length === 1 ? "event" : "events"}
                   </span>
+                  </h3>
                 </li>
               )}
               {group.indices.map((i) => {
@@ -622,7 +645,7 @@ function AddEvent({
             onFocus={() => setOpen(true)}
             onBlur={() => window.setTimeout(() => setOpen(false), 120)}
             onKeyDown={onKeyDown}
-            className="h-11 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3 text-base text-gray-800 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
+            className="h-11 w-full min-w-0 rounded-lg border border-gray-300 bg-white px-3 text-base text-gray-800 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring lg:h-9 touch:h-11"
           />
           <Button
             variant="secondary"
@@ -686,7 +709,9 @@ function AddEvent({
       </div>
       {/* A live region, because the sentence changes underneath a button that
           is disabled and therefore cannot describe itself to a screen reader. */}
-      <p role="status" className="text-xs text-ink-muted">
+      {/* Plain text: it changes on every keystroke, and a combobox already
+          announces its own options. */}
+      <p className="text-xs text-ink-muted">
         {exactMatch
           ? exactMatch.allowed
             ? `${exactMatch.label} is a real event, so add it from the list — a line typed by hand can never take a time.`
@@ -811,7 +836,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
                 eventNumber: raw === "" ? undefined : Number(raw),
               });
             }}
-            className="h-11 w-full rounded-lg border border-gray-300 bg-white px-2 text-base tabular-nums text-gray-800 outline-none focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
+            className="h-11 w-full rounded-lg border border-gray-300 bg-white px-2 text-base tabular-nums text-gray-800 outline-none focus:border-brand-300 focus:shadow-focus-ring lg:h-9 touch:h-11"
           />
         </label>
 
@@ -858,7 +883,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
                 onClick={() =>
                   on.dayFrom(index, line.day!, dayName, below, overwrites)
                 }
-                className="inline-flex h-11 items-center self-start rounded-lg px-2 text-xs font-medium text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-100 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:h-8"
+                className="inline-flex h-11 items-center self-start rounded-lg px-2 text-xs font-medium text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-100 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:h-8 touch:h-11"
               >
                 {overwrites > 0
                   ? `…and below (${overwrites} change day)`
@@ -884,7 +909,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
               // Hand-rolled rather than the shared `Input`, whose root takes no
               // className and so cannot flex inside this row. The error
               // treatment matches it exactly.
-              "h-11 w-full rounded-lg border bg-white px-2 text-base text-gray-800 outline-none focus:border-brand-300 focus:shadow-focus-ring lg:h-9 " +
+              "h-11 w-full rounded-lg border bg-white px-2 text-base text-gray-800 outline-none focus:border-brand-300 focus:shadow-focus-ring lg:h-9 touch:h-11 " +
               (problem !== null
                 ? "border-error-500 bg-error-50"
                 : "border-gray-300 hover:border-gray-400")
@@ -1101,10 +1126,11 @@ function EventPair({
           {eventLabel(distance, stroke)}
         </span>
       )}
+      {/* Plain text, not a `role="status"` per row: switching the course fired
+          one region per offending line at once, and the sentence that mattered
+          was lost in the crawl. The strip above announces the count. */}
       {conflict !== null && (
-        <span role="status" className="text-xs text-danger-ink">
-          {conflict}
-        </span>
+        <span className="text-xs text-danger-ink">{conflict}</span>
       )}
     </div>
   );
@@ -1129,17 +1155,21 @@ const IconButton = forwardRef<
     <button
       ref={ref}
       type="button"
-      title={disabled && reason ? reason : label}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
+      title={disabled && reason ? `${label} — ${reason}` : label}
+      // The reason goes in the ACCESSIBLE NAME, not only the title: `title` is
+      // a mouse affordance an iPad never shows, and a real `disabled` button is
+      // unfocusable, so a keyboard or screen-reader user could never reach it
+      // either. `aria-disabled` keeps it focusable; the handler no-ops.
+      aria-label={disabled && reason ? `${label} — ${reason}` : label}
+      aria-disabled={disabled || undefined}
+      onClick={() => {
+        if (disabled) return;
+        onClick();
+      }}
       className={
-        "inline-flex size-11 items-center justify-center rounded-lg transition-colors [transition-duration:var(--dur-1)] lg:size-9 " +
+        "inline-flex size-11 items-center justify-center rounded-lg transition-colors [transition-duration:var(--dur-1)] lg:size-9 touch:size-11 " +
         "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
-        // No `disabled:pointer-events-none`, so a disabled button can still
-        // surface its `title` — which callers set to the REASON when there is
-        // one, not merely to the label.
-        "disabled:opacity-40 disabled:cursor-default " +
+        "aria-disabled:opacity-40 aria-disabled:cursor-default " +
         (danger
           ? "text-gray-500 hover:bg-error-50 hover:text-error-500"
           : "text-gray-500 hover:bg-gray-100 hover:text-gray-800")

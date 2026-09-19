@@ -211,7 +211,7 @@ export function MeetsScreen({
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search meets"
                 aria-label="Search meets by name or venue"
-                className="h-11 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-base text-ink outline-none transition-[border-color] [transition-duration:var(--dur-1)] placeholder:text-ink-muted hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
+                className="h-11 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-base text-ink outline-none transition-[border-color] [transition-duration:var(--dur-1)] placeholder:text-ink-muted hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring lg:h-9 touch:h-11"
               />
             </div>
           </FilterField>

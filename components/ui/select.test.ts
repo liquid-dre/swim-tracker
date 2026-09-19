@@ -13,23 +13,37 @@ import { fromRadixValue, toRadixValue } from "./Select";
 */
 describe("Select's empty-value sentinel", () => {
   test("never hands Radix undefined, whatever the caller's value", () => {
-    expect(toRadixValue("")).not.toBe("");
-    expect(toRadixValue("")).toBeTypeOf("string");
-    expect(toRadixValue("LCM")).toBe("LCM");
+    for (const hasEmpty of [true, false]) {
+      expect(toRadixValue("", hasEmpty)).toBeTypeOf("string");
+      expect(toRadixValue("LCM", hasEmpty)).toBe("LCM");
+    }
+  });
+
+  test("with an empty OPTION, \"\" becomes a value Radix can match an Item to", () => {
+    // Otherwise the trigger shows nothing for "Not set" / "All squads".
+    expect(toRadixValue("", true)).not.toBe("");
+  });
+
+  test("with NO empty option, \"\" passes straight through so the placeholder shows", () => {
+    // Radix gates the placeholder on `value === "" || value === undefined`.
+    // Sending the sentinel here blanked "Choose a club" and eight others.
+    expect(toRadixValue("", false)).toBe("");
   });
 
   test("round-trips, so the sentinel never escapes the component", () => {
-    for (const value of ["", "LCM", "2026-03-14", "SANJ", "__none__x"]) {
-      expect(fromRadixValue(toRadixValue(value))).toBe(value);
+    for (const hasEmpty of [true, false]) {
+      for (const value of ["", "LCM", "2026-03-14", "SANJ", "__none__x"]) {
+        expect(fromRadixValue(toRadixValue(value, hasEmpty))).toBe(value);
+      }
     }
   });
 
   test("set then clear returns the empty string, not the previous choice", () => {
     // The exact sequence that showed a day the line no longer had.
     let value = "";
-    value = fromRadixValue(toRadixValue("2"));
+    value = fromRadixValue(toRadixValue("2", true));
     expect(value).toBe("2");
-    value = fromRadixValue(toRadixValue(""));
+    value = fromRadixValue(toRadixValue("", true));
     expect(value).toBe("");
   });
 });

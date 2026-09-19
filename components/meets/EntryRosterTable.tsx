@@ -74,7 +74,10 @@ export function EntryRosterTable({
   }
 
   return (
-    <ul className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 bg-white">
+    <ul
+      aria-label={`Swimmers entered, ${rows.length}`}
+      className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 bg-white"
+    >
       {rows.map((row) => (
         <li key={row._id} className="flex flex-col gap-2 px-3 py-3">
           <div className="flex flex-wrap items-center gap-3">
@@ -127,13 +130,13 @@ export function EntryRosterTable({
               }
               disabled={row.resultId !== null}
               onClick={() => onRemove(row._id)}
-              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors lg:size-9 [transition-duration:var(--dur-1)] outline-none hover:bg-error-50 hover:text-error-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-40 disabled:cursor-default"
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors lg:size-9 touch:size-11 [transition-duration:var(--dur-1)] outline-none hover:bg-error-50 hover:text-error-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-40 disabled:cursor-default"
             >
               <Trash2 aria-hidden className="size-4" />
             </button>
           </div>
 
-          <p className="text-xs text-ink-muted">
+          <p className="empty:hidden text-xs text-ink-muted">
             <SwimOutcome row={row} />
             {row.genderMismatch && (
               <span className="text-warning-ink">
@@ -163,7 +166,7 @@ export function EntryRosterTable({
                 type="button"
                 disabled={busyId === row._id}
                 onClick={() => onSetDay(row._id, row.dayMismatch!)}
-                className="inline-flex h-11 items-center rounded-lg border border-warning-500/40 bg-white px-3 text-xs font-medium text-warning-ink outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-warning-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50 lg:h-8"
+                className="inline-flex h-11 items-center rounded-lg border border-warning-500/40 bg-white px-3 text-xs font-medium text-warning-ink outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-warning-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50 lg:h-8 touch:h-11"
               >
                 Move {row.name}
               </button>
@@ -216,6 +219,9 @@ function RowTime({
         inputMode="numeric"
         aria-label={`Time for ${row.name}`}
         aria-invalid={parsed.error !== null ? true : undefined}
+        aria-describedby={
+          parsed.error !== null ? `${row._id}-time-error` : undefined
+        }
         disabled={busy}
         value={parsed.text ?? ""}
         placeholder="—:——:——"
@@ -228,14 +234,16 @@ function RowTime({
           }
         }}
         className={
-          "h-11 w-32 rounded-lg border bg-white px-2 text-right text-sm tabular-nums text-gray-800 lg:h-9 lg:w-28 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50 " +
+          "h-11 w-32 rounded-lg border bg-white px-2 text-right text-sm tabular-nums text-gray-800 lg:h-9 touch:h-11 lg:w-28 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50 " +
           (parsed.error !== null
             ? "border-error-500 bg-error-50"
             : "border-gray-300 hover:border-gray-400")
         }
       />
       {parsed.error !== null && (
-        <span className="text-xs text-danger-ink">{parsed.error}</span>
+        <span id={`${row._id}-time-error`} className="text-xs text-danger-ink">
+          {parsed.error}
+        </span>
       )}
     </span>
   );

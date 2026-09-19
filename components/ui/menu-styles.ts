@@ -17,11 +17,17 @@ export const MENU_PANEL =
 
 // Row: icon + label, rounded-md, brand-tinted on hover/highlight, brand-inked when
 // selected, pointer cursor. Keyboard highlight (`data-[highlighted]`) matches hover.
+//
+// `touch:min-h-11` because a 34px option row is the target a coach hits thirty
+// times picking days down a programme, and PRODUCT.md's 44px rule is about the
+// pointer rather than the panel. `text-brand-600`, not `text-primary`
+// (brand-500): on brand-50 that pair measures 4.34:1, under AA, and the
+// highlighted row is exactly the one a low-vision keyboard user is reading.
 export const MENU_ITEM =
-  "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 outline-hidden " +
+  "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 outline-hidden touch:min-h-11 " +
   "transition-colors [transition-duration:var(--dur-1)] " +
-  "hover:bg-accent hover:text-primary focus:bg-accent focus:text-primary " +
-  "data-[highlighted]:bg-accent data-[highlighted]:text-primary " +
-  "data-[state=checked]:font-medium data-[state=checked]:text-primary " +
+  "hover:bg-accent hover:text-brand-600 focus:bg-accent focus:text-brand-600 " +
+  "data-[highlighted]:bg-accent data-[highlighted]:text-brand-600 " +
+  "data-[state=checked]:font-medium data-[state=checked]:text-brand-600 " +
   "data-[disabled]:pointer-events-none data-[disabled]:opacity-50 " +
   "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";

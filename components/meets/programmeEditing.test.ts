@@ -396,27 +396,39 @@ describe("rankedNotice", () => {
     expect(rankedNotice(none)).toBeNull();
   });
 
-  test("what BLOCKS an action outranks what merely looks different", () => {
-    // A course mismatch still saves; a reorder block kills both arrows on every
-    // row and nothing else on screen explains that.
-    const both = {
-      ...none,
+  test("an unexplained dead control outranks everything", () => {
+    // A reorder block kills both arrows on every row and nothing else on
+    // screen explains that.
+    const all = {
       reorderBlocked: "Half these events have numbers.",
+      interleaved: true,
       mismatched: 3,
+      wouldNumber: true,
+      teaching: true,
     };
-    expect(rankedNotice(both)?.text).toBe("Half these events have numbers.");
+    expect(rankedNotice(all)?.text).toBe("Half these events have numbers.");
   });
 
-  test("interleaved days outrank a course mismatch", () => {
-    const both = { ...none, interleaved: true, mismatched: 3 };
-    expect(rankedNotice(both)?.text).toContain("appears more than once");
+  test("the renumber warning outranks the mismatch, because only it is unique", () => {
+    // `wouldNumber` is the sole warning that moving one row renumbers sixty.
+    // The mismatch is also on the Details tab, in the tab label and on each
+    // offending row, so it is the one that loses least by being suppressed.
+    const both = { ...none, wouldNumber: true, mismatched: 3 };
+    expect(rankedNotice(both)?.text).toContain("will number them all");
+  });
+
+  test("the mismatch outranks interleaved days, which block nothing", () => {
+    // Interleaving changes how the meet page will look and nothing more; a
+    // mismatched line can never take a time.
+    const both = { ...none, mismatched: 3, interleaved: true };
+    expect(rankedNotice(both)?.text).toContain("can't be swum in this meet's course");
   });
 
   test("a warning always outranks teaching", () => {
-    const both = { ...none, mismatched: 1, teaching: true };
+    const both = { ...none, interleaved: true, teaching: true };
     const notice = rankedNotice(both)!;
     expect(notice.tone).toBe("warn");
-    expect(notice.text).toContain("can't be swum in this meet's course");
+    expect(notice.text).toContain("appears more than once");
   });
 
   test("teaching is what is left when nothing is wrong", () => {

@@ -153,9 +153,9 @@ export function MeetDetailScreen({
         actions={
           canEdit ? (
             <>
-              {/* One primary, and it is the thing this page is for. Three
-                  identical secondary buttons would give the page no centre and
-                  make Delete look exactly like Edit. */}
+              {/* One primary, and it is the thing this page is for. Delete
+                  takes the danger variant so it does not read as another Edit,
+                  which is exactly what two identical secondaries gave it. */}
               <Button size="sm" onClick={() => setImportOpen(true)}>
                 <Upload className="size-4" aria-hidden />
                 Import programme
@@ -169,7 +169,7 @@ export function MeetDetailScreen({
                 Edit
               </Button>
               <Button
-                variant="secondary"
+                variant="danger"
                 size="sm"
                 onClick={() => setConfirmDelete(true)}
                 aria-label={`Delete ${meet.name}`}

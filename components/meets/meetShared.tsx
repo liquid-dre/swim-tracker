@@ -387,7 +387,7 @@ function SignupCell({
       // ≥44px on touch (PRODUCT.md): this is the only way into a sign-up
       // sheet, and the table it sits in renders from `sm` up, which includes
       // every tablet a coach works from poolside.
-      className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 py-1 text-sm text-primary transition-colors [transition-duration:var(--dur-1)] hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:min-h-0"
+      className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 py-1 text-sm text-primary transition-colors [transition-duration:var(--dur-1)] hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:min-h-0 touch:min-h-11"
     >
       {summary === "" ? (
         <span className="text-ink-muted">Add swimmers</span>
