@@ -331,7 +331,7 @@ export function MeetEntriesSheet({
                     placeholder="Find a swimmer"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-8 pr-2 text-sm text-gray-800 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
+                    className="h-11 w-full rounded-lg border border-gray-300 bg-white pl-8 pr-2 text-sm text-gray-800 lg:h-9 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
                   />
                 </div>
                 {squads.length > 0 && (

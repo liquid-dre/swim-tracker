@@ -109,7 +109,7 @@ export function EntryRosterTable({
               }
               disabled={row.resultId !== null}
               onClick={() => onRemove(row._id)}
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors [transition-duration:var(--dur-1)] outline-none hover:bg-error-50 hover:text-error-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-40"
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors lg:size-9 [transition-duration:var(--dur-1)] outline-none hover:bg-error-50 hover:text-error-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-40"
             >
               <Trash2 aria-hidden className="size-4" />
             </button>
@@ -183,7 +183,7 @@ function RowTime({
           }
         }}
         className={
-          "h-9 w-28 rounded-lg border bg-white px-2 text-right text-sm tabular-nums text-gray-800 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50 " +
+          "h-11 w-32 rounded-lg border bg-white px-2 text-right text-sm tabular-nums text-gray-800 lg:h-9 lg:w-28 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring disabled:opacity-50 " +
           (parsed.error !== null
             ? "border-error-500 bg-error-50"
             : "border-gray-300 hover:border-gray-400")
