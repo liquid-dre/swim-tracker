@@ -18,9 +18,10 @@ export const MENU_PANEL =
 // Row: icon + label, rounded-md, brand-tinted on hover/highlight, brand-inked when
 // selected, pointer cursor. Keyboard highlight (`data-[highlighted]`) matches hover.
 //
-// `tap` because a 34px option row is the target a coach hits thirty
-// times picking days down a programme, and PRODUCT.md's 44px rule is about the
-// pointer rather than the panel. `text-brand-600`, not `text-primary`
+// `tap` because a 34px option row is the target a coach hits thirty times
+// picking days down a programme: 44px everywhere a finger might be, released
+// only on a pointer-driven large screen. (The rule this replaced was gated on
+// the pointer ALONE, and the sentence here still said so after the swap.) `text-brand-600`, not `text-primary`
 // (brand-500): on brand-50 that pair measures 4.34:1, under AA, and the
 // highlighted row is exactly the one a low-vision keyboard user is reading.
 export const MENU_ITEM =
@@ -29,5 +30,8 @@ export const MENU_ITEM =
   "hover:bg-accent hover:text-brand-600 focus:bg-accent focus:text-brand-600 " +
   "data-[highlighted]:bg-accent data-[highlighted]:text-brand-600 " +
   "data-[state=checked]:font-medium data-[state=checked]:text-brand-600 " +
-  "data-[disabled]:pointer-events-none data-[disabled]:opacity-50 " +
+  // Solid recessive ink, not `opacity-50`: on `text-gray-700` that composites
+  // to 2.63:1 while the Add-event listbox — which authors its own disabled row
+  // and says it matches this one — sits at 4.98:1. One state, one depth.
+  "data-[disabled]:pointer-events-none data-[disabled]:text-gray-500 " +
   "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";

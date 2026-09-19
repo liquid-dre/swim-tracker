@@ -7,11 +7,16 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DateField } from "@/components/ui/DateField";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { notify } from "@/lib/notify";
-import { groupEventsByDay, normaliseMeetName } from "@/lib/meets";
+import {
+  formatMeetDates,
+  groupEventsByDay,
+  normaliseMeetName,
+} from "@/lib/meets";
 import type { MeetDraft } from "@/lib/meetImport";
 import type { Course } from "@/lib/swim";
 import { courseMismatches } from "./programmeEditing";
@@ -166,6 +171,7 @@ export function MultiMeetReview({
   const [allowNoCourse, setAllowNoCourse] = useState(false);
   const [importing, setImporting] = useState(false);
   const [finished, setFinished] = useState(false);
+  const [confirmReplace, setConfirmReplace] = useState(false);
 
   const suggestions = useMemo(() => drafts.map(impliedCourse), [drafts]);
 
@@ -211,6 +217,18 @@ export function MultiMeetReview({
         : missingCourse > 0 && !allowNoCourse
           ? `${missingCourse} ${missingCourse === 1 ? "meet needs" : "meets need"} a course before they can be imported.`
           : null;
+  /*
+    How many of these DESTROY a programme.
+
+    A row whose normalised name and start date already match a fixture is
+    auto-targeted at it, which is what makes re-importing a season workbook in
+    November quietly aim at every meet already on the calendar. The single-meet
+    path treats one such replacement as worth a confirmation and a change
+    summary; twelve of them went through on one click, on a button that only
+    ever said how many meets would be imported.
+  */
+  const replacing = included.filter((r) => r.target !== "").length;
+
   const canImport =
     !importing &&
     !finished &&
@@ -388,7 +406,8 @@ export function MultiMeetReview({
           }
           onClick={() => {
             if (!canImport) return;
-            void runAll();
+            if (replacing > 0) setConfirmReplace(true);
+            else void runAll();
           }}
           loading={importing}
         >
@@ -398,6 +417,15 @@ export function MultiMeetReview({
             ? "Imported"
             : `Import ${included.length} meet${included.length === 1 ? "" : "s"}`}
         </Button>
+        {/* The count that is not on the button, because the button's count is
+            what will be WRITTEN and this is what will be LOST. */}
+        {!finished && replacing > 0 && (
+          <span className="text-sm text-warning-ink">
+            {replacing === 1
+              ? "1 replaces an existing programme"
+              : `${replacing} replace existing programmes`}
+          </span>
+        )}
         {/* An error, not a hint: it is the reason a primary action will not
             fire. MeetForm wrote that rule down; this said the same thing in
             muted ink. */}
@@ -411,6 +439,54 @@ export function MultiMeetReview({
           </span>
         )}
       </div>
+
+      {/* The same gate the single-meet path uses, for the same write. It names
+          the meets rather than the count, because "3 replace existing
+          programmes" does not tell a coach WHICH three, and a season workbook
+          re-imported in November targets whatever is already on the calendar
+          by name and date. The rows that only ADD are not listed: nothing of
+          theirs is at stake. */}
+      <ConfirmDialog
+        open={confirmReplace}
+        onOpenChange={setConfirmReplace}
+        title={
+          replacing === 1
+            ? "Replace 1 programme?"
+            : `Replace ${replacing} programmes?`
+        }
+        description={
+          <>
+            <p>
+              Importing writes {included.length} meet
+              {included.length === 1 ? "" : "s"}.{" "}
+              {replacing === 1 ? "One of them" : `${replacing} of them`}{" "}
+              {replacing === 1 ? "replaces" : "replace"} a programme already on
+              the calendar, wholesale. This cannot be undone.
+            </p>
+            <ul className="mt-2 flex flex-col gap-1">
+              {included
+                .map((r) => meets.find((m) => m._id === r.target) ?? null)
+                .filter((m): m is ExistingMeet => m !== null)
+                .map((m) => (
+                  <li key={m._id} className="text-ink">
+                    {m.name}{" "}
+                    <span className="text-ink-muted">
+                      ({formatMeetDates(m)}
+                      {m.eventCount > 0
+                        ? `, ${m.eventCount} event${m.eventCount === 1 ? "" : "s"} today`
+                        : ", empty programme"}
+                      )
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          </>
+        }
+        confirmLabel={replacing === 1 ? "Replace it" : "Replace them"}
+        onConfirm={async () => {
+          await runAll();
+        }}
+      />
     </div>
   );
 }
@@ -662,15 +738,24 @@ function MeetRow({
                 // `textValue` so typeahead still matches the name.
                 ...meets.map((m) => ({
                   value: m._id as string,
-                  label: `Replace — ${m.name} (${m.startDate})`,
+                  label: `Replace — ${m.name} (${formatMeetDates(m)})`,
                   textValue: m.name,
                 })),
               ]}
             />
+            {/* Only claim the match when there IS one. `target` is whatever
+                is selected, not what the auto-match found, so after a coach
+                picks another fixture or edits the row's name — which is what
+                this screen is for — the sentence asserted a fact nothing
+                checked. */}
             {target && (
               <p className="text-xs text-ink-muted">
                 <Info aria-hidden className="mr-1 inline size-3" />
-                Same name and date — this replaces its programme
+                {normaliseMeetName(target.name) ===
+                  normaliseMeetName(row.name) &&
+                target.startDate === row.startDate
+                  ? "Same name and date — this replaces its programme"
+                  : "This replaces its programme"}
                 {target.eventCount > 0 &&
                   ` (${target.eventCount} events today)`}
                 .

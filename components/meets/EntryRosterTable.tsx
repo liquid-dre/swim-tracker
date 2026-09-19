@@ -239,18 +239,31 @@ function RowTime({
   // Emptying the box is not how a swim is removed — `deleteResult` is, and it
   // is tombstoned, which is the whole point of it. But `parseDigits("")`
   // returns a null `ms` like any other uncommittable run, so a coach who
-  // backspaced a recorded time and tabbed away got no write, no error, and a
-  // blank field above a line still reading "New personal best, 1.20s faster"
-  // about the time they could no longer see. Say what happened instead.
+  // backspaced a recorded time and tabbed away got no write and no error.
+  //
+  // Saying so is not enough on its own: `commit` returning early left `digits`
+  // empty and `stored` unchanged, so the sync effect never fired and the field
+  // stayed blank INDEFINITELY, directly above a line still reading "New
+  // personal best, 1.20s faster" about the time it no longer showed. So the
+  // note explains while the box is empty, and leaving the field snaps it back
+  // to what is actually stored — the display never outlives the explanation.
   const clearing = dirty && digits === "" && row.timeMs !== null;
 
   function commit() {
+    if (clearing) {
+      setDigits(normaliseDigits(stored));
+      return;
+    }
     if (!dirty || parsed.ms === null) return;
     onCommit(parsed.text);
   }
 
   return (
-    <span className="flex shrink-0 items-center gap-2">
+    // `flex-wrap` + `min-w-0`, not `shrink-0`: the note beside the field is a
+    // sentence, and at max-content the wrapper ran ~500px wide inside a 334px
+    // line box that the list clips. The field keeps its own fixed width; the
+    // words wrap under it.
+    <span className="flex min-w-0 flex-wrap items-center gap-2">
       <input
         inputMode="numeric"
         aria-label={`Time for ${row.name}`}
@@ -276,7 +289,7 @@ function RowTime({
           // `Select` and `DateField` now do — `opacity-50` on a field that
           // sets its own `bg-white` and ink composites with whatever the row
           // around it is already dimming by.
-          "h-11 w-32 rounded-lg border bg-white px-2 text-right text-sm tabular-nums text-gray-800 lg:h-9 touch:h-11 lg:w-28 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring " +
+          "h-11 w-32 shrink-0 rounded-lg border bg-white px-2 text-right text-sm tabular-nums text-gray-800 lg:h-9 touch:h-11 lg:w-28 placeholder:text-gray-500 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] focus:border-brand-300 focus:shadow-focus-ring " +
           "disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-ink-faint disabled:placeholder:text-gray-400 disabled:hover:border-gray-200 " +
           (parsed.error !== null
             ? "border-error-500 bg-error-50"

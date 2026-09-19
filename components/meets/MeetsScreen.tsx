@@ -319,9 +319,9 @@ export function MeetsScreen({
                           if (e.shiftKey || e.altKey) return;
                           router.push(`${base}/${meet._id}`);
                         }}
-                        // `bg-brand-50` at full strength, not /40: at 40% over
-                        // white it computes to ~#f8fbff, about 1.02:1 against
-                        // the surface, which is not a state anyone can see. And
+                        // `bg-brand-50` at full strength, not /40: a 40% tint
+                        // of it over white lands within a few percent of white,
+                        // which is not a state anyone can see. And
                         // `active:` matters most on the iPad this row was
                         // rewritten for, where there is no hover at all and the
                         // tap would otherwise give nothing back until the route

@@ -119,7 +119,8 @@ function SetupBanner({
       </span>
       {remaining.map((step, i) => (
         // The separator sits with the PRECEDING item so a wrapped line never
-        // starts with a floating dot; links get ≥44px tap height below lg.
+        // starts with a floating dot; links get ≥44px tap height below lg, and
+        // on any touch pointer.
         <span key={step.href} className="flex items-center gap-3 text-sm">
           <Link
             href={step.href}

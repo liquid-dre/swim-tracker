@@ -35,9 +35,17 @@ export function SwimOutcome({ row }: { row: SwimOutcomeRow }) {
   if (row.timeMs === null) {
     return (
       <>
-        {row.pbBeforeMs === null
-          ? "No previous time for this event."
-          : `Best going in ${formatTime(row.pbBeforeMs)}.`}
+        {/* Tabular, like every other swim time (CLAUDE.md) — the branch two
+            below already is, and the call sites render both in one column, so
+            a proportional figure here sat beside an aligned one. */}
+        {row.pbBeforeMs === null ? (
+          "No previous time for this event."
+        ) : (
+          <>
+            Best going in{" "}
+            <span className="tabular-nums">{formatTime(row.pbBeforeMs)}</span>.
+          </>
+        )}
       </>
     );
   }

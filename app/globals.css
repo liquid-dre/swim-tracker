@@ -119,9 +119,10 @@
   --color-success-50: #ecfdf3;
   --color-success-500: #12b76a;
   --color-success-600: #039855;
-  /* Success ink is read on --color-bg and --color-success-50, where 600 lands
-     at 3.57:1 — under AA. 700 is the same audit §2 already applied to warning
-     and danger, and was never applied here. */
+  /* Success ink is read on --color-bg and --color-success-50, where 600 falls
+     under AA and 700 clears it — both locked in lib/contrast.test.ts. 700 is
+     the same audit §2 already applied to warning and danger, and was never
+     applied here. */
   --color-success-700: #027a48;
   --color-error-50: #fef3f2;
   --color-error-500: #f04438;
@@ -286,7 +287,7 @@
   /* Semantic ink/tints */
   --success: var(--color-success-500);
   --success-fg: #ffffff;
-  --success-ink: var(--color-success-700); /* AA on the canvas (5.2:1) */
+  --success-ink: var(--color-success-700); /* AA on the canvas; see the test */
   --success-subtle: var(--color-success-50);
   --warning-ink: var(--color-warning-700); /* AA on --warning-subtle (7.2:1) */
   --warning-subtle: var(--color-warning-50);

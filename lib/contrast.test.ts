@@ -140,4 +140,21 @@ describe("the pairs earlier rounds shipped and had to undo", () => {
   test("success-600 is below AA on white — why --success-ink is 700", () => {
     expect(contrast(token("color-success-600"), WHITE)).toBeLessThan(4.5);
   });
+
+  /*
+    The canvas, specifically, because that is the ground the comment beside
+    `--success-ink` names and it is darker than white — so a pair that only
+    just clears on white is the one to check here, not assume.
+  */
+  test("success-600 is below AA on the canvas too", () => {
+    expect(
+      contrast(token("color-success-600"), token("color-gray-50")),
+    ).toBeLessThan(4.5);
+  });
+
+  test("success-700 clears AA on the canvas, which is why it replaced it", () => {
+    expect(
+      contrast(token("color-success-700"), token("color-gray-50")),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
 });
