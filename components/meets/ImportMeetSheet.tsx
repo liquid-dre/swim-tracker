@@ -878,8 +878,11 @@ export function ImportMeetSheet({
           </>
         </div>
 
+        {/* Not a live region: `blockedReason` below announces this same fact,
+            and the footer one is what the submit button points at. Two of them
+            read the coach the same sentence twice. */}
         {targetUnresolved && (
-          <p className="px-4 pb-1 text-xs text-ink-muted" role="status">
+          <p className="px-4 pb-1 text-xs text-ink-muted">
             That meet is no longer on the calendar. Choose another, or save this
             as a new meet.
           </p>
@@ -908,7 +911,7 @@ export function ImportMeetSheet({
             <Button
               variant={isReplace ? "danger" : "primary"}
               loading={importing}
-              aria-disabled={!canImport || undefined}
+              aria-disabled={(!canImport && !importing) || undefined}
               aria-describedby={blockedReason ? "import-blocked" : undefined}
               onClick={() => {
                 if (!canImport) return;

@@ -8,18 +8,25 @@ const base =
   "transition-[background-color,border-color,color,transform] [transition-duration:var(--dur-1)] " +
   "[transition-timing-function:var(--ease-standard)] " +
   "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
-  "active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 " +
+  "active:scale-[0.98] disabled:pointer-events-none " +
+  // Only a NATIVE disabled (a caller passing `disabled`) fades. `loading` is
+  // handled separately below, because it also sets `disabled` — and a button
+  // that was `aria-disabled` as well then compounded the inert fill with this
+  // fade and landed at 1.92:1, on the one state where someone is waiting and
+  // looking hardest.
+  "[&:disabled:not([aria-busy])]:opacity-50 " +
   // The SAME visual state for `aria-disabled`, which callers use when a
   // disabled control still has to explain itself — a native `disabled` button
   // is unfocusable, so its reason reaches neither keyboard nor screen reader.
   // Without these a button could be inert while still dimming for nobody,
   // lighting under the pointer and animating the press: reachable but
   // invisible, which is the trade the a11y fix was not meant to make.
-  // INK, not opacity. `opacity-50` composites the whole button, which put a
-  // blocked primary Save at 2.09:1 with a 2.04:1 focus ring — on the one
+  // A muted FILL and muted ink, not opacity. `opacity-50`
+  // composited the whole button and put a blocked Save at 2.09:1 — on the one
   // control `aria-disabled` exists to keep a low-vision keyboard user able to
-  // land on. gray-500 on gray-100 is 4.51:1. This is the same treatment
-  // `IconButton` uses, so the app has one inert vocabulary rather than three.
+  // land on. The `ghost` hover moved off this fill so the two cannot be
+  // confused. Ratios are locked in lib/contrast.test.ts, not stated here —
+  // three prose figures in these files were wrong in three consecutive reviews.
   //
   // The pointer stays LIVE: `pointer-events-none` left a sighted coach tapping
   // a dead control with no cursor, no hover, no tooltip and no click — and it
@@ -27,13 +34,19 @@ const base =
   // caller's own guard.
   "aria-disabled:bg-gray-100 aria-disabled:text-gray-500 aria-disabled:border-gray-300 " +
   "aria-disabled:shadow-none aria-disabled:cursor-default aria-disabled:active:scale-100 " +
-  "aria-disabled:hover:bg-gray-100 aria-disabled:hover:text-gray-500";
+  "aria-disabled:hover:bg-gray-100 aria-disabled:hover:text-gray-500 " +
+  // Busy keeps the live variant so a running action still reads as the action
+  // it is, and wins over the inert treatment above.
+  "aria-busy:bg-[initial] aria-busy:cursor-progress";
 
 const variants: Record<Variant, string> = {
   primary: "bg-brand-500 text-white shadow-theme-xs hover:bg-brand-600",
   secondary:
     "bg-white text-gray-700 border border-gray-300 shadow-theme-xs hover:bg-gray-50",
-  ghost: "bg-transparent text-gray-500 hover:bg-gray-100 hover:text-gray-800",
+  // `hover:bg-gray-50`, not gray-100: gray-100 is the inert fill below, so a
+  // hovered ghost Cancel and a blocked Save read identically — and on iOS the
+  // hover sticks after the tap.
+  ghost: "bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-800",
   // error-600, not 500: white on #f04438 is 3.76:1 and a button label is
   // normal-weight text needing 4.5. DESIGN.md §2 already made this call for
   // danger INK and it was never applied to the fill.

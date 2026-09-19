@@ -33,6 +33,14 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           "h-11 lg:h-9 touch:h-11 w-full rounded-lg border bg-white px-3 text-base text-gray-800 placeholder:text-gray-500 " +
           "transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] outline-none " +
           "focus:border-brand-300 focus:shadow-focus-ring " +
+          // A disabled state has to be AUTHORED here: `bg-white` and
+          // `text-gray-800` above override the UA's own disabled rendering, so
+          // without these a blocked field looked exactly like a live one and
+          // still invited a tap. Inactive controls are exempt from WCAG 1.4.11,
+          // which is why the recessive fill is allowed to be this quiet.
+          "disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 " +
+          "disabled:text-ink-faint disabled:placeholder:text-gray-400 " +
+          "disabled:hover:border-gray-200 " +
           (error
             ? "border-error-500 bg-error-50 "
             : "border-gray-300 hover:border-gray-400 ") +

@@ -321,15 +321,23 @@ export function DateField({
             </button>
           </PopoverTrigger>
 
-          {/* `collisionPadding` because Radix defaults to 0 — without it the
-              popover can sit flush to the viewport edge — and a width cap
-              because floating-ui SHIFTS an oversized element, it does not
-              shrink one: below ~346px the calendar would simply overflow and
-              clip its last column. */}
+          {/* The popover, not the calendar, owns the width, because floating-ui
+              SHIFTS an oversized element rather than shrinking one — a fixed
+              child would simply hang off a narrow viewport.
+
+              `box-content` so both the width and the cap describe the same box
+              as the grid inside them: with Tailwind's border-box default the
+              1px border ate into the width and the child overflowed by exactly
+              2px. Total on screen is therefore width + 2px, and the cap
+              (100vw − 1rem − 2px) leaves the 8px of `collisionPadding` on each
+              side that Radix would otherwise default to 0.
+
+              Below a 362px viewport the cap bites and the cells divide what is
+              left — 43.7px at 360px — rather than overflowing. */}
           <PopoverContent
             align="end"
             collisionPadding={8}
-            className="w-auto max-w-[calc(100vw-1rem)] overflow-x-auto p-0"
+            className="box-content w-64 max-w-[calc(100vw-1rem-2px)] touch:w-[21.5rem] p-0"
           >
             <FlipCalendar
               selected={selected}
@@ -409,16 +417,11 @@ function FlipCalendar({
   }
 
   return (
-    // 44px cells on touch: 7×44 + 6×2 gap + 24 padding = 344px of content,
-    // 346px once PopoverContent's 1px border is counted. The WIDTH is what
-    // makes them targets — `h-11` on the old 232px box gave a 44×31 cell,
-    // which is not a 44px anything.
-    //
-    // Nothing here guarantees it fits: the cap and the collision padding are on
-    // the PopoverContent above, which is what actually keeps it inside a narrow
-    // viewport. Three earlier versions of this note asserted a bound instead,
-    // and the arithmetic was wrong each time.
-    <div className="flex w-64 flex-col gap-3 p-3 touch:w-[21.5rem]">
+    // Fills whatever the popover above resolved to — 344px on touch, which is
+    // 7×44 + 6×2 gap + 24 padding, and less than that only when the viewport
+    // cap bites. The WIDTH is what makes the cells targets: `h-11` on the old
+    // 232px box gave a 44×31 cell, which is not a 44px anything.
+    <div className="flex w-full flex-col gap-3 p-3">
       <FlipDisplay date={selected} flip={flip} />
 
       {/* Month / year navigation: single chevrons step a month, double a year. */}
@@ -487,7 +490,11 @@ function FlipCalendar({
                 isSelected
                   ? "bg-brand-500 font-medium text-white"
                   : disabled
-                    ? "cursor-not-allowed text-ink-faint opacity-40"
+                    // A solid recessive ink rather than 40% of a light grey,
+                    // which composited to 1.72:1 — legal (WCAG exempts
+                    // inactive components) and still unreadable, so you could
+                    // not tell WHICH dates were out of range.
+                    ? "cursor-not-allowed text-gray-400"
                     : "text-gray-700 hover:bg-accent hover:text-brand-600",
               )}
             >

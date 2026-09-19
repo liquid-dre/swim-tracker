@@ -358,7 +358,7 @@ export function MultiMeetReview({
         <label className="flex items-start gap-2 text-sm text-ink-muted">
           <input
             type="checkbox"
-            className="mt-0.5 size-4 rounded border-gray-300 text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
+            className="mt-0.5 size-4 rounded border-gray-300 accent-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
             checked={allowNoCourse}
             onChange={(e) => setAllowNoCourse(e.target.checked)}
             disabled={importing}
@@ -377,7 +377,9 @@ export function MultiMeetReview({
           // `aria-disabled` so the reason beside it is reachable by tab, and so
           // the button does not take `disabled:opacity-50` — white on a 50%
           // brand fill is 2.07:1.
-          aria-disabled={!canImport || undefined}
+          // Not while it is RUNNING: a busy button is not a blocked one, and
+          // both states at once compounded their two treatments.
+          aria-disabled={(!canImport && !importing) || undefined}
           aria-describedby={
             !canImport && blockedReason !== null
               ? "multi-import-blocked"
@@ -518,7 +520,10 @@ function MeetRow({
 
       {/* The fields stay on screen while a row is skipped, dimmed and disabled:
           what you are declining is the point, and hiding it would leave a bare
-          strikethrough to judge the decision by. */}
+          strikethrough to judge the decision by. They are not `aria-hidden`
+          either, for the same reason — `disabled` already announces them as
+          unavailable, whereas hiding them told a screen-reader user the one
+          thing this block exists to say. */}
       <div
         className={
           // 60%, not 40%: the point is to show WHAT is being declined, and at
@@ -527,15 +532,15 @@ function MeetRow({
           // state; the opacity only needs to recede it.
           row.skip ? "pointer-events-none select-none opacity-60" : undefined
         }
-        aria-hidden={row.skip}
       >
-        {/* Two tracks on a phone, four on a laptop: the fields are short and
-          belong together, and a one-per-row stack would make twelve meets an
-          endless scroll. */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {/* Two tracks, matching the Course / Save-as grid below. NOT four:
+          `lg:` is a viewport breakpoint and this grid lives in a fixed-width
+          sheet, so a wide screen bought nothing and split the sheet's ~576px
+          into 119px fields — narrower than the date they hold. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Input
             label="Name"
-            aria-label={`${title} name`}
+            aria-label={`${title}: Name`}
             value={row.name}
             onChange={(e) => onChange({ name: e.target.value })}
             disabled={locked}
@@ -543,7 +548,7 @@ function MeetRow({
           />
           <DateField
             label="Date"
-            aria-label={`${row.name} date`}
+            aria-label={`${title}: Date`}
             value={row.startDate}
             onChange={(iso) => onChange({ startDate: iso })}
             disabled={locked}
@@ -556,7 +561,7 @@ function MeetRow({
           <DateField
             label="Ends"
             hint="Blank for one day."
-            aria-label={`${row.name} end date`}
+            aria-label={`${title}: Ends`}
             value={row.endDate}
             onChange={(iso) => onChange({ endDate: iso })}
             min={row.startDate}
@@ -564,7 +569,7 @@ function MeetRow({
           />
           <Input
             label="Starts at"
-            aria-label={`${title} start time`}
+            aria-label={`${title}: Starts at`}
             type="time"
             value={row.startTime}
             onChange={(e) => onChange({ startTime: e.target.value })}
@@ -572,7 +577,7 @@ function MeetRow({
           />
           <Input
             label="Venue"
-            aria-label={`${title} venue`}
+            aria-label={`${title}: Venue`}
             value={row.venue}
             onChange={(e) => onChange({ venue: e.target.value })}
             disabled={locked}
@@ -586,7 +591,7 @@ function MeetRow({
               value={row.course}
               onValueChange={(v) => onChange({ course: v })}
               disabled={locked}
-              aria-label={`${row.name} course`}
+              aria-label={`${title}: Course`}
               options={[
                 { value: "", label: "Not set" },
                 { value: "LCM", label: "Long course (50 m)" },
@@ -619,7 +624,7 @@ function MeetRow({
               value={row.target}
               onValueChange={(v) => onChange({ target: v })}
               disabled={locked}
-              aria-label={`${row.name} target`}
+              aria-label={`${title}: Save as`}
               options={[
                 { value: "", label: "A new meet" },
                 ...meets.map((m) => ({

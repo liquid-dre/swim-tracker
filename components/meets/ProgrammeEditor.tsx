@@ -1195,15 +1195,20 @@ const IconButton = forwardRef<
       className={
         "inline-flex size-11 items-center justify-center rounded-lg transition-colors [transition-duration:var(--dur-1)] lg:size-9 touch:size-11 " +
         "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
-        // A FILL carries inert, not ink. The ink stays gray-500 (4.97:1, so a
-        // low-vision user can still read it) — but that is also the ENABLED
-        // ink, so on a touch screen, which has no cursor and no hover, a dead
-        // arrow was pixel-identical to a live one. On a sixty-row programme
-        // with up to 120 dead arrows, which ones work became pure recall.
-        // `bg-gray-100` is the same inert surface `Button` uses, so the app has
-        // one vocabulary rather than one per component.
-        "aria-disabled:bg-gray-100 aria-disabled:text-gray-500 aria-disabled:cursor-default " +
-        "aria-disabled:hover:bg-gray-100 aria-disabled:hover:text-gray-500 " +
+        // The GLYPH fades; the target does not move and gains no fill.
+        //
+        // Ink alone could not carry inert — gray-500 is also the enabled ink,
+        // so on a touch screen, with no cursor and no hover, a dead arrow was
+        // identical to a live one, and a sixty-row programme can have 120 dead
+        // at once. A fill was worse: every candidate (gray-100, gray-50) is
+        // some control's enabled HOVER fill here, and iOS leaves `:hover` stuck
+        // after a tap — so a live arrow the coach had just pressed looked dead.
+        //
+        // A faded glyph collides with nothing, and an inactive control is
+        // exempt from the contrast minima (WCAG 1.4.3, 1.4.11) while its reason
+        // still reaches AT through the accessible name.
+        "aria-disabled:[&>svg]:opacity-40 aria-disabled:cursor-default " +
+        "aria-disabled:hover:bg-transparent aria-disabled:hover:text-gray-500 " +
         (danger
           ? "text-gray-500 hover:bg-error-50 hover:text-error-500"
           : "text-gray-500 hover:bg-gray-100 hover:text-gray-800")

@@ -217,9 +217,13 @@
   --border: var(--color-gray-200);
   --border-strong: var(--color-gray-300);
   --ink: var(--color-gray-800);
-  --ink-muted: var(--color-gray-500);
-  /* Tertiary text still clears AA (gray-500, 4.97:1); gray-400 is reserved for
+  /* Three ink tiers, and each one has to be a different colour or it is not a
+     tier: muted and faint were both gray-500 here, so every "secondary vs
+     tertiary" decision in the app rendered identically. Both still clear AA on
+     white (gray-600 7.56:1, gray-500 4.97:1) — `lib/contrast.test.ts` asserts
+     both the ratios and that the two differ. gray-400 stays reserved for
      icons / borders / placeholder decoration, which don't carry meaning alone. */
+  --ink-muted: var(--color-gray-600);
   --ink-faint: var(--color-gray-500);
 
   /* Accent-subtle tint + ring (accent proper is literal brand-500 in markup) */
