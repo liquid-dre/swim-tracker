@@ -2,9 +2,11 @@ import { describe, expect, test } from "vitest";
 
 import {
   buildRawLabel,
+  DAY_NOT_LISTED,
   cleanMeetDay,
   formatMeetDay,
   formatMeetDayDate,
+  formatMeetDayShort,
   genderAllowsSwimmer,
   groupEventsByDay,
   lineById,
@@ -274,6 +276,13 @@ describe("formatMeetDay", () => {
 
   test("a day the meet no longer reaches keeps its number and loses its date", () => {
     expect(formatMeetDay(weekend, 4)).toBe("Day 4");
+    expect(formatMeetDayShort(weekend, 4)).toBe("Day 4");
+  });
+
+  test("the short form drops the date but never the day", () => {
+    // Two spellings across the whole app, no more: the full one wherever there
+    // is room, the short one only inside a control too narrow for it.
+    expect(formatMeetDayShort(weekend, 2)).toBe("Day 2 · Sun");
   });
 });
 
@@ -322,7 +331,7 @@ describe("groupEventsByDay", () => {
     );
     expect(groups.map((g) => g.label)).toEqual([
       "Day 1 · Sat 28 Nov",
-      "Day not set",
+      DAY_NOT_LISTED,
     ]);
     expect(groups[1].day).toBeNull();
     expect(groups[1].events.map((x) => x.rawLabel)).toEqual(["Mixed 400 Free"]);
@@ -336,5 +345,50 @@ describe("groupEventsByDay", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe("");
     expect(groups[0].events).toHaveLength(2);
+  });
+});
+
+describe("groupEventsByDay — empty days inside the placed range", () => {
+  const e = (rawLabel: string, day?: number): MeetEvent => ({
+    rawLabel,
+    ...(day === undefined ? {} : { day }),
+  });
+
+  test("draws the days nobody listed anything on, up to the last one used", () => {
+    // "Nothing is swum on the Saturday" and "nobody has said yet" look
+    // identical when the Saturday simply is not drawn.
+    const groups = groupEventsByDay([e("Mixed 100 Free", 2)], weekend);
+    expect(groups.map((g) => g.label)).toEqual([
+      "Day 1 · Sat 28 Nov",
+      "Day 2 · Sun 29 Nov",
+    ]);
+    expect(groups[0].events).toHaveLength(0);
+    expect(groups[1].events).toHaveLength(1);
+  });
+
+  test("fills a gap between two placed days", () => {
+    const groups = groupEventsByDay(
+      [e("Mixed 100 Free", 1), e("Mixed 50 Back", 3)],
+      weekend,
+    );
+    expect(groups.map((g) => g.events.length)).toEqual([1, 0, 1]);
+  });
+
+  test("stops at the last placed day rather than padding to the meet's end", () => {
+    // Day 3 is still being worked on, not empty.
+    const groups = groupEventsByDay([e("Mixed 100 Free", 1)], weekend);
+    expect(groups.map((g) => g.day)).toEqual([1]);
+  });
+
+  test("unplaced lines still trail, after the empty days", () => {
+    const groups = groupEventsByDay(
+      [e("Mixed 100 Free", 2), e("Mixed 50 Back")],
+      weekend,
+    );
+    expect(groups.map((g) => g.label)).toEqual([
+      "Day 1 · Sat 28 Nov",
+      "Day 2 · Sun 29 Nov",
+      DAY_NOT_LISTED,
+    ]);
   });
 });

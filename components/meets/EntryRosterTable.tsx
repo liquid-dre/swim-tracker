@@ -5,6 +5,7 @@ import { Trash2 } from "lucide-react";
 
 import { Select } from "@/components/ui/Select";
 import { normaliseDigits, parseDigits } from "@/components/log/TimeField";
+import { formatMeetDayDate, formatMeetDayShort } from "@/lib/meets";
 import { formatTime } from "@/lib/swim";
 import { SwimOutcome } from "./SwimOutcome";
 
@@ -26,6 +27,8 @@ export type EntryRow = {
   name: string;
   swimDate: string;
   genderMismatch: boolean;
+  /** The day the programme now puts this event on, when it is not this one. */
+  dayMismatch: string | null;
   resultId: string | null;
   timeMs: number | null;
   pbBeforeMs: number | null;
@@ -79,11 +82,17 @@ export function EntryRosterTable({
                 value={row.swimDate}
                 onValueChange={(value) => onSetDay(row._id, value)}
                 size="sm"
-                options={days.map((day, i) => ({
-                  value: day,
-                  label: `Day ${i + 1}`,
-                  textValue: day,
-                }))}
+                // The same short spelling as the programme editor's picker —
+                // "Day 2" alone left the roster naming the day a third way.
+                // `textValue` is what typeahead matches, so it has to be the
+                // label: nobody jumps to a row by typing "2026-11-29".
+                options={days.map((day, i) => {
+                  const label = formatMeetDayShort(
+                    { startDate: days[0], endDate: days[days.length - 1] },
+                    i + 1,
+                  );
+                  return { value: day, label, textValue: label };
+                })}
               />
             )}
 
@@ -121,6 +130,23 @@ export function EntryRosterTable({
               <span className="text-warning-ink">
                 {" · "}This event is no longer for this swimmer&rsquo;s
                 category.
+              </span>
+            )}
+            {/* The programme moved under an entry already made. Said in words
+                beside a one-click fix, because the date drives `ageAtSwim` and
+                a swim on the wrong side of a birthday is judged against the
+                wrong cut with nothing downstream to flag it. */}
+            {row.dayMismatch !== null && (
+              <span className="text-warning-ink">
+                {" · "}The programme now swims this on{" "}
+                {formatMeetDayDate(row.dayMismatch)}.{" "}
+                <button
+                  type="button"
+                  className="rounded-sm font-medium underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                  onClick={() => onSetDay(row._id, row.dayMismatch!)}
+                >
+                  Move {row.name}
+                </button>
               </span>
             )}
           </p>

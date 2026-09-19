@@ -806,6 +806,79 @@ describe("a sign-up takes its day from the programme line", () => {
     expect(await dayOf(meetId, lines["Mixed 50 Fly"])).toBe("2026-03-15");
   });
 
+  test("moving the line flags every entry still on the old day", async () => {
+    // The `genderMismatch` precedent: a flag derived at read time cannot go
+    // stale. `swimDate` drives `ageAtSwim`, so an entry left on the Friday of a
+    // meet straddling a birthday is judged against the wrong exact-age cut.
+    const { meetId, lines } = await weekend();
+    await c.asCoachA.mutation(api.meetEntries.addEntries, {
+      meetId,
+      lineId: lines["Mixed 100 Free"],
+      swimmerIds: [c.ids.jane],
+    });
+
+    const before = await c.asCoachA.query(api.meetEntries.getMeetSignups, {
+      meetId,
+    });
+    const line = before.lines.find(
+      (l) => l.lineId === lines["Mixed 100 Free"],
+    )!;
+    expect(line.entries[0].swimDate).toBe("2026-03-14");
+    expect(line.entries[0].dayMismatch).toBeNull();
+
+    // The super-user moves event 1 to the Sunday.
+    const meet = await c.asSuper.query(api.meets.getMeet, { meetId });
+    await c.asSuper.mutation(api.meets.updateMeet, {
+      meetId,
+      name: "Senior Champs",
+      startDate: "2026-03-14",
+      endDate: "2026-03-16",
+      course: "LCM",
+      events: meet!.events.map((e) =>
+        e.id === lines["Mixed 100 Free"] ? { ...e, day: 2 } : e,
+      ),
+    });
+
+    const after = await c.asCoachA.query(api.meetEntries.getMeetSignups, {
+      meetId,
+    });
+    const moved = after.lines.find(
+      (l) => l.lineId === lines["Mixed 100 Free"],
+    )!;
+    // The entry did NOT move on its own — it is flagged, with the day to move
+    // to, so a person decides.
+    expect(moved.entries[0].swimDate).toBe("2026-03-14");
+    expect(moved.entries[0].dayMismatch).toBe("2026-03-15");
+
+    await c.asCoachA.mutation(api.meetEntries.setEntryDay, {
+      entryId: moved.entries[0]._id,
+      swimDate: "2026-03-15",
+    });
+    const fixed = await c.asCoachA.query(api.meetEntries.getMeetSignups, {
+      meetId,
+    });
+    expect(
+      fixed.lines.find((l) => l.lineId === lines["Mixed 100 Free"])!.entries[0]
+        .dayMismatch,
+    ).toBeNull();
+  });
+
+  test("a line with no day of its own never flags an entry", async () => {
+    const { meetId, lines } = await weekend();
+    await c.asCoachA.mutation(api.meetEntries.addEntries, {
+      meetId,
+      lineId: lines["Mixed 200 Free"],
+      swimmerIds: [c.ids.jane],
+    });
+    const sheet = await c.asCoachA.query(api.meetEntries.getMeetSignups, {
+      meetId,
+    });
+    expect(
+      sheet.lines.find((l) => l.lineId === lines["Mixed 200 Free"])!.entries[0]
+        .dayMismatch,
+    ).toBeNull();
+  });
+
   test("the sheet reports each line's own day, so the coach can see it", async () => {
     const { meetId, lines } = await weekend();
     const sheet = await c.asCoachA.query(api.meetEntries.getMeetSignups, {

@@ -23,7 +23,7 @@ import { GALA_FULL, GALA_ORDER, type GalaCode } from "@/lib/galas";
 import { errorMessage, notify } from "@/lib/notify";
 import {
   compareMeetEvents,
-  formatWeekday,
+  formatMeetDayShort,
   meetDates,
   type MeetEvent,
 } from "@/lib/meets";
@@ -146,15 +146,15 @@ export function MeetForm({
   // because every programme row is memoised on it — a fresh array per keystroke
   // would re-render sixty rows to change one character in the name field.
   //
-  // The weekday alone, not the full date: the control is 9rem wide beside the
-  // event number, and "Day 2 · Sun" is what a coach reading a programme says.
-  const dayOptions = useMemo(
-    () =>
-      meetDates({ startDate, endDate: multiDay ? endDate : null }).map(
-        (iso, i) => ({ value: i + 1, label: `Day ${i + 1} · ${formatWeekday(iso)}`.trim() }),
-      ),
-    [startDate, endDate, multiDay],
-  );
+  // The SHORT form (`formatMeetDayShort`), because the control is 8rem wide
+  // beside the event number. One of the app's two day spellings, never a third.
+  const dayOptions = useMemo(() => {
+    const dates = { startDate, endDate: multiDay ? endDate : null };
+    return meetDates(dates).map((_iso, i) => ({
+      value: i + 1,
+      label: formatMeetDayShort(dates, i + 1),
+    }));
+  }, [startDate, endDate, multiDay]);
   // Pulling the end date in leaves lines pointing at days the meet no longer
   // has. The server drops those assignments rather than guessing a new day
   // (see `cleanEvents`), so say so BEFORE saving — discovering it afterwards

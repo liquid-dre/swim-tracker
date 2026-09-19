@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   forwardRef,
   memo,
   useCallback,
@@ -11,13 +12,21 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { ArrowDown, ArrowUp, Plus, Split, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronsDown,
+  Plus,
+  Split,
+  Trash2,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { MENU_ITEM, MENU_PANEL } from "@/components/ui/menu-styles";
 import {
+  DAY_NOT_LISTED,
   MEET_GENDER_LABEL,
   type MeetEvent,
   type MeetEventGender,
@@ -36,6 +45,7 @@ import {
   addCustomLine,
   addWhitelistLine,
   canMoveLine,
+  countLinesByDay,
   eventFitsCourse,
   eventOptions,
   moveWouldNumber,
@@ -43,6 +53,7 @@ import {
   moveLine,
   removeLine,
   resolveLine,
+  setDayFrom,
   setLineDay,
   setLineGender,
   splitLine,
@@ -78,6 +89,7 @@ type LineHandlers = {
   update: (i: number, patch: Partial<MeetEvent>) => void;
   gender: (i: number, g: MeetEventGender) => void;
   day: (i: number, day: number | undefined) => void;
+  dayFrom: (i: number, day: number, said: string) => void;
   resolve: (i: number, event: { distance: Distance; stroke: Stroke }) => void;
   clear: (i: number) => void;
   move: (i: number, delta: -1 | 1, said: string) => void;
@@ -157,10 +169,8 @@ export function ProgrammeEditor({
   }, [problems]);
 
   const reorderBlocked = reorderBlockedReason(lines);
-  // Only meaningful on a multi-day meet; the note below is gated on that.
-  const unplaced = lines.filter(
-    (l) => l.day === undefined || l.day > dayOptions.length,
-  ).length;
+  // Only meaningful on a multi-day meet; the tally below is gated on that.
+  const tally = countLinesByDay(lines, dayOptions.length);
 
   // A row that is about to unmount cannot hold focus, so the row that will take
   // its place is asked to. Merged with the caller's own focus request.
@@ -180,7 +190,10 @@ export function ProgrammeEditor({
     () => ({
       update: (i, patch) => apply((ls) => updateLine(ls, i, patch), ""),
       gender: (i, g) => apply((ls) => setLineGender(ls, i, g), ""),
+      // Announced, unlike the other field edits: a picker says its own new
+      // value, but "36 events moved" is a fact no control reports.
       day: (i, d) => apply((ls) => setLineDay(ls, i, d), ""),
+      dayFrom: (i, d, said) => apply((ls) => setDayFrom(ls, i, d), said),
       resolve: (i, event) => apply((ls) => resolveLine(ls, i, event), ""),
       clear: (i) => apply((ls) => unresolveLine(ls, i), ""),
       move: (i, delta, said) => apply((ls) => moveLine(ls, i, delta), said),
@@ -205,6 +218,15 @@ export function ProgrammeEditor({
         {announcement}
       </p>
 
+      {/* The one control on this row with no self-evident meaning, explained
+          once above the list rather than sixty times inside it. */}
+      {dayOptions.length > 1 && (
+        <p className="text-xs text-ink-muted">
+          A programme runs in order, so set the first event of each day and use
+          the double-chevron to carry that day down the rest of the list.
+        </p>
+      )}
+
       {/* Facts about the LIST, above the list. Putting either inside row 0 —
           which an earlier pass did — attributes them to one event and hides
           them from a coach working at row 40. */}
@@ -220,12 +242,31 @@ export function ProgrammeEditor({
       {reorderBlocked !== null && (
         <p className="text-xs text-warning-ink">{reorderBlocked}</p>
       )}
-      {dayOptions.length > 1 && unplaced > 0 && (
-        <p className="text-xs text-ink-muted">
-          {unplaced === lines.length
-            ? "No event has a day yet, so the programme reads as one list."
-            : `${unplaced === 1 ? "One event has" : `${unplaced} events have`} no day yet, and will sit under “Day not set”.`}{" "}
-          Set a day to split the programme into {dayOptions.length} days.
+      {/* The running total, ALWAYS on a multi-day meet — not only while
+          something is unplaced. "Is Saturday about half of it?" is the question
+          being answered while the days are assigned, and a note that vanishes
+          the moment it reaches zero makes an absence the only completion
+          signal. */}
+      {dayOptions.length > 1 && (
+        <p role="status" className="text-xs text-ink-muted">
+          {tally.byDay.map((n, i) => (
+            <span key={i}>
+              {i > 0 && " · "}
+              {dayOptions[i].label}:{" "}
+              <span className="tabular-nums text-ink">{n}</span>
+            </span>
+          ))}
+          {tally.unplaced > 0 ? (
+            <>
+              {" · "}
+              {DAY_NOT_LISTED}:{" "}
+              <span className="tabular-nums text-warning-ink">
+                {tally.unplaced}
+              </span>
+            </>
+          ) : (
+            <span className="text-success-ink"> · every event has a day</span>
+          )}
         </p>
       )}
       {moveWouldNumber(lines) && (
@@ -245,8 +286,30 @@ export function ProgrammeEditor({
         /* One card of divided rows, not sixty stacked cards: at a real
            programme's length, sixty identical bordered panels give the one line
            that needs attention the same weight as the fifty-nine that do not. */
+        /* Banded by day, so the editor SHOWS the grouping it is creating — the
+           read view sections the programme, and doing that work in a flat list
+           meant saving and navigating just to see the result.
+
+           The bands are computed in ARRAY order and never reorder anything, so
+           every index the row handlers use is untouched. A band therefore opens
+           wherever the day CHANGES, which means a programme whose days are
+           interleaved draws its band twice. That is not a bug to hide: a real
+           programme is contiguous by day, so a repeated band is the editor
+           saying the running order and the days disagree. */
         <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xs">
           {lines.map((line, i) => (
+            <Fragment key={line.id ?? String(i)}>
+              {dayOptions.length > 1 &&
+                (i === 0 || lines[i - 1].day !== line.day) && (
+                  <li
+                    aria-hidden
+                    className="border-b border-gray-100 bg-gray-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink"
+                  >
+                    {line.day !== undefined && dayOptions[line.day - 1]
+                      ? dayOptions[line.day - 1].label
+                      : DAY_NOT_LISTED}
+                  </li>
+                )}
             <ProgrammeLine
               key={line.id ?? String(i)}
               line={line}
@@ -269,8 +332,10 @@ export function ProgrammeEditor({
               onRemoved={rememberFocusAfterRemove}
               canMoveUp={canMoveLine(lines, i, -1)}
               canMoveDown={canMoveLine(lines, i, 1)}
+              below={lines.length - i - 1}
               on={on}
             />
+            </Fragment>
           ))}
         </ul>
       )}
@@ -477,6 +542,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
   onRemoved,
   canMoveUp,
   canMoveDown,
+  below,
   on,
 }: {
   line: MeetEvent;
@@ -501,6 +567,8 @@ const ProgrammeLine = memo(function ProgrammeLine({
    */
   canMoveUp: boolean;
   canMoveDown: boolean;
+  /** How many lines follow this one — the reach of "and everything below". */
+  below: number;
   on: LineHandlers;
 }) {
   const resolved = line.distance !== undefined && line.stroke !== undefined;
@@ -668,6 +736,31 @@ const ProgrammeLine = memo(function ProgrammeLine({
           >
             <ArrowDown aria-hidden className="size-4" />
           </IconButton>
+          {/* The day boundary, as one click. A programme is contiguous by day,
+              so "everything from here is the Sunday" is the statement the
+              document actually makes — and it replaces thirty selects. Only
+              once this line HAS a day: there is nothing to apply otherwise. */}
+          {dayOptions.length > 1 && below > 0 && (
+            <IconButton
+              label={
+                line.day === undefined
+                  ? `Set this event's day first to apply it to the ${below} events below`
+                  : `Put ${name} and the ${below} events below it on ${dayOptions[line.day - 1]?.label ?? `day ${line.day}`}`
+              }
+              disabled={line.day === undefined}
+              onClick={() =>
+                on.dayFrom(
+                  index,
+                  line.day!,
+                  `${below + 1} events moved to ${
+                    dayOptions[line.day! - 1]?.label ?? `day ${line.day}`
+                  }.`,
+                )
+              }
+            >
+              <ChevronsDown aria-hidden className="size-4" />
+            </IconButton>
+          )}
           <IconButton
             label={`Split ${name} into Boys and Girls`}
             onClick={() => on.split(index, `${name} split into two events.`)}

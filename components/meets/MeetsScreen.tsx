@@ -290,9 +290,8 @@ export function MeetsScreen({
                         // included. Tapping "Add meet" opened the last meet in
                         // the list instead of the sheet.
                         onClick={(e) => {
-                          // The anchor and the row lead to the same place, so
-                          // let it handle its own clicks (and Cmd/middle-click)
-                          // rather than pushing twice.
+                          // The anchor leads to the same place, so let it
+                          // handle its own clicks rather than pushing twice.
                           if ((e.target as HTMLElement).closest("a,button")) {
                             return;
                           }
@@ -300,16 +299,40 @@ export function MeetsScreen({
                           if (window.getSelection()?.isCollapsed === false) {
                             return;
                           }
+                          // The stretched link this replaced honoured
+                          // Cmd/Ctrl-click ANYWHERE on the row, and a coach
+                          // comparing three meets opens three tabs. A handler
+                          // that ignored the modifier would quietly take that
+                          // away and navigate in-tab, losing their place.
+                          if (e.metaKey || e.ctrlKey) {
+                            window.open(
+                              `${base}/${meet._id}`,
+                              "_blank",
+                              "noopener,noreferrer",
+                            );
+                            return;
+                          }
+                          if (e.shiftKey || e.altKey || e.button !== 0) return;
                           router.push(`${base}/${meet._id}`);
                         }}
-                        className="cursor-pointer transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-50/40 focus-within:bg-brand-50/40"
+                        // `bg-brand-50` at full strength, not /40: at 40% over
+                        // white it computes to ~#f8fbff, about 1.02:1 against
+                        // the surface, which is not a state anyone can see. And
+                        // `active:` matters most on the iPad this row was
+                        // rewritten for, where there is no hover at all and the
+                        // tap would otherwise give nothing back until the route
+                        // changed.
+                        className="cursor-pointer transition-colors [transition-duration:var(--dur-1)] hover:bg-brand-50 active:bg-brand-100 focus-within:bg-brand-50"
                       >
                         <td className="px-4 py-2.5">
                           {/* The row's pointer affordance is above; this is the
                               keyboard and screen-reader way in. */}
                           <Link
                             href={`${base}/${meet._id}`}
-                            className="rounded-sm font-medium text-ink outline-none hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
+                            // `ring-offset-1` to match SignupCell and the entry
+                            // roster: a 2px ring flush against 13px glyphs
+                            // reads as a smudge, not a focus indicator.
+                            className="rounded-sm font-medium text-ink outline-none hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                           >
                             {meet.name}
                           </Link>

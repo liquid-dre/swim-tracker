@@ -5,6 +5,7 @@ import {
   addCustomLine,
   addWhitelistLine,
   canMoveLine,
+  countLinesByDay,
   courseMismatches,
   eventFitsCourse,
   eventOptions,
@@ -13,6 +14,7 @@ import {
   removeLine,
   reorderBlockedReason,
   resolveLine,
+  setDayFrom,
   setLineDay,
   setLineGender,
   splitLine,
@@ -331,5 +333,45 @@ describe("unresolveLine", () => {
     );
     expect(next[0].day).toBe(2);
     expect(next[0].distance).toBeUndefined();
+  });
+});
+
+describe("setDayFrom", () => {
+  const lines: MeetEvent[] = [
+    { id: "a", rawLabel: "Mixed 100 Free" },
+    { id: "b", rawLabel: "Mixed 50 Back" },
+    { id: "c", rawLabel: "Mixed 200 Fly" },
+    { id: "d", rawLabel: "Mixed 400 Free" },
+  ];
+
+  test("places a three-day programme in three clicks, top down", () => {
+    // The domain's own interaction: a document states "Day 2" once, above a
+    // block. Setting each boundary from the top down must never need an undo.
+    const placed = setDayFrom(setDayFrom(setDayFrom(lines, 0, 1), 2, 2), 3, 3);
+    expect(placed.map((l) => l.day)).toEqual([1, 1, 2, 3]);
+  });
+
+  test("leaves everything above the boundary alone", () => {
+    const next = setDayFrom(setDayFrom(lines, 0, 1), 2, 2);
+    expect(next[0]).toEqual({ id: "a", rawLabel: "Mixed 100 Free", day: 1 });
+    expect(next[1].day).toBe(1);
+  });
+});
+
+describe("countLinesByDay", () => {
+  test("counts each day, and everything the meet's span cannot hold", () => {
+    const { byDay, unplaced } = countLinesByDay(
+      [
+        { rawLabel: "a", day: 1 },
+        { rawLabel: "b", day: 1 },
+        { rawLabel: "c", day: 2 },
+        { rawLabel: "d" },
+        // Day 4 of a three-day meet is unplaced, not a fourth bucket.
+        { rawLabel: "e", day: 4 },
+      ],
+      3,
+    );
+    expect(byDay).toEqual([2, 1, 0]);
+    expect(unplaced).toBe(2);
   });
 });

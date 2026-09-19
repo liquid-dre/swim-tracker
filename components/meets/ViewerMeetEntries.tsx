@@ -4,7 +4,7 @@ import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { formatMeetDayDate, meetDayCount } from "@/lib/meets";
+import { formatMeetDayDate, meetDates, meetDayCount } from "@/lib/meets";
 import { formatTime } from "@/lib/swim";
 import { SwimOutcome } from "./SwimOutcome";
 
@@ -39,6 +39,10 @@ export function ViewerMeetEntries({
   // raises for a family, and it is a fact about each entry rather than about
   // the meet — four events can fall across three mornings.
   const multiDay = meetDayCount(meet) > 1;
+  // The FULL spelling the programme's own bands use ("Day 2 · Sun 29 Nov"), not
+  // a bare date: one fact named two ways on one screen is how a reader starts
+  // wondering whether they are the same fact.
+  const days = meetDates(meet);
 
   return (
     <section className="flex flex-col gap-2">
@@ -73,8 +77,10 @@ export function ViewerMeetEntries({
                   <span className="min-w-0 flex-1 text-sm font-medium text-ink">
                     {entry.label}
                     {multiDay && (
-                      <span className="ml-2 whitespace-nowrap text-xs font-normal text-ink-muted">
-                        {formatMeetDayDate(entry.swimDate)}
+                      <span className="ml-2 whitespace-nowrap text-xs font-normal tabular-nums text-ink-muted">
+                        {days.indexOf(entry.swimDate) >= 0
+                          ? `Day ${days.indexOf(entry.swimDate) + 1} · ${formatMeetDayDate(entry.swimDate)}`
+                          : formatMeetDayDate(entry.swimDate)}
                       </span>
                     )}
                   </span>

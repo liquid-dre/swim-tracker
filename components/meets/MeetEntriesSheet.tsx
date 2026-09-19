@@ -67,6 +67,12 @@ export function MeetEntriesSheet({
 
   const line = signups?.lines.find((l) => l.lineId === lineId) ?? null;
   const days = signups?.days ?? [];
+  // The programme moved after these swimmers were entered. Counted here so the
+  // sheet says it once at the top rather than leaving it to be discovered by
+  // scrolling a thirty-row roster.
+  const mismatchedDays = (line?.entries ?? []).filter(
+    (e) => e.dayMismatch !== null,
+  ).length;
   const entered = useMemo(
     () => new Set((line?.entries ?? []).map((e) => String(e.swimmerId))),
     [line],
@@ -221,6 +227,16 @@ export function MeetEntriesSheet({
               This meet has no course set, so times can&rsquo;t be recorded yet.
               A time in the wrong pool can never be compared with anything. Set
               it on the meet&rsquo;s Details tab.
+            </p>
+          )}
+
+          {mismatchedDays > 0 && (
+            <p className="shrink-0 rounded-xl border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-ink">
+              {mismatchedDays === 1
+                ? "One swimmer is still entered for a different day"
+                : `${mismatchedDays} swimmers are still entered for a different day`}{" "}
+              than the programme now swims this event on. Their rows say which,
+              and move them in one click.
             </p>
           )}
 

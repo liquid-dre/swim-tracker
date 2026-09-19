@@ -527,13 +527,18 @@ export function lineById(
 // the LINE (see `MeetEvent.day`); this is the one place that turns a flat list
 // into the sections every surface draws.
 
+/** The one wording for the lines no day was ever set on. Read by coaches AND
+ *  by parents, so it describes the PROGRAMME rather than the coach's to-do
+ *  list: "not listed" is a fact about the document, "not set" is a chore. */
+export const DAY_NOT_LISTED = "Day not listed";
+
 /** One day's worth of a programme, ready to render as a section. */
 export type MeetDayGroup = {
   /** 1-based day of the meet, or null for the lines no day was set on. */
   day: number | null;
   /** The ISO date that day falls on, or null when there is no day. */
   date: string | null;
-  /** "Day 2 · Sun 29 Nov", "Day not set", or "" when there is nothing to say. */
+  /** "Day 2 · Sun 29 Nov", `DAY_NOT_LISTED`, or "" when there is nothing to say. */
   label: string;
   events: MeetEvent[];
 };
@@ -594,18 +599,26 @@ export function groupEventsByDay(
     ];
   }
 
-  const groups: MeetDayGroup[] = placed.map((day) => ({
-    day,
-    date: meetDayDate(meet, day),
-    label: formatMeetDay(meet, day),
-    events: (buckets.get(day) ?? []).sort(compareMeetEvents),
-  }));
+  // Every day up to the last one with events, INCLUDING the empty ones. A
+  // Sunday-only programme that skipped straight to "Day 2" is ambiguous
+  // otherwise: nothing swum on the Saturday and nobody having said yet look
+  // identical when the Saturday simply is not drawn. Days past the last placed
+  // one are left out — they are the ones still being worked on.
+  const groups: MeetDayGroup[] = [];
+  for (let day = 1; day <= placed[placed.length - 1]; day += 1) {
+    groups.push({
+      day,
+      date: meetDayDate(meet, day),
+      label: formatMeetDay(meet, day),
+      events: (buckets.get(day) ?? []).sort(compareMeetEvents),
+    });
+  }
   const unplaced = buckets.get(null);
   if (unplaced !== undefined) {
     groups.push({
       day: null,
       date: null,
-      label: "Day not set",
+      label: DAY_NOT_LISTED,
       events: unplaced.sort(compareMeetEvents),
     });
   }
@@ -662,13 +675,34 @@ export function formatMeetDayDate(iso: string): string {
   return `${formatWeekday(iso)} ${parts.day} ${parts.month}`.trim();
 }
 
-/** "Day 2 · Sun 29 Nov", or just "Day 2" when the meet has no such date. */
+/**
+ * A meet day has exactly TWO spellings, and every surface uses one of them.
+ *
+ * FULL — "Day 2 · Sun 29 Nov" — wherever there is room: section headings, the
+ * sign-up sheet's description, a viewer's own events. SHORT — "Day 2 · Sun" —
+ * only inside a control too narrow for the rest, which today means the two day
+ * pickers. Five spellings of one fact across five adjacent surfaces is how a
+ * reader stops trusting that they mean the same thing.
+ *
+ * Both degrade the same way: a day the meet no longer reaches keeps its number
+ * and loses its date, because the number is the part that is still true.
+ */
 export function formatMeetDay(
   meet: { startDate: string; endDate?: string | null },
   day: number,
 ): string {
   const date = meetDayDate(meet, day);
   return date === null ? `Day ${day}` : `Day ${day} · ${formatMeetDayDate(date)}`;
+}
+
+/** "Day 2 · Sun" — the FULL form's short twin, for a narrow picker. */
+export function formatMeetDayShort(
+  meet: { startDate: string; endDate?: string | null },
+  day: number,
+): string {
+  const date = meetDayDate(meet, day);
+  const weekday = date === null ? "" : formatWeekday(date);
+  return weekday === "" ? `Day ${day}` : `Day ${day} · ${weekday}`;
 }
 
 function parseParts(iso: string): { day: number; month: string; year: number } | null {

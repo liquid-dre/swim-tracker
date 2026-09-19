@@ -34,6 +34,7 @@ import {
   genderAllowsSwimmer,
   isUpcoming,
   meetDates,
+  meetDayDate,
   meetEventLabel,
   type MeetEvent,
 } from "../lib/meets";
@@ -72,6 +73,17 @@ const entryRow = v.object({
   swimDate: v.string(),
   /** The swimmer no longer matches the line's sex scope — flagged, never dropped. */
   genderMismatch: v.boolean(),
+  /**
+   * This entry's day is not the day the programme now puts its event on.
+   *
+   * Derived at READ time, never stored — the same reason `genderMismatch` is
+   * (CLAUDE.md: "a flag derived at read time cannot go stale"). `swimDate` IS
+   * denormalised, because an entry may legitimately be moved to another day;
+   * so the moment a line moves, every entry made before it has to say so
+   * rather than quietly keeping the old date, which feeds `ageAtSwim` and
+   * therefore which exact-age cut the swim is judged against.
+   */
+  dayMismatch: v.union(v.string(), v.null()),
   resultId: v.union(v.id("results"), v.null()),
   timeMs: v.union(v.number(), v.null()),
   /** The PB they took INTO this meet; null when there is nothing to compare. */
@@ -172,11 +184,19 @@ export const getMeetSignups = query({
               result?.timeMs ?? null,
               pb?.timeMs ?? null,
             );
+            // The ISO date the LINE now says, when it says one and it is not
+            // the one this entry carries. A string rather than a boolean, so
+            // the row can name the day to move to instead of only that it is
+            // wrong — and so the one-click fix has something to send.
+            const lineDay =
+              line.day === undefined ? null : meetDayDate(meet, line.day);
             return {
               _id: entry._id,
               swimmerId: entry.swimmerId,
               name: swimmer?.name ?? "Unknown swimmer",
               swimDate: entry.swimDate,
+              dayMismatch:
+                lineDay !== null && lineDay !== entry.swimDate ? lineDay : null,
               genderMismatch:
                 swimmer !== undefined &&
                 !genderAllowsSwimmer(line.gender, swimmer.gender),

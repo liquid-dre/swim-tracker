@@ -697,13 +697,20 @@
   the dense desktop forms are untouched. Checkboxes and radios are excluded —
   they have no text to zoom toward, and a font-size on them moves their box.
 
+  `[data-slot="select-trigger"]` is in the list because our `Select` is a Radix
+  BUTTON, not a `<select>`. Left out, a phone drew a 16px "No." field beside a
+  13px day picker in the same form row — the fix creating the inconsistency it
+  was meant to prevent. The rule is about touch-sized controls, not about which
+  element type happens to implement them.
+
   Deliberately UNLAYERED: Tailwind's `text-base` lands in @layer utilities, so a
   rule inside @layer base would lose to it on every field that sets its own size.
 */
 @media (max-width: 1023.98px) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   select,
-  textarea {
+  textarea,
+  [data-slot="select-trigger"] {
     font-size: max(16px, var(--text-base));
   }
 }

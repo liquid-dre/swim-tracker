@@ -497,19 +497,20 @@ function MeetRow({
             onChange={(iso) => onChange({ startDate: iso })}
             disabled={locked}
           />
-          {/* Only for a row whose programme dated a second day. A fifth
-              control on twelve one-day fixtures is noise; on the one that runs
-              a weekend it is the fact that makes its day headings save. */}
-          {row.endDate !== "" && (
-            <DateField
-              label="Ends"
-              aria-label={`${row.name} end date`}
-              value={row.endDate}
-              onChange={(iso) => onChange({ endDate: iso })}
-              min={row.startDate}
-              disabled={locked}
-            />
-          )}
+          {/* Always, not only for a row the parser dated twice. Conditional,
+              it gave one row in twelve a fifth field and wrapped that row's
+              Venue onto a second grid line, breaking the Date column a
+              reviewer scans down — and it left no way to make a row multi-day
+              when the parser missed its day heading. */}
+          <DateField
+            label="Ends"
+            hint="Blank for one day."
+            aria-label={`${row.name} end date`}
+            value={row.endDate}
+            onChange={(iso) => onChange({ endDate: iso })}
+            min={row.startDate}
+            disabled={locked}
+          />
           <Input
             label="Starts at"
             type="time"

@@ -54,7 +54,13 @@ export function FilterBar({
 }) {
   const hasRight = Boolean(trailing) || Boolean(filters);
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+    // `items-end` so controls of different heights sit on one bottom edge (a
+    // 50px Segmented beside a 44px input left their two labels at different
+    // heights under `items-center`). `gap-y-3` because a wrapped row is a
+    // different group: at a uniform 8px the "Find" label sat 8px under the
+    // control above it and 6px above its own, so 2px decided which control the
+    // label belonged to.
+    <div className={cn("flex flex-wrap items-end gap-x-2 gap-y-3", className)}>
       {primary}
       {hasRight && (
         // On a phone this group never fits beside the primary selectors, so it
@@ -62,7 +68,7 @@ export function FilterBar({
         // the search box floating under nothing with a ragged left edge. Below
         // `sm` it is simply its own full-width row, directly under the control
         // above it; from `sm` up it is right-aligned inline as before.
-        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
+        <div className="flex w-full flex-wrap items-end gap-2 sm:ml-auto sm:w-auto">
           {trailing}
           {filters && (
             <Popover>
