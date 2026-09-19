@@ -141,7 +141,7 @@ export function MeetPinChip({
       title={title}
       aria-label={title}
       className={cn(
-        "tap flex w-full items-center gap-1 rounded-md border px-1.5 py-1 text-2xs outline-none",
+        "tap flex w-full items-center gap-1 rounded-md border px-1.5 py-1 text-2xs sm:text-xs outline-none",
         "transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring sm:text-xs",
         pin.kind === "meet"
           ? "border-gray-800 bg-gray-800 text-white hover:bg-gray-700"

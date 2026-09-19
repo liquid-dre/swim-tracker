@@ -274,9 +274,18 @@ describe("the claims that live in class strings, not in tokens", () => {
     expect(contrast(token("color-gray-500"), WHITE)).toBeGreaterThanOrEqual(4.5);
   });
 
-  test("no file outside this one states a contrast ratio in prose", () => {
-    // The habit four consecutive reviews caught. The relation belongs in a
-    // comment; the number belongs here.
+  test("no file outside this one states a MEASURED contrast ratio in prose", () => {
+    /*
+      The habit four consecutive reviews caught: a figure for a specific token
+      pair, written beside the class it describes, which drifts the moment
+      either moves. The relation belongs in a comment; the number belongs here.
+
+      The WCAG thresholds themselves are exempt. "body text >= 4.5:1" is the
+      specification being targeted, not a measurement of anything in this
+      codebase, so it cannot rot — and PRODUCT.md is entitled to state the
+      standard it holds the product to.
+    */
+    const THRESHOLDS = new Set(["4.5:1", "3:1", "7:1", "4.5", "3"]);
     const files = [
       "../components/ui/Button.tsx",
       "../components/ui/Select.tsx",
@@ -287,12 +296,14 @@ describe("the claims that live in class strings, not in tokens", () => {
       "../components/meets/ImportMeetSheet.tsx",
       "../app/globals.css",
       "../DESIGN.md",
+      "../PRODUCT.md",
+      "../docs/DESIGN_1.md",
     ];
     for (const f of files) {
-      expect({ file: f, ratios: read(f).match(/\d+\.\d+:1/g) }).toEqual({
-        file: f,
-        ratios: null,
-      });
+      const measured = (read(f).match(/\d+(?:\.\d+)?:1/g) ?? []).filter(
+        (r) => !THRESHOLDS.has(r),
+      );
+      expect({ file: f, measured }).toEqual({ file: f, measured: [] });
     }
   });
 });

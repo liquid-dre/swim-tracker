@@ -370,11 +370,17 @@ function SignupCell({
   }
   if (event.id === undefined || onOpen === undefined) {
     return (
-      <span
-        className="text-xs text-ink-faint"
-        title="This programme predates sign-ups. Save the meet once to enable them."
-      >
+      // The reason is IN the accessible name, not in a `title`: this span is
+      // not focusable, so on a tablet or a keyboard the tooltip was the only
+      // explanation and neither could reach it. Two other files on this branch
+      // reject `title` for exactly this and then use it anyway; this is the
+      // spelling they argue for.
+      <span className="text-xs text-ink-faint">
         Not available
+        <span className="sr-only">
+          {" "}
+          — this programme predates sign-ups. Save the meet once to enable them.
+        </span>
       </span>
     );
   }

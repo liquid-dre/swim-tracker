@@ -488,7 +488,15 @@ export function ImportMeetSheet({
               variant="secondary"
               size="sm"
               loading={reading}
-              onClick={() => fileRef.current?.click()}
+              // Same reason as the textarea below: `onFile` calls
+              // `clearInput()` unconditionally, so a second file would discard
+              // a review in progress without asking.
+              aria-disabled={(multi && !reading) || undefined}
+              aria-describedby={multi ? "meet-text-locked" : undefined}
+              onClick={() => {
+                if (multi) return;
+                fileRef.current?.click();
+              }}
             >
               <Upload className="size-4" aria-hidden /> Choose a file
             </Button>
@@ -519,9 +527,24 @@ export function ImportMeetSheet({
             >
               …or paste the programme
             </label>
+            {/* LOCKED while a season review is on screen.
+
+                `MultiMeetReview` is keyed on this text, so any keystroke here
+                remounts it — discarding twelve rows of names, dates, courses
+                and replace targets, every skip decision, and the per-row
+                record of what was already written, which is the ONLY report a
+                season import produces. Mid-import it would also leave the
+                write loop running against an unmounted list.
+
+                Not a confirmation dialog: Clear beside the file button is
+                already the explicit "start again", it goes through the same
+                `clearInput`, and one obvious way out beats a prompt on every
+                keypress. */}
             <textarea
               id="meet-text"
               value={text}
+              disabled={multi}
+              aria-describedby={multi ? "meet-text-locked" : undefined}
               onChange={(e) => {
                 setText(e.target.value);
                 setDone(null);
@@ -532,8 +555,15 @@ export function ImportMeetSheet({
               placeholder={
                 "HAS 1st Seeded Gala 2026 - 11/9/2026\n101  Mixed 100 Freestyle\n103  Mixed 100 Breaststroke"
               }
-              className="h-32 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-ink outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] placeholder:text-ink-faint hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
+              className="h-32 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-ink outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] placeholder:text-ink-faint hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-ink-faint disabled:hover:border-gray-200"
             />
+            {multi && (
+              <p id="meet-text-locked" className="text-xs text-warning-ink">
+                Locked while you review the {drafts.length} meets below —
+                changing the source would discard your decisions. Use Clear to
+                start again.
+              </p>
+            )}
             <p className="text-xs text-ink-muted">
               One event per line, as the programme prints it. A leading event
               number is optional, and a CSV — or a spreadsheet column layout of{" "}

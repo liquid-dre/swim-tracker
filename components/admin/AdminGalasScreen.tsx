@@ -269,9 +269,9 @@ function GalaEditor({
       {/* The qualifying window sits in the header too: it decides which swims
           this gala will even look at, so it is the first thing worth seeing. */}
       {!loading && !missing && (
-        <p className="text-2xs text-ink-faint">
+        <p className="text-xs text-ink-muted">
           Qualifying on{" "}
-          <span className="font-medium text-ink-muted">
+          <span className="font-medium text-ink">
             {qualifyingRangeLabel(gala.qualifyingFrom, gala.qualifyingTo)}
           </span>
         </p>
@@ -370,7 +370,13 @@ function GalaEditor({
                 }
               />
             </div>
-            <p className="text-2xs text-ink-faint">
+            {/* `text-xs text-ink-muted`, not `2xs`/faint: globals.css
+                documents 2xs for "micro-labels only: chart annotations", and
+                this is three sentences of the most consequential rule in the
+                product, above the two inputs that change it. QualifyingBasis
+                sets the same content at `text-sm text-ink-muted` on every
+                coach surface. */}
+            <p className="text-xs text-ink-muted">
               Only official meet times swum between these dates can qualify a
               swimmer for this gala. Time trials, practice and school-gala times
               never count. Leave both blank to judge on all-time personal bests.

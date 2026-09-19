@@ -216,10 +216,6 @@ function RowTime({
   const stored = row.timeMs === null ? "" : formatTime(row.timeMs);
   const [digits, setDigits] = useState(() => normaliseDigits(stored));
   const lastStored = useRef(stored);
-  // The effect below runs on a Convex update, not on a keystroke, so it cannot
-  // read `digits` from the closure without re-subscribing on every character.
-  const digitsRef = useRef(digits);
-  digitsRef.current = digits;
 
   // A time changed elsewhere (another coach, or the log form filling this
   // entry) replaces what is shown — but never while it is being typed into.
@@ -232,9 +228,15 @@ function RowTime({
   // wins, which is the first clause.
   useEffect(() => {
     if (lastStored.current === stored) return;
-    const wasEditing = digitsRef.current !== normaliseDigits(lastStored.current);
+    const previous = lastStored.current;
     lastStored.current = stored;
-    if (!wasEditing) setDigits(normaliseDigits(stored));
+    // A functional updater, not a ref: the effect needs the CURRENT digits and
+    // cannot close over them without re-running on every keystroke, but it does
+    // not need a ref to get them. (The ref this replaces was written during
+    // render, which ESLint rejects and which double-renders under StrictMode
+    // and the React Compiler — in the one component whose comment promises
+    // correctness in a concurrent case.)
+    setDigits((d) => (d === normaliseDigits(previous) ? normaliseDigits(stored) : d));
   }, [stored]);
 
   // Bound to the DISPLAY string, never to the parse result, exactly as

@@ -220,8 +220,6 @@ export function MultiMeetReview({
         edits.target === ""
           ? null
           : (meets.find((m) => m._id === edits.target) ?? null),
-      /** `runAll` writes this row on the next press: not skipped, not already in. */
-      willWrite: !edits.skip && outcome.status !== "saved",
     };
   });
 
@@ -240,13 +238,41 @@ export function MultiMeetReview({
   const plan = importPlan(rows, outcomes);
   const outstanding = plan.write.map((i) => view[i]);
   const replacing = plan.replaces.length;
-  const replaceTargets = plan.replaceIds
-    .map((id) => meets.find((m) => m._id === id) ?? null)
-    .filter((m): m is ExistingMeet => m !== null);
-  const duplicateTarget =
+  /*
+    One entry per replaced meet, always — a target that has left the live
+    `meets` array still gets a line, because dropping it silently made the
+    dialog's title count rows and its list count meets it could resolve.
+  */
+  const replaceTargets = plan.replaceIds.map((id) => {
+    const meet = meets.find((m) => m._id === id) ?? null;
+    return {
+      id,
+      name: meet?.name ?? "A meet no longer on this list",
+      detail:
+        meet === null
+          ? null
+          : `${formatMeetDates(meet)}${
+              meet.eventCount > 0
+                ? `, ${meet.eventCount} event${meet.eventCount === 1 ? "" : "s"} today`
+                : ", empty programme"
+            }`,
+    };
+  });
+  /*
+    Named for the sentence, GATED on the plan.
+
+    An earlier version gated on this lookup, so a duplicate whose meet had left
+    the live `meets` array — deleted in another session, or the list re-scoped
+    while the sheet is open — produced a null name, no blocked reason, and two
+    rows writing to one id with the second erasing the first: exactly the loss
+    the guard exists to prevent. The plan already proved the duplicate; the
+    name is only how we say which one.
+  */
+  const duplicateName =
     plan.duplicateId === null
       ? null
-      : (meets.find((m) => m._id === plan.duplicateId)?.name ?? null);
+      : (meets.find((m) => m._id === plan.duplicateId)?.name ??
+        "another meet on this list");
 
   /** Undo every exclusion at once — a mis-click on row nine is cheap to fix. */
   function includeAll() {
@@ -269,15 +295,20 @@ export function MultiMeetReview({
         ? "Every meet needs a name and a date."
         : missingCourse > 0 && !allowNoCourse
           ? `${missingCourse} ${missingCourse === 1 ? "meet needs" : "meets need"} a course before they can be imported.`
-          : duplicateTarget !== null
-            ? `Two meets are both set to replace ${duplicateTarget}. Only one can.`
+          : plan.duplicateId !== null
+            ? `Two meets are both set to replace ${duplicateName}. Only one can.`
             : null;
   const canImport =
     !importing &&
     !finished &&
     included.length > 0 &&
     rowsValid &&
-    duplicateTarget === null &&
+    plan.duplicateId === null &&
+    // ===== 5. An empty plan is finished, not "Import 0 meets". After a
+    // partial failure, skipping the row that failed leaves nothing to write —
+    // and the press still ran, wrote nothing, and toasted the previous pass's
+    // count as though it had just happened.
+    outstanding.length > 0 &&
     (missingCourse === 0 || allowNoCourse);
 
   async function runAll() {
@@ -369,7 +400,11 @@ export function MultiMeetReview({
         {skipped > 0 && (
           <p className="mt-1">
             <span className="font-medium text-ink">{skipped} left out</span>,{" "}
-            {included.length} will be imported.{" "}
+            {/* From the plan, like the button: `included` still holds rows a
+                previous pass committed, so after a partial failure this said
+                "11 will be imported" forty pixels above a button reading
+                "Import 1 meet". */}
+            {outstanding.length} will be imported.{" "}
             <button
               type="button"
               onClick={includeAll}
@@ -462,7 +497,7 @@ export function MultiMeetReview({
               on the button before it is pressed, and a retry after a partial
               failure says the two rows left rather than the twelve it started
               with, which is what the dialog it opens has always said. */}
-          {finished
+          {finished || outstanding.length === 0
             ? "Imported"
             : `Import ${outstanding.length} meet${outstanding.length === 1 ? "" : "s"}`}
         </Button>
@@ -519,16 +554,12 @@ export function MultiMeetReview({
               the calendar, wholesale. This cannot be undone.
             </span>
             <span className="mt-2 flex flex-col gap-1">
-              {replaceTargets.map((m) => (
-                <span key={m._id} className="block text-ink">
-                  {m.name}{" "}
-                  <span className="text-ink-muted">
-                    ({formatMeetDates(m)}
-                    {m.eventCount > 0
-                      ? `, ${m.eventCount} event${m.eventCount === 1 ? "" : "s"} today`
-                      : ", empty programme"}
-                    )
-                  </span>
+              {replaceTargets.map((t) => (
+                <span key={t.id} className="block text-ink">
+                  {t.name}
+                  {t.detail !== null && (
+                    <span className="text-ink-muted"> ({t.detail})</span>
+                  )}
                 </span>
               ))}
             </span>
@@ -602,16 +633,11 @@ function MeetRow({
               sheet's discipline is to hold every inference up before it
               commits — it does that for the course, so it does it for the
               days the parser read out of the programme's own headings. */}
-          <span
-            className="text-xs tabular-nums text-ink-faint"
-            title={
-              dayBands.length > 1
-                ? dayBands
-                    .map((g) => `${g.events.length} on ${g.label}`)
-                    .join(", ")
-                : undefined
-            }
-          >
+          {/* The visible text carries the counts; the DAYS they fall on used
+              to be a `title`, which is no explanation at all on the tablet
+              this sheet is used from. Same fix as meetShared's "Not
+              available": name the days in the accessible text. */}
+          <span className="text-xs tabular-nums text-ink-faint">
             {draft.events.length === 0
               ? "No events yet"
               : dayBands.length > 1
@@ -619,6 +645,14 @@ function MeetRow({
                     .map((g) => g.events.length)
                     .join(" / ")}`
                 : `${draft.events.length} events`}
+            {dayBands.length > 1 && (
+              <span className="sr-only">
+                {" — "}
+                {dayBands
+                  .map((g) => `${g.events.length} on ${g.label}`)
+                  .join(", ")}
+              </span>
+            )}
           </span>
           {/* Leaving a meet out is reversible and costs nothing, so it is a
               plain toggle rather than a destructive-looking delete: the file is

@@ -30,8 +30,12 @@ const base =
   // `aria-disabled` exists to keep a low-vision keyboard user able to land on.
   // The `ghost` hover moved off this fill so the two cannot be confused.
   //
-  // NO RATIO IS WRITTEN IN THIS FILE, or in any of the files this branch
-  // touched: every treatment named here is locked in lib/contrast.test.ts instead.
+  // NO RATIO IS WRITTEN IN THIS FILE: every treatment named here is locked in
+  // lib/contrast.test.ts instead, and that test READS this file — along with
+  // the others that carry this kind of prose — and fails if a measured figure
+  // appears in any of them. (An earlier version of this sentence claimed the
+  // property for every file the branch touched, which was true and untested;
+  // the claim is now the one the test actually enforces.)
   // Four rounds of review each found a figure in these comments that the code
   // no longer produced, and the last pair were BOTH right — on two different
   // grounds, neither of which the sentence stating them named. A number that
