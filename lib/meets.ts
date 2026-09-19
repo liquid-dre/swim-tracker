@@ -68,6 +68,23 @@ export type MeetEvent = {
   gender?: MeetEventGender;
   distance?: Distance;
   stroke?: Stroke;
+  /**
+   * Which day of the meet this line is swum on — 1 for the first day, 2 for
+   * the second. Absent means nobody has said, which on a three-day gala is a
+   * real and visible state ("Day not set") rather than a quiet day 1.
+   *
+   * An INDEX, not a date, because the two things move independently: a meet's
+   * dates get corrected (importing the HAS programme moves the 1st seeded gala
+   * from the 12th to the 11th — see `MEET_SEED`) while its running order does
+   * not. A stored ISO date would be stranded outside the meet by that ordinary
+   * correction; "day 2" survives it. `meetDayDate` resolves the index whenever
+   * an actual date is needed.
+   *
+   * Out of range is NOT clamped anywhere — a line on day 3 of a meet since
+   * shortened to two reads as unplaced, because moving it to day 2 would be a
+   * guess about the running order and this module does not guess (§4.2).
+   */
+  day?: number;
 };
 
 /** A meet as every read surface sees it. */
@@ -126,6 +143,41 @@ export function meetDates(meet: {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return out;
+}
+
+/** How many days the meet runs. Always at least 1. */
+export function meetDayCount(meet: {
+  startDate: string;
+  endDate?: string | null;
+}): number {
+  return Math.max(1, meetDates(meet).length);
+}
+
+/**
+ * The ISO date day `day` (1-based) falls on, or null when the meet is not that
+ * long. Null is the honest answer for a line left on day 3 of a meet since
+ * shortened to two — the caller shows it as unplaced rather than inventing one.
+ */
+export function meetDayDate(
+  meet: { startDate: string; endDate?: string | null },
+  day: number,
+): string | null {
+  if (!Number.isInteger(day) || day < 1) return null;
+  return meetDates(meet)[day - 1] ?? null;
+}
+
+/**
+ * A day index off the wire (a form, an import) bounded by the meet's own span,
+ * or undefined for "not stated". Anything that is not a real day of this meet
+ * comes back undefined, never clamped — see `MeetEvent.day`.
+ */
+export function cleanMeetDay(
+  value: number | null | undefined,
+  dayCount: number,
+): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (!Number.isInteger(value) || value < 1 || value > dayCount) return undefined;
+  return value;
 }
 
 /** Does the meet touch any date in [from, to] (inclusive, ISO strings)? */
@@ -467,6 +519,100 @@ export function lineById(
 }
 
 // ---------------------------------------------------------------------------
+// 5b. Programme days
+// ---------------------------------------------------------------------------
+//
+// A three-day gala's programme is sixty lines, and the question a coach or a
+// parent actually asks it is "what is being swum on Saturday". The day lives on
+// the LINE (see `MeetEvent.day`); this is the one place that turns a flat list
+// into the sections every surface draws.
+
+/** One day's worth of a programme, ready to render as a section. */
+export type MeetDayGroup = {
+  /** 1-based day of the meet, or null for the lines no day was set on. */
+  day: number | null;
+  /** The ISO date that day falls on, or null when there is no day. */
+  date: string | null;
+  /** "Day 2 · Sun 29 Nov", "Day not set", or "" when there is nothing to say. */
+  label: string;
+  events: MeetEvent[];
+};
+
+/**
+ * Split a programme into its days, in running order.
+ *
+ * A programme nobody has dayed at all comes back as ONE unlabelled group —
+ * which is exactly the flat list every surface drew before days existed, so a
+ * single-day meet and an unsorted multi-day one both render unchanged. Days
+ * appear only once someone has actually placed a line on one.
+ *
+ * Lines pointing at a day the meet no longer runs (its end date was pulled in)
+ * collect in a trailing "Day not set" group rather than being folded into the
+ * last real day: they need a person to say where they went, and a section
+ * heading is how that person finds them. A meet collapsed all the way back to
+ * ONE day is the exception — there is no second day to distinguish it from, so
+ * it sections not at all.
+ */
+export function groupEventsByDay(
+  events: ReadonlyArray<MeetEvent>,
+  meet: { startDate: string; endDate?: string | null },
+): MeetDayGroup[] {
+  const dayCount = meetDayCount(meet);
+  // A one-day meet has nothing to split, whatever its lines carry — a stale
+  // `day: 1` from a span since collapsed must not put a "Day 1" heading over
+  // the only day there is.
+  if (dayCount <= 1) {
+    return [
+      {
+        day: null,
+        date: null,
+        label: "",
+        events: [...events].sort(compareMeetEvents),
+      },
+    ];
+  }
+
+  const buckets = new Map<number | null, MeetEvent[]>();
+  for (const event of events) {
+    const day = cleanMeetDay(event.day, dayCount) ?? null;
+    const bucket = buckets.get(day);
+    if (bucket === undefined) buckets.set(day, [event]);
+    else bucket.push(event);
+  }
+
+  const placed = [...buckets.keys()]
+    .filter((d): d is number => d !== null)
+    .sort((a, b) => a - b);
+  if (placed.length === 0) {
+    return [
+      {
+        day: null,
+        date: null,
+        label: "",
+        events: [...events].sort(compareMeetEvents),
+      },
+    ];
+  }
+
+  const groups: MeetDayGroup[] = placed.map((day) => ({
+    day,
+    date: meetDayDate(meet, day),
+    label: formatMeetDay(meet, day),
+    events: (buckets.get(day) ?? []).sort(compareMeetEvents),
+  }));
+  const unplaced = buckets.get(null);
+  if (unplaced !== undefined) {
+    groups.push({
+      day: null,
+      date: null,
+      label: "Day not set",
+      events: unplaced.sort(compareMeetEvents),
+    });
+  }
+  return groups;
+}
+
+// ---------------------------------------------------------------------------
 // 6. Formatting
 // ---------------------------------------------------------------------------
 
@@ -493,6 +639,37 @@ const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Sat" — an ISO date's weekday, for a control too narrow for the rest. */
+export function formatWeekday(iso: string): string {
+  if (!ISO_DATE.test(iso)) return "";
+  const day = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return Number.isNaN(day) ? "" : (WEEKDAYS[day] ?? "");
+}
+
+/**
+ * "Sat 28 Nov" — one day of a meet, short enough to sit in a section heading.
+ *
+ * The WEEKDAY leads because that is how a programme is read: a coach knows the
+ * gala is "the Saturday", not that it is the 28th. No year — the heading sits
+ * under a page that has already said which meet this is.
+ */
+export function formatMeetDayDate(iso: string): string {
+  const parts = parseParts(iso);
+  if (!parts) return iso;
+  return `${formatWeekday(iso)} ${parts.day} ${parts.month}`.trim();
+}
+
+/** "Day 2 · Sun 29 Nov", or just "Day 2" when the meet has no such date. */
+export function formatMeetDay(
+  meet: { startDate: string; endDate?: string | null },
+  day: number,
+): string {
+  const date = meetDayDate(meet, day);
+  return date === null ? `Day ${day}` : `Day ${day} · ${formatMeetDayDate(date)}`;
+}
 
 function parseParts(iso: string): { day: number; month: string; year: number } | null {
   const m = ISO_DATE.test(iso) ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso) : null;

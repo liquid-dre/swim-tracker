@@ -30,6 +30,14 @@ export type MeetDraft = {
   name: string;
   /** ISO date, or null when the source had none we could read confidently. */
   startDate: string | null;
+  /**
+   * The meet's LAST day, when the document dated one — a programme headed
+   * "Day 2 — Sunday 29 November 2026" states a two-day meet as plainly as it
+   * states its events. Null when it runs one day, or when it numbered its days
+   * without dating them: an end date inferred from "Day 3" would be a guess
+   * about whether the middle day is a rest day, and this parser does not guess.
+   */
+  endDate: string | null;
   /** 24-hour "HH:MM" when the source printed a start time; null otherwise. */
   startTime: string | null;
   venue: string | null;
@@ -257,6 +265,77 @@ type HeaderIdentity = {
   venue: string | null;
 };
 
+// ---------------------------------------------------------------------------
+// Day headings — a meet's own days, inside one programme
+// ---------------------------------------------------------------------------
+
+/**
+ * "Day 2", "Session 3" — the whole line, once separators are stripped.
+ *
+ * The WORD is required. A bare number is an event number, and a programme is
+ * full of them.
+ */
+const DAY_MARKER = /^(?:day|session)\s*(\d{1,2})$/i;
+
+/** The most days this parser will read, matching `MAX_SPAN_DAYS` on the server. */
+const MAX_DAYS = 31;
+
+/** Leading and trailing separators removed — tabs, dashes, colons, commas. */
+function tidy(text: string): string {
+  return text.replace(/^[\s\-–—:,]+/, "").replace(/[\s\-–—:,]+$/, "").trim();
+}
+
+/** Whole days between two ISO dates, or null if either is unreadable. */
+function daysBetween(from: string, to: string): number | null {
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** What a day heading says: which day, and the date it carries (if any). */
+type DayHeading = { number: number | null; date: string | null };
+
+/**
+ * Is this line the start of a DAY of the meet rather than a new meet?
+ *
+ * A three-day championship prints "Day 2 — Sunday 29 November 2026" above the
+ * Sunday half of its programme, and that line is dated with a name before it —
+ * which is exactly the shape `parseMeetWorkbook` splits meets on. Left
+ * unrecognised, a three-day gala imports as three separate one-day meets.
+ *
+ * So the day markers are named, and named narrowly: the whole text before the
+ * date must be "Day 2" or "Session 2" and nothing else. Anything with a real
+ * name in front of it ("2nd Junior League — 4 October 2026") is still a meet.
+ *
+ * A BARE date — no name, no marker — counts as a day heading only when it falls
+ * strictly after the meet's own start and inside the span cap. That bound is
+ * what keeps a printer's footer date, or the "closing date for entries", from
+ * silently re-dating half a programme.
+ */
+function dayHeadingOf(line: string, startDate: string | null): DayHeading | null {
+  const found = findPrintedDate(line);
+  if (found !== null) {
+    const before = tidy(line.slice(0, found.index));
+    if (before !== "") {
+      const marked = DAY_MARKER.exec(before);
+      return marked ? { number: Number(marked[1]), date: found.iso } : null;
+    }
+    if (startDate === null || found.iso <= startDate) return null;
+    const gap = daysBetween(startDate, found.iso);
+    return gap !== null && gap < MAX_DAYS
+      ? { number: null, date: found.iso }
+      : null;
+  }
+  const marked = DAY_MARKER.exec(tidy(line));
+  return marked ? { number: Number(marked[1]), date: null } : null;
+}
+
+/** Does this header line name a DAY rather than a meet? */
+function isDayMarkerName(name: string): boolean {
+  return DAY_MARKER.test(tidy(name));
+}
+
 /**
  * Read a meet's identity off the line carrying its date.
  *
@@ -313,6 +392,11 @@ function identityFromHeader(line: string, found: FoundDate): HeaderIdentity | nu
  *
  * `skipLine` is the header line this block belongs to, so a meet's own title row
  * is never also read as one of its events.
+ *
+ * DAYS are read here too, because which day an event is on is stated the only
+ * way a document can state it: by a heading above the events it covers. Each
+ * one sets the day carried by everything beneath it until the next; a dated
+ * heading also tells the draft how long the meet runs.
  */
 function readProgrammeInto(
   draft: MeetDraft,
@@ -322,11 +406,41 @@ function readProgrammeInto(
   skipLine: number,
 ): void {
   const seenNumbers = new Set<number>();
+  // Undefined until a heading says otherwise: a programme with no day headings
+  // leaves every line unplaced, which is exactly what it stated.
+  let day: number | undefined;
+  let lastDated: string | null = null;
   for (let i = from; i < to; i += 1) {
     if (i === skipLine) continue;
     const line = lines[i].trim();
     if (line === "") continue;
     if (isFurniture(line)) continue; // page furniture: not a skip worth reporting
+
+    const heading = dayHeadingOf(line, draft.startDate);
+    if (heading !== null) {
+      // The DATE decides when it has one — it is the only reading that survives
+      // a programme skipping a day ("Day 1 Friday, Day 2 Sunday" over a
+      // three-day span). Its own number is the fallback, and failing both, the
+      // heading is simply the next day.
+      const fromDate =
+        heading.date !== null && draft.startDate !== null
+          ? daysBetween(draft.startDate, heading.date)
+          : null;
+      const derived =
+        fromDate !== null && fromDate >= 0 ? fromDate + 1 : heading.number;
+      day = derived !== null && derived >= 1 && derived <= MAX_DAYS
+        ? derived
+        : (day ?? 0) + 1;
+      if (
+        heading.date !== null &&
+        draft.startDate !== null &&
+        heading.date > draft.startDate &&
+        (lastDated === null || heading.date > lastDated)
+      ) {
+        lastDated = heading.date;
+      }
+      continue;
+    }
 
     // A CSV header (`eventNumber,event`) is skipped once, silently.
     if (i === 0 && /^\s*(event\s*(number|#|no)?)\s*[,;\t]/i.test(line)) continue;
@@ -362,7 +476,19 @@ function readProgrammeInto(
       }
       seenNumbers.add(event.eventNumber);
     }
-    draft.events.push(event);
+    draft.events.push(day === undefined ? event : { ...event, day });
+  }
+
+  if (lastDated !== null) draft.endDate = lastDated;
+
+  // Numbered days with no dates on them: the day each event is on was read, but
+  // the meet's span was not, and the server bounds a day index by that span. So
+  // say it here rather than letting every day silently fail to save.
+  const maxDay = draft.events.reduce((n, e) => Math.max(n, e.day ?? 0), 0);
+  if (maxDay > 1 && draft.endDate === null) {
+    draft.warnings.push(
+      `This programme runs to ${maxDay} days but never dates the last one. Set the meet's end date below, or the day each event is on won't be saved.`,
+    );
   }
 }
 
@@ -401,6 +527,7 @@ export function parseMeetProgramme(text: string): MeetDraft {
   const draft: MeetDraft = {
     name: "",
     startDate: null,
+    endDate: null,
     startTime: null,
     venue: null,
     events: [],
@@ -432,6 +559,9 @@ export function parseMeetProgramme(text: string): MeetDraft {
 
     const identity = identityFromHeader(line, found);
     if (identity === null) return;
+    // "Day 2 — Sunday 29 November 2026" names a day, not the meet. Taking it as
+    // the title would name the meet "Day 2" and date it to its second morning.
+    if (isDayMarkerName(identity.name)) return;
 
     draft.name = identity.name;
     draft.startDate = found.iso;
@@ -525,6 +655,10 @@ export function parseMeetWorkbook(text: string): MeetDraft[] {
     if (found === null) return;
     const identity = identityFromHeader(line, found);
     if (identity === null) return; // a bare date is not a meet
+    // Nor is "Day 2 — Sunday 29 November 2026": that is this meet's second day,
+    // and splitting on it would file one three-day championship as three
+    // one-day meets whose programmes each hold a third of the events.
+    if (isDayMarkerName(identity.name)) return;
     headers.push({ line: i, found, identity });
   });
 
@@ -535,6 +669,7 @@ export function parseMeetWorkbook(text: string): MeetDraft[] {
     const draft: MeetDraft = {
       name: header.identity.name,
       startDate: header.found.iso,
+      endDate: null,
       startTime: header.identity.startTime,
       venue: header.identity.venue,
       events: [],

@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { formatMeetDayDate, meetDayCount } from "@/lib/meets";
 import { formatTime } from "@/lib/swim";
 import { SwimOutcome } from "./SwimOutcome";
 
@@ -21,15 +22,23 @@ import { SwimOutcome } from "./SwimOutcome";
 
 export function ViewerMeetEntries({
   meetId,
+  meet,
   upcoming,
 }: {
   meetId: Id<"meets">;
+  /** The meet's dates: a one-day meet has no day worth naming on every row. */
+  meet: { startDate: string; endDate?: string | null };
   /** Before the meet there are no times to show, only what is scheduled. */
   upcoming: boolean;
 }) {
   const swimmers = useQuery(api.meetEntries.getMyMeetEntries, { meetId });
 
   if (swimmers === undefined || swimmers.length === 0) return null;
+
+  // "Which day do we need to be there" is the whole question a multi-day gala
+  // raises for a family, and it is a fact about each entry rather than about
+  // the meet — four events can fall across three mornings.
+  const multiDay = meetDayCount(meet) > 1;
 
   return (
     <section className="flex flex-col gap-2">
@@ -63,6 +72,11 @@ export function ViewerMeetEntries({
                   )}
                   <span className="min-w-0 flex-1 text-sm font-medium text-ink">
                     {entry.label}
+                    {multiDay && (
+                      <span className="ml-2 whitespace-nowrap text-xs font-normal text-ink-muted">
+                        {formatMeetDayDate(entry.swimDate)}
+                      </span>
+                    )}
                   </span>
 
                   {entry.timeMs === null ? (

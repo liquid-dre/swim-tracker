@@ -167,6 +167,10 @@ export function unresolveLine(
           ...(line.eventNumber === undefined
             ? {}
             : { eventNumber: line.eventNumber }),
+          // The DAY survives: which day a line runs on is a fact about the
+          // programme's schedule, not about whether this app has an event for
+          // it. A relay still happens on the Saturday.
+          ...(line.day === undefined ? {} : { day: line.day }),
         }
       : line,
   );
@@ -188,6 +192,27 @@ export function setLineGender(
   gender: MeetEventGender,
 ): MeetEvent[] {
   return updateLine(lines, index, { gender });
+}
+
+/**
+ * Put a line on a day of the meet, or take it off one.
+ *
+ * Not `updateLine`, because "no day" has to be the ABSENCE of the field rather
+ * than a `day: undefined` sitting in the object — Convex validates the document
+ * it is handed, and an explicit undefined is not the same as an omitted key.
+ */
+export function setLineDay(
+  lines: ReadonlyArray<MeetEvent>,
+  index: number,
+  day: number | undefined,
+): MeetEvent[] {
+  return lines.map((line, i) => {
+    if (i !== index) return line;
+    if (day !== undefined) return { ...line, day };
+    const cleared = { ...line };
+    delete cleared.day;
+    return cleared;
+  });
 }
 
 /** Does every line carry a number? Does none? Anything else is neither. */

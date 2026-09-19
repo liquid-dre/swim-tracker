@@ -5,7 +5,9 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { requireSignedIn, requireSuperUser } from "./authz";
 import {
   cleanMeetDate,
+  cleanMeetDay,
   meetDates,
+  meetDayCount,
   meetOverlapsRange,
   reconcileLines,
   type MeetEvent,
@@ -73,6 +75,8 @@ const meetEventValidator = v.object({
   ),
   distance: v.optional(distanceValidator),
   stroke: v.optional(strokeValidator),
+  /** 1-based day of the meet this line runs on. See lib/meets.ts. */
+  day: v.optional(v.number()),
 });
 
 /** The shape every read surface receives. Optionals are normalised to null. */
@@ -187,7 +191,10 @@ function cleanDates(
  * but a line claiming a (distance, stroke) must claim a REAL one, so nothing
  * downstream ever keys on an event that does not exist (§4.3).
  */
-function cleanEvents(events: ReadonlyArray<MeetEvent>): MeetEvent[] {
+function cleanEvents(
+  events: ReadonlyArray<MeetEvent>,
+  dayCount: number,
+): MeetEvent[] {
   if (events.length > MAX_EVENTS) {
     throw new ConvexError(
       `That programme has ${events.length} events — more than the ${MAX_EVENTS} a meet can hold.`,
@@ -236,12 +243,19 @@ function cleanEvents(events: ReadonlyArray<MeetEvent>): MeetEvent[] {
     ) {
       throw new ConvexError(`Event ${i + 1} has an impossible event number.`);
     }
+    // A day the meet does not have is dropped rather than refused or clamped.
+    // Shortening a three-day gala to two is a legitimate correction, and the
+    // lines that were on day 3 have to land somewhere: "not set" says a person
+    // must place them, where day 2 would be this module guessing a running
+    // order. The meet form warns before saving so it is never a surprise.
+    const day = cleanMeetDay(event.day, dayCount);
     return {
       ...(event.id === undefined ? {} : { id: event.id }),
       ...(event.eventNumber === undefined ? {} : { eventNumber: event.eventNumber }),
       rawLabel,
       ...(event.gender === undefined ? {} : { gender: event.gender }),
       ...(hasDistance ? { distance: event.distance, stroke: event.stroke } : {}),
+      ...(day === undefined ? {} : { day }),
     };
   });
 }
@@ -254,8 +268,9 @@ function cleanEvents(events: ReadonlyArray<MeetEvent>): MeetEvent[] {
 function prepareEvents(
   existing: ReadonlyArray<MeetEvent>,
   incoming: ReadonlyArray<MeetEvent>,
+  dates: { startDate: string; endDate?: string | null },
 ): { lines: MeetEvent[]; droppedIds: string[] } {
-  return reconcileLines(existing, cleanEvents(incoming));
+  return reconcileLines(existing, cleanEvents(incoming, meetDayCount(dates)));
 }
 
 /**
@@ -462,7 +477,7 @@ export const createMeet = mutation({
       ...(venue === undefined ? {} : { venue }),
       ...(args.course === undefined ? {} : { course: args.course }),
       ...(args.galaCode === undefined ? {} : { galaCode: args.galaCode }),
-      events: prepareEvents([], args.events).lines,
+      events: prepareEvents([], args.events, { startDate, endDate }).lines,
       createdAt: Date.now(),
       updatedBy: profile._id,
     });
@@ -490,7 +505,10 @@ export const updateMeet = mutation({
     if (meet === null) throw new ConvexError("That meet no longer exists.");
 
     const { startDate, endDate } = cleanDates(args.startDate, args.endDate);
-    const { lines, droppedIds } = prepareEvents(meet.events, args.events);
+    const { lines, droppedIds } = prepareEvents(meet.events, args.events, {
+      startDate,
+      endDate,
+    });
     await clearEntriesForDroppedLines(
       ctx,
       args.meetId,
@@ -649,9 +667,13 @@ export const importMeet = mutation({
       // meet dated backwards, and `isUpcoming` reads the END date, so a future
       // meet would silently start showing as Past. Refuse, and say which two
       // dates disagree rather than quietly repairing one of them.
-      if (existing.endDate !== undefined && startDate > existing.endDate) {
+      // Against the end date the meet will HAVE, not the one it has: a
+      // programme that states its own last day ("Day 3 — Sunday 30 November")
+      // is extending the meet, not contradicting it.
+      const effectiveEnd = endDate ?? existing.endDate;
+      if (effectiveEnd !== undefined && startDate > effectiveEnd) {
         throw new ConvexError(
-          `This programme is dated ${startDate}, after that meet's end date (${existing.endDate}). Fix the meet's dates first, or import it as a new meet.`,
+          `This programme is dated ${startDate}, after that meet's end date (${effectiveEnd}). Fix the meet's dates first, or import it as a new meet.`,
         );
       }
       // Patch only what a PROGRAMME actually states. An event list carries a
@@ -665,7 +687,13 @@ export const importMeet = mutation({
       // survives: `prepareEvents` re-matches each incoming line to the one it
       // corresponds to, so re-importing a corrected document keeps the coaches'
       // sign-ups instead of stranding them behind 60 freshly minted ids.
-      const { lines, droppedIds } = prepareEvents(existing.events, args.events);
+      // The patch below deliberately leaves `endDate` alone when the document
+      // is silent, so the span a day index is bounded by is the one the meet
+      // will still have afterwards — not the one this programme implies.
+      const { lines, droppedIds } = prepareEvents(existing.events, args.events, {
+        startDate,
+        endDate: endDate ?? existing.endDate,
+      });
       await clearEntriesForDroppedLines(
         ctx,
         args.meetId,
@@ -697,7 +725,7 @@ export const importMeet = mutation({
       return { meetId: args.meetId, created: false, eventCount: lines.length };
     }
 
-    const events = prepareEvents([], args.events).lines;
+    const events = prepareEvents([], args.events, { startDate, endDate }).lines;
 
     const meetId = await ctx.db.insert("meets", {
       name,

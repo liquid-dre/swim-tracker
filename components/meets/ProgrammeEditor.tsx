@@ -43,6 +43,7 @@ import {
   moveLine,
   removeLine,
   resolveLine,
+  setLineDay,
   setLineGender,
   splitLine,
   unresolveLine,
@@ -76,6 +77,7 @@ const GENDER_OPTIONS = GENDERS.map((g) => ({
 type LineHandlers = {
   update: (i: number, patch: Partial<MeetEvent>) => void;
   gender: (i: number, g: MeetEventGender) => void;
+  day: (i: number, day: number | undefined) => void;
   resolve: (i: number, event: { distance: Distance; stroke: Stroke }) => void;
   clear: (i: number) => void;
   move: (i: number, delta: -1 | 1, said: string) => void;
@@ -83,9 +85,13 @@ type LineHandlers = {
   remove: (i: number, said: string) => void;
 };
 
+/** One day of the meet, as the per-line picker offers it. */
+export type DayOption = { value: number; label: string };
+
 export function ProgrammeEditor({
   lines,
   course,
+  dayOptions,
   onChange,
   entryCounts,
   problems = [],
@@ -96,6 +102,14 @@ export function ProgrammeEditor({
   lines: MeetEvent[];
   /** The meet's course, so impossible events can be shown as impossible. */
   course: Course | null;
+  /**
+   * The meet's days, in order. One day (or none) means no day control at all:
+   * a single-day meet has nothing to choose, and offering the choice would
+   * imply otherwise.
+   *
+   * Must be referentially stable — every row is memoized on it.
+   */
+  dayOptions: ReadonlyArray<DayOption>;
   /** A state setter, so an edit can be expressed as a function of the list. */
   onChange: Dispatch<SetStateAction<MeetEvent[]>>;
   /**
@@ -143,6 +157,10 @@ export function ProgrammeEditor({
   }, [problems]);
 
   const reorderBlocked = reorderBlockedReason(lines);
+  // Only meaningful on a multi-day meet; the note below is gated on that.
+  const unplaced = lines.filter(
+    (l) => l.day === undefined || l.day > dayOptions.length,
+  ).length;
 
   // A row that is about to unmount cannot hold focus, so the row that will take
   // its place is asked to. Merged with the caller's own focus request.
@@ -162,6 +180,7 @@ export function ProgrammeEditor({
     () => ({
       update: (i, patch) => apply((ls) => updateLine(ls, i, patch), ""),
       gender: (i, g) => apply((ls) => setLineGender(ls, i, g), ""),
+      day: (i, d) => apply((ls) => setLineDay(ls, i, d), ""),
       resolve: (i, event) => apply((ls) => resolveLine(ls, i, event), ""),
       clear: (i) => apply((ls) => unresolveLine(ls, i), ""),
       move: (i, delta, said) => apply((ls) => moveLine(ls, i, delta), said),
@@ -201,6 +220,14 @@ export function ProgrammeEditor({
       {reorderBlocked !== null && (
         <p className="text-xs text-warning-ink">{reorderBlocked}</p>
       )}
+      {dayOptions.length > 1 && unplaced > 0 && (
+        <p className="text-xs text-ink-muted">
+          {unplaced === lines.length
+            ? "No event has a day yet, so the programme reads as one list."
+            : `${unplaced === 1 ? "One event has" : `${unplaced} events have`} no day yet, and will sit under “Day not set”.`}{" "}
+          Set a day to split the programme into {dayOptions.length} days.
+        </p>
+      )}
       {moveWouldNumber(lines) && (
         <p className="text-xs text-ink-muted">
           These events have no numbers. Moving one will number them all in their
@@ -226,6 +253,7 @@ export function ProgrammeEditor({
               index={i}
               total={lines.length}
               course={course}
+              dayOptions={dayOptions}
               entered={
                 entryCounts === undefined
                   ? undefined
@@ -439,6 +467,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
   index,
   total,
   course,
+  dayOptions,
   entered,
   problem,
   mismatched,
@@ -454,6 +483,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
   index: number;
   total: number;
   course: Course | null;
+  dayOptions: ReadonlyArray<DayOption>;
   /** undefined = sign-ups not loaded yet, which is not the same as none. */
   entered: number | undefined;
   /** Why the save is blocked on THIS line, or null. */
@@ -534,6 +564,34 @@ const ProgrammeLine = memo(function ProgrammeLine({
             className="h-11 w-full rounded-lg border border-gray-300 bg-white px-2 text-base tabular-nums text-gray-800 outline-none focus:border-brand-300 focus:shadow-focus-ring lg:h-9"
           />
         </label>
+
+        {/* Beside the number, because both answer "when is this swum" — the
+            number is the order within a day, this is which day. Shown only on a
+            multi-day meet; there is nothing to pick otherwise. */}
+        {dayOptions.length > 1 && (
+          <div className="flex w-32 shrink-0 flex-col gap-1">
+            <span className="text-xs font-medium text-gray-700">Day</span>
+            <Select
+              aria-label={`Day for ${name}`}
+              value={
+                line.day !== undefined && line.day <= dayOptions.length
+                  ? String(line.day)
+                  : ""
+              }
+              onValueChange={(value) =>
+                on.day(index, value === "" ? undefined : Number(value))
+              }
+              size="sm"
+              options={[
+                { value: "", label: "Not set" },
+                ...dayOptions.map((d) => ({
+                  value: String(d.value),
+                  label: d.label,
+                })),
+              ]}
+            />
+          </div>
+        )}
 
         <label className="flex min-w-[10rem] flex-1 flex-col gap-1">
           <span className="text-xs font-medium text-gray-700">

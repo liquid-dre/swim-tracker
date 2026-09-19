@@ -21,7 +21,12 @@ import {
 } from "@/components/ui/sheet";
 import { GALA_FULL, GALA_ORDER, type GalaCode } from "@/lib/galas";
 import { errorMessage, notify } from "@/lib/notify";
-import { compareMeetEvents, type MeetEvent } from "@/lib/meets";
+import {
+  compareMeetEvents,
+  formatWeekday,
+  meetDates,
+  type MeetEvent,
+} from "@/lib/meets";
 import type { Course } from "@/lib/swim";
 import { ProgrammeEditor } from "./ProgrammeEditor";
 import { courseMismatches, validateLines } from "./programmeEditing";
@@ -137,6 +142,26 @@ export function MeetForm({
   // "not set" must not be two ways of saying the same thing (the server drops a
   // matching end date for the same reason).
   const multiDay = endDate !== "" && endDate !== startDate;
+  // The days this meet runs, as the per-line picker offers them. Memoised
+  // because every programme row is memoised on it — a fresh array per keystroke
+  // would re-render sixty rows to change one character in the name field.
+  //
+  // The weekday alone, not the full date: the control is 9rem wide beside the
+  // event number, and "Day 2 · Sun" is what a coach reading a programme says.
+  const dayOptions = useMemo(
+    () =>
+      meetDates({ startDate, endDate: multiDay ? endDate : null }).map(
+        (iso, i) => ({ value: i + 1, label: `Day ${i + 1} · ${formatWeekday(iso)}`.trim() }),
+      ),
+    [startDate, endDate, multiDay],
+  );
+  // Pulling the end date in leaves lines pointing at days the meet no longer
+  // has. The server drops those assignments rather than guessing a new day
+  // (see `cleanEvents`), so say so BEFORE saving — discovering it afterwards
+  // means re-placing them with nothing to say which day they were on.
+  const strandedByDates = events.filter(
+    (e) => e.day !== undefined && e.day > dayOptions.length,
+  ).length;
   // The server caps a meet at 31 days (a typo'd end year is not a 3-year gala).
   // The picker enforces the same bound so the rule is visible, not discovered
   // by being rejected after filling the form in.
@@ -268,12 +293,21 @@ export function MeetForm({
                     <DateField
                       id="meet-end"
                       label="Ends"
-                      hint="Leave blank for a one-day meet."
+                      hint="Leave blank for a one-day meet. On a multi-day meet each event can be put on its own day, from the Events tab."
                       value={endDate}
                       onChange={setEndDate}
                       min={startDate}
                       max={latestEnd}
                     />
+                    {strandedByDates > 0 && (
+                      <p role="status" className="text-xs text-warning-ink">
+                        {strandedByDates === 1
+                          ? "One event is on a day this meet no longer runs"
+                          : `${strandedByDates} events are on days this meet no longer runs`}
+                        . Saving clears their day rather than moving them &mdash;
+                        which day they run on is yours to say, not ours to guess.
+                      </p>
+                    )}
 
                     <Input
                       id="meet-start-time"
@@ -361,6 +395,7 @@ export function MeetForm({
                     <ProgrammeEditor
                       lines={events}
                       course={(course || null) as Course | null}
+                      dayOptions={dayOptions}
                       onChange={setEvents}
                       entryCounts={entryCounts}
                       problems={programmeProblems}

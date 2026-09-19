@@ -90,6 +90,8 @@ const lineRow = v.object({
   gender: v.union(v.literal("M"), v.literal("F"), v.literal("MIXED"), v.null()),
   distance: v.union(v.number(), v.null()),
   stroke: v.union(v.string(), v.null()),
+  /** Which day of the meet the programme puts this line on; null = not said. */
+  day: v.union(v.number(), v.null()),
   /** The line maps to a real event, so a swimmer can be entered and timed. */
   resolved: v.boolean(),
   entered: v.number(),
@@ -192,6 +194,7 @@ export const getMeetSignups = query({
           gender: line.gender ?? null,
           distance: line.distance ?? null,
           stroke: line.stroke ?? null,
+          day: line.day ?? null,
           resolved: line.distance !== undefined && line.stroke !== undefined,
           entered: rows.length,
           timed: rows.filter((r) => r.resultId !== null).length,
@@ -342,8 +345,12 @@ export const getMyMeetEntries = query({
           ...compareToPbBefore(result?.timeMs ?? null, pb?.timeMs ?? null),
         });
       }
+      // DAY first, then the running order within it. On a three-day gala the
+      // event numbers restart nowhere and run straight through, so sorting by
+      // number alone reads Saturday's 400 free between two Sunday sprints.
       rows.sort(
         (a, b) =>
+          a.swimDate.localeCompare(b.swimDate) ||
           (a.eventNumber ?? Number.MAX_SAFE_INTEGER) -
             (b.eventNumber ?? Number.MAX_SAFE_INTEGER) ||
           a.label.localeCompare(b.label),
@@ -434,7 +441,9 @@ export const addEntries = mutation({
     const clubId = requireClub(profile);
     const meet = await loadMeetOrThrow(ctx, args.meetId);
     const line = lineOrThrow(meet, args.lineId);
-    const swimDate = cleanEntryDay(meet, args.swimDate);
+    // The line's own day when the caller names none: signing a squad up for an
+    // event the programme puts on day 2 must not file them all on day 1.
+    const swimDate = cleanEntryDay(meet, args.swimDate, line);
 
     if (args.swimmerIds.length > 100) {
       throw new ConvexError(

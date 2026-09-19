@@ -57,6 +57,8 @@ export type ExistingMeet = {
 type RowEdits = {
   name: string;
   startDate: string;
+  /** "" = one day. Only ever set from a day heading the document itself dated. */
+  endDate: string;
   startTime: string;
   venue: string;
   /** "" = not chosen yet. Never pre-filled from the programme (§4.2). */
@@ -149,6 +151,7 @@ export function MultiMeetReview({
     drafts.map((d) => ({
       name: d.name,
       startDate: d.startDate ?? "",
+      endDate: d.endDate ?? "",
       startTime: d.startTime ?? "",
       venue: d.venue ?? "",
       course: "",
@@ -227,6 +230,13 @@ export function MultiMeetReview({
           meetId: row.target ? (row.target as Id<"meets">) : undefined,
           name: row.name.trim(),
           startDate: row.startDate,
+          // Only when the document dated a later day of its own. The course is
+          // held back for a person to answer because a workbook states none;
+          // this one it states, in the heading above the Sunday events.
+          endDate:
+            row.endDate !== "" && row.endDate > row.startDate
+              ? row.endDate
+              : undefined,
           startTime: row.startTime.trim() || undefined,
           venue: row.venue.trim() || undefined,
           course: (row.course || undefined) as Course | undefined,
@@ -487,6 +497,19 @@ function MeetRow({
             onChange={(iso) => onChange({ startDate: iso })}
             disabled={locked}
           />
+          {/* Only for a row whose programme dated a second day. A fifth
+              control on twelve one-day fixtures is noise; on the one that runs
+              a weekend it is the fact that makes its day headings save. */}
+          {row.endDate !== "" && (
+            <DateField
+              label="Ends"
+              aria-label={`${row.name} end date`}
+              value={row.endDate}
+              onChange={(iso) => onChange({ endDate: iso })}
+              min={row.startDate}
+              disabled={locked}
+            />
+          )}
           <Input
             label="Starts at"
             type="time"

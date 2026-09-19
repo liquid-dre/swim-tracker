@@ -2,8 +2,14 @@ import { describe, expect, test } from "vitest";
 
 import {
   buildRawLabel,
+  cleanMeetDay,
+  formatMeetDay,
+  formatMeetDayDate,
   genderAllowsSwimmer,
+  groupEventsByDay,
   lineById,
+  meetDayCount,
+  meetDayDate,
   normaliseMeetName,
   reconcileLines,
   splitLineByGender,
@@ -205,5 +211,130 @@ describe("lineById", () => {
     // A line written before ids shipped matches nothing, which is how the
     // pre-backfill window is refused rather than mis-linked by position.
     expect(lineById([line({ rawLabel: "Mixed 100 Free" })], "a")).toBeNull();
+  });
+});
+
+/*
+  Programme DAYS — the half of a multi-day meet that makes sixty lines readable.
+
+  Two rules carry everything below: a day is an INDEX into the meet's own span
+  (so a re-dated meet keeps its running order), and an index the span does not
+  reach is UNPLACED rather than clamped (so shortening a meet asks a person
+  where its last day's events went instead of answering for them).
+*/
+
+/** A three-day gala, 28–30 November 2026 (Sat, Sun, Mon). */
+const weekend = { startDate: "2026-11-28", endDate: "2026-11-30" };
+
+describe("meetDayCount / meetDayDate", () => {
+  test("a one-day meet is one day, however its end date is spelled", () => {
+    expect(meetDayCount({ startDate: "2026-09-11" })).toBe(1);
+    expect(meetDayCount({ startDate: "2026-09-11", endDate: null })).toBe(1);
+    expect(
+      meetDayCount({ startDate: "2026-09-11", endDate: "2026-09-11" }),
+    ).toBe(1);
+  });
+
+  test("an inclusive span counts both ends", () => {
+    expect(meetDayCount(weekend)).toBe(3);
+    expect(meetDayDate(weekend, 1)).toBe("2026-11-28");
+    expect(meetDayDate(weekend, 3)).toBe("2026-11-30");
+  });
+
+  test("a day the meet does not reach has no date, rather than the nearest one", () => {
+    expect(meetDayDate(weekend, 4)).toBeNull();
+    expect(meetDayDate(weekend, 0)).toBeNull();
+    expect(meetDayDate(weekend, 1.5)).toBeNull();
+  });
+});
+
+describe("cleanMeetDay", () => {
+  test("keeps a real day of this meet", () => {
+    expect(cleanMeetDay(1, 3)).toBe(1);
+    expect(cleanMeetDay(3, 3)).toBe(3);
+  });
+
+  test("drops anything the span does not hold — never clamps it", () => {
+    // Clamping would silently move a day-4 event onto the Monday, which is a
+    // claim about the running order nothing in the document supports.
+    expect(cleanMeetDay(4, 3)).toBeUndefined();
+    expect(cleanMeetDay(0, 3)).toBeUndefined();
+    expect(cleanMeetDay(-1, 3)).toBeUndefined();
+    expect(cleanMeetDay(2.5, 3)).toBeUndefined();
+    expect(cleanMeetDay(null, 3)).toBeUndefined();
+    expect(cleanMeetDay(undefined, 3)).toBeUndefined();
+  });
+});
+
+describe("formatMeetDay", () => {
+  test("names the day and dates it, weekday first", () => {
+    expect(formatMeetDayDate("2026-11-28")).toBe("Sat 28 Nov");
+    expect(formatMeetDay(weekend, 2)).toBe("Day 2 · Sun 29 Nov");
+  });
+
+  test("a day the meet no longer reaches keeps its number and loses its date", () => {
+    expect(formatMeetDay(weekend, 4)).toBe("Day 4");
+  });
+});
+
+describe("groupEventsByDay", () => {
+  const e = (rawLabel: string, day?: number, eventNumber?: number): MeetEvent => ({
+    rawLabel,
+    ...(day === undefined ? {} : { day }),
+    ...(eventNumber === undefined ? {} : { eventNumber }),
+  });
+
+  test("a programme nobody has dayed is ONE unlabelled list, as it always was", () => {
+    const events = [e("Mixed 100 Free", undefined, 2), e("Mixed 50 Back", undefined, 1)];
+    const groups = groupEventsByDay(events, weekend);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].day).toBeNull();
+    expect(groups[0].label).toBe("");
+    // Still in the meet's own running order.
+    expect(groups[0].events.map((x) => x.eventNumber)).toEqual([1, 2]);
+  });
+
+  test("splits into dated sections, in day order, each in running order", () => {
+    const events = [
+      e("Mixed 100 Free", 2, 20),
+      e("Mixed 50 Back", 1, 2),
+      e("Mixed 200 IM", 1, 1),
+      e("Mixed 400 Free", 3, 30),
+    ];
+    const groups = groupEventsByDay(events, weekend);
+    expect(groups.map((g) => g.day)).toEqual([1, 2, 3]);
+    expect(groups.map((g) => g.label)).toEqual([
+      "Day 1 · Sat 28 Nov",
+      "Day 2 · Sun 29 Nov",
+      "Day 3 · Mon 30 Nov",
+    ]);
+    expect(groups[0].events.map((x) => x.eventNumber)).toEqual([1, 2]);
+    expect(groups[0].date).toBe("2026-11-28");
+  });
+
+  test("a day the meet has lost collects in a trailing 'Day not set'", () => {
+    // The gala was shortened to two days; the Monday's events must be visible
+    // and re-placeable, not folded into the Sunday.
+    const shortened = { startDate: "2026-11-28", endDate: "2026-11-29" };
+    const groups = groupEventsByDay(
+      [e("Mixed 100 Free", 1, 1), e("Mixed 400 Free", 3, 30)],
+      shortened,
+    );
+    expect(groups.map((g) => g.label)).toEqual([
+      "Day 1 · Sat 28 Nov",
+      "Day not set",
+    ]);
+    expect(groups[1].day).toBeNull();
+    expect(groups[1].events.map((x) => x.rawLabel)).toEqual(["Mixed 400 Free"]);
+  });
+
+  test("a one-day meet never sections, whatever its lines claim", () => {
+    const groups = groupEventsByDay(
+      [e("Mixed 100 Free", 1), e("Mixed 50 Back", 2)],
+      { startDate: "2026-09-11" },
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBe("");
+    expect(groups[0].events).toHaveLength(2);
   });
 });

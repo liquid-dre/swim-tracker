@@ -210,6 +210,17 @@ export default defineSchema({
         ),
         distance: v.optional(distance),
         stroke: v.optional(stroke),
+        // Which day of the meet this line runs on — 1-based, bounded by the
+        // meet's own span, absent when nobody has said. A three-day gala's
+        // sixty lines are unreadable as one list, and the question asked of
+        // them is always "what is on the Saturday".
+        //
+        // An index rather than a date ON PURPOSE: a meet's dates get corrected
+        // (an import moves the 1st seeded gala from the 12th to the 11th) while
+        // its running order does not, so a stored ISO date would be stranded
+        // outside the meet by an ordinary fix. See `MeetEvent.day` in
+        // lib/meets.ts for the full rule, including why it is never clamped.
+        day: v.optional(v.number()),
       }),
     ),
     // Provenance for a row created by the fixture seed, e.g. "2026-09-12|1st

@@ -259,7 +259,14 @@ export function MeetPinSheet({
               >
                 Open meet
               </Link>
-              <MeetProgrammeTable events={current.meet.events} headingLevel={3} />
+              {/* `meet` too, so a coach checking a clash sees the day sections
+                  a multi-day gala's programme is split into — which is the
+                  whole question they opened the calendar with. */}
+              <MeetProgrammeTable
+                events={current.meet.events}
+                meet={current.meet}
+                headingLevel={3}
+              />
             </div>
           </>
         ) : current?.kind === "tour" ? (

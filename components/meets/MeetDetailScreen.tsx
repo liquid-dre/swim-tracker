@@ -214,11 +214,16 @@ export function MeetDetailScreen({
       {/* Their own events lead, then the full programme. A parent's question
           is "what is my swimmer in", and a sixty-line list does not answer it. */}
       {isViewer && (
-        <ViewerMeetEntries meetId={meetId} upcoming={isUpcoming(meet, today)} />
+        <ViewerMeetEntries
+          meetId={meetId}
+          meet={meet}
+          upcoming={isUpcoming(meet, today)}
+        />
       )}
 
       <MeetProgrammeTable
         events={meet.events}
+        meet={meet}
         signups={isViewer ? undefined : tallies}
         upcoming={isUpcoming(meet, today)}
         onOpenLine={isViewer ? undefined : setOpenLineId}

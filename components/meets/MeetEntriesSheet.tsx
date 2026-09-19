@@ -24,7 +24,11 @@ import {
 } from "@/components/ui/sheet";
 import { notify } from "@/lib/notify";
 import { GALA_FULL } from "@/lib/galas";
-import { MEET_GENDER_LABEL, genderAllowsSwimmer } from "@/lib/meets";
+import {
+  MEET_GENDER_LABEL,
+  formatMeetDayDate,
+  genderAllowsSwimmer,
+} from "@/lib/meets";
 import { EntryRosterTable, type EntryRow } from "./EntryRosterTable";
 
 /*
@@ -62,6 +66,7 @@ export function MeetEntriesSheet({
   const [adding, setAdding] = useState(false);
 
   const line = signups?.lines.find((l) => l.lineId === lineId) ?? null;
+  const days = signups?.days ?? [];
   const entered = useMemo(
     () => new Set((line?.entries ?? []).map((e) => String(e.swimmerId))),
     [line],
@@ -187,8 +192,20 @@ export function MeetEntriesSheet({
           <SheetDescription>
             {line === null
               ? "Loading this event."
-              : `${line.rawLabel}${
+              : // The DAY belongs in the description on a multi-day meet: it is
+                // what every swimmer added here is dated with, and a coach
+                // working down thirty events should be able to see that
+                // without opening the day column on each row.
+                `${line.rawLabel}${
                   line.gender ? ` · ${MEET_GENDER_LABEL[line.gender]}` : ""
+                }${
+                  days.length > 1
+                    ? ` · ${
+                        line.day !== null && days[line.day - 1] !== undefined
+                          ? `Day ${line.day} · ${formatMeetDayDate(days[line.day - 1])}`
+                          : "Day not set on the programme"
+                      }`
+                    : ""
                 }`}
           </SheetDescription>
         </SheetHeader>
@@ -221,7 +238,7 @@ export function MeetEntriesSheet({
                 _id: String(e._id),
                 resultId: e.resultId === null ? null : String(e.resultId),
               }))}
-              days={signups?.days ?? []}
+              days={days}
               courseKnown={signups?.courseKnown ?? false}
               resolved={line?.resolved ?? false}
               busyId={busyId}

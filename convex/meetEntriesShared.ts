@@ -5,6 +5,7 @@ import {
   genderAllowsSwimmer,
   lineById,
   meetDates,
+  meetDayDate,
   meetEventLabel,
   MEET_GENDER_LABEL,
   type MeetEvent,
@@ -68,10 +69,27 @@ export function lineOrThrow(meet: Doc<"meets">, lineId: string): MeetEvent {
   return line;
 }
 
-/** A day the meet actually runs on — `ageAtSwim` is computed from it. */
-export function cleanEntryDay(meet: Doc<"meets">, swimDate: string | undefined): string {
+/**
+ * A day the meet actually runs on — `ageAtSwim` is computed from it.
+ *
+ * With no day given, the PROGRAMME LINE decides: an event the programme places
+ * on day 2 enters its swimmers on day 2. That is the whole point of a line
+ * carrying a day — otherwise a coach signing a squad up for a three-day gala
+ * re-picks the date on every one of sixty sheets, and every one they forget
+ * files a Sunday swim on the Friday. A line with no day of its own falls back
+ * to the first day, as every entry did before days existed.
+ */
+export function cleanEntryDay(
+  meet: Doc<"meets">,
+  swimDate: string | undefined,
+  line?: MeetEvent,
+): string {
   const days = meetDates(meet);
-  if (swimDate === undefined) return days[0] ?? meet.startDate;
+  if (swimDate === undefined) {
+    const lineDay =
+      line?.day === undefined ? null : meetDayDate(meet, line.day);
+    return lineDay ?? days[0] ?? meet.startDate;
+  }
   if (!days.includes(swimDate)) {
     throw new ConvexError(
       days.length === 1

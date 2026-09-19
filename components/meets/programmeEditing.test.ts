@@ -13,6 +13,7 @@ import {
   removeLine,
   reorderBlockedReason,
   resolveLine,
+  setLineDay,
   setLineGender,
   splitLine,
   unresolveLine,
@@ -294,5 +295,41 @@ describe("validateLines", () => {
     expect(validateLines(lines)).toEqual([]);
     expect(eventFitsCourse(100, "IM", "LCM")).toBe(false);
     expect(eventFitsCourse(100, "IM", "SCM")).toBe(true);
+  });
+});
+
+/*
+  DAYS. Which day a line is swum on is a fact about the meet's schedule, so it
+  outlives the two edits most likely to take it: clearing the line's event, and
+  clearing the day itself.
+*/
+describe("setLineDay", () => {
+  const lines: MeetEvent[] = [
+    { id: "a", rawLabel: "Mixed 100 Free", distance: 100, stroke: "FREE" },
+    { id: "b", rawLabel: "Mixed 50 Back", distance: 50, stroke: "BACK" },
+  ];
+
+  test("puts a line on a day, and leaves its neighbours alone", () => {
+    const next = setLineDay(lines, 1, 2);
+    expect(next[1].day).toBe(2);
+    expect(next[0]).toBe(lines[0]);
+  });
+
+  test("clearing a day REMOVES the key, rather than setting it undefined", () => {
+    // Convex validates the document it is handed, and an explicit `undefined`
+    // is not an omitted field.
+    const next = setLineDay(setLineDay(lines, 0, 3), 0, undefined);
+    expect("day" in next[0]).toBe(false);
+  });
+});
+
+describe("unresolveLine", () => {
+  test("keeps the day: a relay still happens on the Saturday", () => {
+    const next = unresolveLine(
+      [{ id: "a", rawLabel: "4 x 50 Medley Relay", distance: 50, stroke: "FREE", day: 2 }],
+      0,
+    );
+    expect(next[0].day).toBe(2);
+    expect(next[0].distance).toBeUndefined();
   });
 });

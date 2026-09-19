@@ -57,7 +57,12 @@ export function FilterBar({
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
       {primary}
       {hasRight && (
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        // On a phone this group never fits beside the primary selectors, so it
+        // wraps — and `ml-auto` then pushed the wrapped row hard right, leaving
+        // the search box floating under nothing with a ragged left edge. Below
+        // `sm` it is simply its own full-width row, directly under the control
+        // above it; from `sm` up it is right-aligned inline as before.
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           {trailing}
           {filters && (
             <Popover>
@@ -110,12 +115,15 @@ export function FilterBar({
 export function FilterField({
   label,
   children,
+  className,
 }: {
   label: string;
   children: React.ReactNode;
+  /** For a field that should claim the rest of its row (e.g. a search box). */
+  className?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
       <span className="text-xs font-medium text-ink-muted">{label}</span>
       {children}
     </div>
