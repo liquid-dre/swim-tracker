@@ -10,6 +10,8 @@ import {
   genderAllowsSwimmer,
   groupEventsByDay,
   groupLineIndicesByDay,
+  groupLineRunsByDay,
+  daysAreContiguous,
   lineById,
   meetDayCount,
   meetDayDate,
@@ -432,5 +434,57 @@ describe("groupLineIndicesByDay", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe("");
     expect(groups[0].indices).toEqual([0, 1]);
+  });
+});
+
+describe("groupLineRunsByDay / daysAreContiguous", () => {
+  const e = (rawLabel: string, day?: number): MeetEvent => ({
+    rawLabel,
+    ...(day === undefined ? {} : { day }),
+  });
+
+  test("never reorders — a row keeps its position when its day is picked", () => {
+    // The editor bands with this. Bucketing would lift line 2 out of the
+    // trailing group and drop it above lines 0 and 1, out from under the finger
+    // that just set it, while every "and everything below" count still
+    // described the array.
+    const lines = [e("a"), e("b"), e("c", 1)];
+    const runs = groupLineRunsByDay(lines, weekend);
+    expect(runs.flatMap((r) => r.indices)).toEqual([0, 1, 2]);
+    expect(runs.map((r) => r.label)).toEqual([
+      DAY_NOT_LISTED,
+      "Day 1 · Sat 28 Nov",
+    ]);
+  });
+
+  test("a contiguous programme bands the same as the meet page", () => {
+    const lines = [e("a", 1), e("b", 1), e("c", 2), e("d", 3)];
+    expect(groupLineRunsByDay(lines, weekend).map((r) => r.label)).toEqual(
+      groupEventsByDay(lines, weekend).map((g) => g.label),
+    );
+    expect(daysAreContiguous(lines, weekend)).toBe(true);
+  });
+
+  test("an interleaved programme repeats a band, and says it is not contiguous", () => {
+    // The one state where the editor and the meet page genuinely differ, so it
+    // is the one state the editor warns about rather than hiding.
+    const lines = [e("a", 1), e("b", 2), e("c", 1)];
+    expect(groupLineRunsByDay(lines, weekend).map((r) => r.day)).toEqual([
+      1, 2, 1,
+    ]);
+    expect(daysAreContiguous(lines, weekend)).toBe(false);
+  });
+
+  test("nothing dayed is one unlabelled run, as the read view is one group", () => {
+    const lines = [e("a"), e("b")];
+    const runs = groupLineRunsByDay(lines, weekend);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].label).toBe("");
+  });
+
+  test("a one-day meet never bands", () => {
+    const runs = groupLineRunsByDay([e("a", 1)], { startDate: "2026-09-11" });
+    expect(runs).toHaveLength(1);
+    expect(runs[0].label).toBe("");
   });
 });

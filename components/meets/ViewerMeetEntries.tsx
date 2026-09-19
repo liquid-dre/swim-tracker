@@ -40,7 +40,6 @@ export function ViewerMeetEntries({
   // the meet — four events can fall across three mornings.
   const multiDay = meetDayCount(meet) > 1;
 
-
   return (
     <section className="flex flex-col gap-2">
       <h2 className="text-sm font-semibold text-ink">
@@ -92,9 +91,9 @@ export function ViewerMeetEntries({
                       failure: they turn up on the wrong day, confidently. */}
                   {entry.dayMismatch !== null && (
                     <p className="w-full text-xs text-warning-ink">
-                      The programme now swims this on{" "}
-                      {formatMeetDayDate(entry.dayMismatch)}. Check with the
-                      coach before the meet.
+                      The programme{upcoming ? " now swims" : " swam"} this on{" "}
+                      <DayName meet={meet} iso={entry.dayMismatch} />.
+                      {upcoming && " Check with the coach before the meet."}
                     </p>
                   )}
                 </li>
@@ -120,10 +119,21 @@ function DayTag({
   meet: { startDate: string; endDate?: string | null };
   iso: string;
 }) {
-  const day = meetDates(meet).indexOf(iso);
   return (
     <span className="ml-2 whitespace-nowrap text-xs font-normal tabular-nums text-ink-muted">
-      {day >= 0 ? formatMeetDay(meet, day + 1) : formatMeetDayDate(iso)}
+      <DayName meet={meet} iso={iso} />
     </span>
   );
+}
+
+/** The app's FULL day spelling from an ISO date. One phrasing, one place. */
+function DayName({
+  meet,
+  iso,
+}: {
+  meet: { startDate: string; endDate?: string | null };
+  iso: string;
+}) {
+  const day = meetDates(meet).indexOf(iso);
+  return <>{day >= 0 ? formatMeetDay(meet, day + 1) : formatMeetDayDate(iso)}</>;
 }

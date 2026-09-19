@@ -80,7 +80,11 @@ export function MeetDetailScreen({
   const tallies = useMemo(() => {
     const out = new Map<string, EntryTally>();
     for (const line of signups?.lines ?? []) {
-      out.set(line.lineId, { entered: line.entered, timed: line.timed });
+      out.set(line.lineId, {
+        entered: line.entered,
+        timed: line.timed,
+        dayMismatched: line.dayMismatched,
+      });
     }
     return out;
   }, [signups]);
@@ -234,7 +238,7 @@ export function MeetDetailScreen({
           {movedDays === 1
             ? "1 sign-up is on a day the programme has since moved"
             : `${movedDays} sign-ups are on days the programme has since moved`}
-          . Open the event to see who, and move them in one click.
+          . The events holding them are marked below; open one to move them.
         </p>
       )}
 

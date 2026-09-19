@@ -581,6 +581,70 @@ export function groupEventsByDay(
 }
 
 /**
+ * The programme in CONTIGUOUS RUNS of the same day, in the caller's array order.
+ *
+ * This is what the EDITOR bands with, and it is deliberately not
+ * `groupLineIndicesByDay`. Bucketing reorders: picking a day for row 30 of an
+ * unplaced programme lifts that row out of the trailing group and drops it
+ * thirty positions up the screen, out from under the finger that just set it —
+ * and every "and everything below" count then describes the array while the
+ * coach reads the screen. An editor whose job is stating a running order may
+ * not shuffle itself while the order is being stated.
+ *
+ * So the editor bands where the day CHANGES. On a contiguous programme — which
+ * is every real one, and what `setDayFrom` produces — the runs and the buckets
+ * are the same bands in the same order, so the editor and the meet page agree.
+ * When they are NOT contiguous the editor draws a day's band twice, which is
+ * the honest report: the running order and the days disagree, and the meet page
+ * will merge what the editor shows separately. `daysAreContiguous` is how the
+ * editor knows to say so.
+ */
+export function groupLineRunsByDay(
+  lines: ReadonlyArray<MeetEvent>,
+  meet: { startDate: string; endDate?: string | null },
+): MeetDayIndexGroup[] {
+  const dayCount = meetDayCount(meet);
+  if (dayCount <= 1 || lines.length === 0) {
+    return [
+      { day: null, date: null, label: "", indices: lines.map((_, i) => i) },
+    ];
+  }
+  const runs: MeetDayIndexGroup[] = [];
+  lines.forEach((line, i) => {
+    const day = cleanMeetDay(line.day, dayCount) ?? null;
+    const open = runs[runs.length - 1];
+    if (open !== undefined && open.day === day) {
+      open.indices.push(i);
+      return;
+    }
+    runs.push({
+      day,
+      date: day === null ? null : meetDayDate(meet, day),
+      label:
+        day === null ? DAY_NOT_LISTED : formatMeetDay(meet, day),
+      indices: [i],
+    });
+  });
+  // Nothing dayed at all: one unlabelled run, exactly as the read view gives
+  // one unlabelled group.
+  if (runs.length === 1 && runs[0].day === null) runs[0].label = "";
+  return runs;
+}
+
+/** Does each day appear in ONE unbroken run? The state the two views agree in. */
+export function daysAreContiguous(
+  lines: ReadonlyArray<MeetEvent>,
+  meet: { startDate: string; endDate?: string | null },
+): boolean {
+  const seen = new Set<number | null>();
+  for (const run of groupLineRunsByDay(lines, meet)) {
+    if (seen.has(run.day)) return false;
+    seen.add(run.day);
+  }
+  return true;
+}
+
+/**
  * The same grouping, as POSITIONS rather than lines.
  *
  * The programme editor needs the identical bands — it exists to show the

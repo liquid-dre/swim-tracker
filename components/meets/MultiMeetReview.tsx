@@ -310,8 +310,8 @@ export function MultiMeetReview({
       {/* Course is the one field with real downstream consequences, so it gets
           its own summary line and a single control for the whole workbook. */}
       {missingCourse > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning-200 bg-warning-50 px-4 py-3 text-sm">
-          <p className="text-warning-700">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm">
+          <p className="text-warning-ink">
             <AlertTriangle aria-hidden className="mr-1.5 inline size-4" />
             {missingCourse} meet{missingCourse === 1 ? " has" : "s have"} no
             course set. A meet without one cannot take times.
@@ -445,13 +445,22 @@ function MeetRow({
               sheet's discipline is to hold every inference up before it
               commits — it does that for the course, so it does it for the
               days the parser read out of the programme's own headings. */}
-          <span className="text-xs tabular-nums text-ink-faint">
+          <span
+            className="text-xs tabular-nums text-ink-faint"
+            title={
+              dayBands.length > 1
+                ? dayBands
+                    .map((g) => `${g.events.length} on ${g.label}`)
+                    .join(", ")
+                : undefined
+            }
+          >
             {draft.events.length === 0
               ? "No events yet"
               : dayBands.length > 1
-                ? dayBands
-                    .map((g) => `${g.events.length} on ${g.label}`)
-                    .join(" · ")
+                ? `${dayBands.length} days · ${dayBands
+                    .map((g) => g.events.length)
+                    .join(" / ")}`
                 : `${draft.events.length} events`}
           </span>
           {/* Leaving a meet out is reversible and costs nothing, so it is a

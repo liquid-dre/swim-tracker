@@ -193,16 +193,9 @@ export function MeetProgrammeTable({
                     </th>
                   </tr>
                 )}
-                {group.events.length === 0 ? (
-                  <tr>
-                    <td colSpan={columns} className="px-3 py-2 text-ink-faint">
-                      &mdash;
-                    </td>
-                  </tr>
-                ) : (
-                  group.events.map((event, i) => (
+                {group.events.map((event, i) => (
                     <ProgrammeRow
-                      key={`${event.eventNumber ?? "x"}-${i}`}
+                      key={event.id ?? `${event.eventNumber ?? "x"}-${i}`}
                       event={event}
                       numbered={numbered}
                       entering={entering}
@@ -210,8 +203,7 @@ export function MeetProgrammeTable({
                       upcoming={upcoming}
                       onOpenLine={onOpenLine}
                     />
-                  ))
-                )}
+                ))}
               </tbody>
             ))}
           </table>
@@ -239,16 +231,14 @@ export function MeetProgrammeTable({
                   </span>
                 </p>
               )}
-              {group.events.length === 0 ? (
-                <p className="px-4 py-2.5 text-sm text-ink-faint">&mdash;</p>
-              ) : (
+              {group.events.length > 0 && (
                 <ul
                   aria-label={group.label === "" ? caption : group.label}
                   className="divide-y divide-gray-100"
                 >
                   {group.events.map((event, i) => (
                     <li
-                      key={`${event.eventNumber ?? "x"}-${i}`}
+                      key={event.id ?? `${event.eventNumber ?? "x"}-${i}`}
                       className="flex items-baseline gap-3 px-4 py-2.5"
                     >
                       {numbered && (
@@ -407,6 +397,16 @@ function SignupCell({
         <span className="text-ink-muted">Add swimmers</span>
       ) : (
         <span className="tabular-nums">{summary}</span>
+      )}
+      {/* The line the meet page's banner is counting. Marked here so the total
+          is scannable down the programme rather than being a number the coach
+          has to go hunting for one sheet at a time. Never colour alone — the
+          count carries the fact in words. */}
+      {(tally?.dayMismatched ?? 0) > 0 && (
+        <span className="text-xs font-medium text-warning-ink">
+          <span className="tabular-nums">{tally!.dayMismatched}</span> on
+          another day
+        </span>
       )}
       <span className="sr-only">for {meetEventLabel(event)}</span>
     </button>

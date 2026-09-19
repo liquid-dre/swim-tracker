@@ -17,6 +17,15 @@ export type EntryTally = {
   entered: number;
   /** How many of those have a time recorded. */
   timed: number;
+  /**
+   * How many sit on a day the programme has since moved off.
+   *
+   * Optional because most surfaces have no notion of it — the meets LIST rolls
+   * a whole season up per meet and never sees a programme line. The meet page
+   * does, and needs it per line or its "4 sign-ups have moved" banner names a
+   * problem with no way to find it.
+   */
+  dayMismatched?: number;
 };
 
 /**

@@ -27,7 +27,8 @@ import { MENU_ITEM, MENU_PANEL } from "@/components/ui/menu-styles";
 import {
   DAY_NOT_LISTED,
   MEET_GENDER_LABEL,
-  groupLineIndicesByDay,
+  daysAreContiguous,
+  groupLineRunsByDay,
   type MeetEvent,
   type MeetEventGender,
 } from "@/lib/meets";
@@ -189,10 +190,15 @@ export function ProgrammeEditor({
 
   const reorderBlocked = reorderBlockedReason(lines);
   // One grouping rule, shared with the programme the coach will land on.
+  // RUNS, not buckets: bucketing would lift a row out of its group the moment
+  // its day was picked and drop it thirty positions up the screen, out from
+  // under the finger that set it. See `groupLineRunsByDay`.
   const dayGroups = useMemo(
-    () => groupLineIndicesByDay(lines, dayDates),
+    () => groupLineRunsByDay(lines, dayDates),
     [lines, dayDates],
   );
+  const interleaved =
+    dayOptions.length > 1 && !daysAreContiguous(lines, dayDates);
   // Only meaningful on a multi-day meet; the tally below is gated on that.
   const tally = countLinesByDay(lines, dayOptions.length);
 
@@ -265,8 +271,9 @@ export function ProgrammeEditor({
           once above the list rather than sixty times inside it. */}
       {dayOptions.length > 1 && (
         <p className="text-xs text-ink-muted">
-          A programme runs in order, so set the first event of each day and use
-          the double-chevron to carry that day down the rest of the list.
+          A programme runs in order, so give the first event of each day its
+          day, then use <span className="font-medium">…and below</span> under
+          that row&rsquo;s Day picker to put the rest of the list on it.
         </p>
       )}
 
@@ -311,6 +318,14 @@ export function ProgrammeEditor({
           being answered while the days are assigned, and a note that vanishes
           the moment it reaches zero makes an absence the only completion
           signal. */}
+      {interleaved && (
+        <p className="text-xs text-warning-ink">
+          A day appears more than once in this running order, so the bands below
+          repeat. The meet page groups each day together, so it will not look
+          like this until the events of a day sit together here.
+        </p>
+      )}
+
       {/* Spaced spans, not `·`-joined: the separator is already inside every
           day's own label ("Day 2 · Sun"), so joining with it too produced one
           unreadable run. */}
@@ -354,14 +369,10 @@ export function ProgrammeEditor({
         /* One card of divided rows, not sixty stacked cards: at a real
            programme's length, sixty identical bordered panels give the one line
            that needs attention the same weight as the fifty-nine that do not. */
-        /* Banded by the SAME function the read view bands with
-           (`groupLineIndicesByDay`), over INDICES — so the grouping a coach
-           creates here is provably the grouping they land on after saving, and
-           every index the row handlers address is untouched. Banding on "the
-           day changed since the previous row" looked equivalent and was not: it
-           drew nothing for an empty day, drew a label twice for interleaved
-           days, and used the SHORT spelling this codebase reserves for narrow
-           pickers. */
+        /* Banded where the day CHANGES, in array order, so the list never
+           reorders itself while the order is being stated. On a contiguous
+           programme these are the same bands the meet page draws; when they are
+           not, the band repeats and the note above says so. */
         <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xs">
           {dayGroups.map((group) => (
             <Fragment key={group.day ?? "unplaced"}>
@@ -369,9 +380,8 @@ export function ProgrammeEditor({
                 <li className="border-b border-gray-100 bg-gray-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink">
                   {group.label}
                   <span className="ml-2 font-normal normal-case tracking-normal text-ink-muted">
-                    {group.indices.length === 0
-                      ? "nothing here yet"
-                      : `${group.indices.length} ${group.indices.length === 1 ? "event" : "events"}`}
+                    <span className="tabular-nums">{group.indices.length}</span>{" "}
+                    {group.indices.length === 1 ? "event" : "events"}
                   </span>
                 </li>
               )}
@@ -747,37 +757,29 @@ const ProgrammeLine = memo(function ProgrammeLine({
             />
             {/* Beside the control it acts on, and in WORDS. As a fifth grey
                 icon in the action cluster it was the least discoverable thing
-                on the surface — and it is the entire reason the day feature is
-                workable at sixty rows, so not finding it costs the coach the
-                whole saving.
+                on the surface, and it is the entire reason the day feature is
+                workable at sixty rows.
 
-                `aria-disabled` rather than `disabled`: the disabled state is
-                the one a coach meets FIRST (a line with no day yet), and
-                `disabled:pointer-events-none` suppressed the title carrying the
-                only explanation of why. */}
-            {below > 0 && (
+                It appears only once the row HAS a day, rather than sitting
+                there disabled. A disabled version needed its reason in a
+                `title`, which an iPad never shows — and `--ink-faint` and
+                `--ink-muted` both resolve to gray-500, so the disabled state
+                was pixel-identical to the live one. A control that cannot be
+                told apart from a working one is worse than no control. */}
+            {below > 0 && line.day !== undefined && (
               <button
                 type="button"
-                aria-disabled={line.day === undefined}
                 title={
-                  line.day === undefined
-                    ? `Give ${name} a day first, then this puts the ${below} events below it on the same day.`
-                    : overwrites > 0
-                      ? `Puts ${name} and the ${below} events below it on ${dayName}, changing ${overwrites} already on another day.`
-                      : `Puts ${name} and the ${below} events below it on ${dayName}.`
+                  overwrites > 0
+                    ? `Puts ${name} and the ${below} events below it on ${dayName}, changing ${overwrites} already on another day.`
+                    : `Puts ${name} and the ${below} events below it on ${dayName}.`
                 }
-                onClick={() => {
-                  if (line.day === undefined) return;
-                  on.dayFrom(index, line.day, below, overwrites);
-                }}
-                className={
-                  "self-start rounded-sm text-xs underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
-                  (line.day === undefined
-                    ? "cursor-default text-ink-faint"
-                    : "text-ink-muted hover:text-ink")
-                }
+                onClick={() => on.dayFrom(index, line.day!, below, overwrites)}
+                className="inline-flex h-11 items-center self-start rounded-lg px-2 text-xs font-medium text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-100 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:h-8"
               >
-                {overwrites > 0 ? "…and below (changes others)" : "…and below"}
+                {overwrites > 0
+                  ? `…and below (${overwrites} change day)`
+                  : `…and below (${below})`}
               </button>
             )}
           </div>

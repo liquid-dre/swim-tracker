@@ -235,7 +235,7 @@ export function MeetEntriesSheet({
           )}
 
           {mismatchedDays > 0 && (
-            <p className="shrink-0 rounded-xl border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-ink">
+            <p className="shrink-0 rounded-xl border border-warning-500/30 bg-warning-50 px-3 py-2 text-sm text-warning-ink">
               {mismatchedDays === 1
                 ? "One swimmer is still entered for a different day"
                 : `${mismatchedDays} swimmers are still entered for a different day`}{" "}
