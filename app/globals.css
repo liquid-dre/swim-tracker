@@ -220,9 +220,11 @@
   /* Three ink tiers, and each one has to be a different colour or it is not a
      tier: muted and faint were both gray-500 here, so every "secondary vs
      tertiary" decision in the app rendered identically. Both still clear AA on
-     white (gray-600 7.56:1, gray-500 4.97:1) — `lib/contrast.test.ts` asserts
-     both the ratios and that the two differ. gray-400 stays reserved for
-     icons / borders / placeholder decoration, which don't carry meaning alone. */
+     white and on the canvas, and the two differ — all of it asserted in
+     `lib/contrast.test.ts`, which is where the figures live now precisely so a
+     sentence like this one cannot carry a stale number. gray-400 stays reserved
+     for icons / borders / placeholder decoration, which don't carry meaning
+     alone. */
   --ink-muted: var(--color-gray-600);
   --ink-faint: var(--color-gray-500);
 
@@ -712,10 +714,14 @@
   makes `text-base` 14px (DESIGN.md §1), which is under that threshold, so every
   input in the app tripped it.
 
-  Gated on a coarse POINTER as well as on width: an iPad in landscape is over
-  1024px and Safari zooms a focused sub-16px field there exactly as it does on a
-  phone. A mouse-driven narrow window keeps the dense type. Checkboxes and radios are excluded —
-  they have no text to zoom toward, and a font-size on them moves their box.
+  Gated on the POINTER, not on width: an iPad in landscape is over 1024px and
+  Safari zooms a focused sub-16px field there exactly as it does on a phone,
+  while a mouse-driven narrow window does not zoom at all and keeps the dense
+  type. An earlier version read `(pointer: coarse), (max-width: 1023.98px)` and
+  claimed exactly that in this sentence - but a comma is an OR, so the narrow
+  desktop window it promised to leave alone matched the second arm and got 16px
+  type anyway. Checkboxes and radios are excluded — they have no text to zoom
+  toward, and a font-size on them moves their box.
 
   `[data-slot="select-trigger"]` is in the list because our `Select` is a Radix
   BUTTON, not a `<select>`. Left out, a phone drew a 16px "No." field beside a
@@ -726,7 +732,7 @@
   Deliberately UNLAYERED: Tailwind's `text-base` lands in @layer utilities, so a
   rule inside @layer base would lose to it on every field that sets its own size.
 */
-@media (pointer: coarse), (max-width: 1023.98px) {
+@media (pointer: coarse) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   select,
   textarea,

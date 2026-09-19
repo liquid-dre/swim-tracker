@@ -406,7 +406,10 @@ export function MeetsScreen({
                         ? COURSE_LABEL[meet.course]
                         : "Course not set"}
                     </span>
-                    {tallies.get(String(meet._id)) && (
+                    {/* On the COUNT, not on the tally's existence: a meet
+                        with a tally of zero rendered a separator and an
+                        em-dash with nothing between them. */}
+                    {(tallies.get(String(meet._id))?.entered ?? 0) > 0 && (
                       <>
                         <span aria-hidden>·</span>
                         <EntryCount

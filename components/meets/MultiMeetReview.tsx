@@ -15,6 +15,7 @@ import { groupEventsByDay, normaliseMeetName } from "@/lib/meets";
 import type { MeetDraft } from "@/lib/meetImport";
 import type { Course } from "@/lib/swim";
 import { courseMismatches } from "./programmeEditing";
+import { WARNING_SURFACE } from "@/components/ui/callout";
 
 /*
   A whole season, reviewed in one pass (§R19).
@@ -319,7 +320,7 @@ export function MultiMeetReview({
       {/* Course is the one field with real downstream consequences, so it gets
           its own summary line and a single control for the whole workbook. */}
       {missingCourse > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm">
+        <div className={`flex flex-wrap items-center justify-between gap-3 rounded-lg px-4 py-3 text-sm ${WARNING_SURFACE}`}>
           <p className="text-warning-ink">
             <AlertTriangle aria-hidden className="mr-1.5 inline size-4" />
             {missingCourse} meet{missingCourse === 1 ? " has" : "s have"} no
@@ -397,11 +398,14 @@ export function MultiMeetReview({
             ? "Imported"
             : `Import ${included.length} meet${included.length === 1 ? "" : "s"}`}
         </Button>
+        {/* An error, not a hint: it is the reason a primary action will not
+            fire. MeetForm wrote that rule down; this said the same thing in
+            muted ink. */}
         {blockedReason !== null && (
           <span
             id="multi-import-blocked"
             role="status"
-            className="text-sm text-ink-muted"
+            className="text-sm text-danger-ink"
           >
             {blockedReason}
           </span>

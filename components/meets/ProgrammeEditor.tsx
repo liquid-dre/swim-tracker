@@ -713,7 +713,11 @@ function AddEvent({
                   className={
                     option.allowed
                       ? `${MENU_ITEM} justify-between ${index === active ? "bg-accent text-brand-600" : ""}`
-                      : "flex cursor-not-allowed select-none items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-gray-500"
+                      // `touch:min-h-11` to match MENU_ITEM above: arrows
+                      // traverse the disabled options too, so they are rows a
+                      // coach reads, and a list alternating 44px and 34px is
+                      // ragged on the surface this exists for.
+                      : "flex cursor-not-allowed select-none items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm text-gray-500 touch:min-h-11"
                   }
                   onMouseDown={(e) => {
                     e.preventDefault();
@@ -895,9 +899,9 @@ const ProgrammeLine = memo(function ProgrammeLine({
             />
             {/* In words, beside the control it acts on, and only once the row
                 HAS a day: a disabled version can only explain itself through a
-                `title` an iPad never shows, and `--ink-faint` resolves to the
-                same gray-500 as `--ink-muted`, so it would not even look
-                disabled. */}
+                `title`, which is a mouse affordance an iPad never shows - so on
+                the one surface this exists for, the reason would simply be
+                missing. */}
             {below > 0 && line.day !== undefined && (
               <button
                 type="button"

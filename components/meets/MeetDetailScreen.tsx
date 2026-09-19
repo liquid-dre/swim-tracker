@@ -28,6 +28,7 @@ import { ImportMeetSheet } from "./ImportMeetSheet";
 import { MeetForm } from "./MeetForm";
 import { MeetEntriesSheet } from "./MeetEntriesSheet";
 import { ViewerMeetEntries } from "./ViewerMeetEntries";
+import { WARNING_SURFACE } from "@/components/ui/callout";
 
 /*
   One meet and its programme (§R19). Shared by the coach route (/meets/[id]) and
@@ -169,7 +170,7 @@ export function MeetDetailScreen({
                 Edit
               </Button>
               <Button
-                variant="danger"
+                variant="dangerQuiet"
                 size="sm"
                 onClick={() => setConfirmDelete(true)}
                 aria-label={`Delete ${meet.name}`}
@@ -234,7 +235,7 @@ export function MeetDetailScreen({
       )}
 
       {movedDays > 0 && (
-        <p className="rounded-2xl border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm text-warning-ink">
+        <p className={`rounded-2xl px-4 py-3 text-sm ${WARNING_SURFACE}`}>
           {movedDays === 1
             ? "1 sign-up is on a day the programme has since moved"
             : `${movedDays} sign-ups are on days the programme has since moved`}

@@ -479,12 +479,18 @@ function FlipCalendar({
               aria-pressed={isSelected}
               onClick={() => handleSelect(d)}
               className={cn(
-                // 44px square on touch — PRODUCT.md's rule, and what the
-                // widened popover above exists to allow. (For the record: WCAG
-                // 2.5.8 Target Size (Minimum) is 24×24 at AA; 44×44 is 2.5.5 at
-                // AAA. An earlier note here cited 2.5.8 as a 40px floor, which
-                // is wrong on both the number and the criterion.)
-                "flex h-10 lg:h-8 touch:h-11 items-center justify-center rounded-md text-sm tabular-nums outline-none",
+                // SQUARE, at both of the popover's two widths — that is the
+                // whole rule, and it is why the height has no `lg:` step of
+                // its own: 256px/7 gives a ~32px column and 344px/7 gives a
+                // 44px one, so the height simply follows the width that the
+                // same `touch:` variant chose. Sizing the two independently is
+                // what produced a 44×31 cell once, and an `h-11` base would
+                // produce its mirror on a narrowed desktop window.
+                // (For the record: WCAG 2.5.8 Target Size (Minimum) is 24×24
+                // at AA; 44×44 is 2.5.5 at AAA. An earlier note here cited
+                // 2.5.8 as a 40px floor, which is wrong on both the number and
+                // the criterion.)
+                "flex h-8 touch:h-11 items-center justify-center rounded-md text-sm tabular-nums outline-none",
                 "transition-colors [transition-duration:var(--dur-1)]",
                 "focus-visible:ring-2 focus-visible:ring-ring",
                 isSelected

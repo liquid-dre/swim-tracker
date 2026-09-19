@@ -29,6 +29,7 @@ import { parseMeetWorkbook, type MeetDraft } from "@/lib/meetImport";
 import { MultiMeetReview } from "./MultiMeetReview";
 import type { Course } from "@/lib/swim";
 import { COURSE_LABEL } from "./meetShared";
+import { WARNING_SURFACE } from "@/components/ui/callout";
 
 /*
   Import a meet programme (super-user only; `importMeet` enforces that).
@@ -562,7 +563,7 @@ export function ImportMeetSheet({
               cannot all land on it. Say where to do it instead rather than
               silently importing the first one. */}
           {multi && lockedMeet && (
-            <p className="flex gap-2 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
+            <p className={`flex gap-2 rounded-lg px-3 py-2.5 text-sm ${WARNING_SURFACE}`}>
               <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
               <span>
                 This file holds {drafts.length} meets, but this import is locked
@@ -592,7 +593,7 @@ export function ImportMeetSheet({
             {!multi && draft && !done && (
               <>
                 {truncated && (
-                  <p className="flex gap-2 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
+                  <p className={`flex gap-2 rounded-lg px-3 py-2.5 text-sm ${WARNING_SURFACE}`}>
                     <AlertTriangle
                       aria-hidden
                       className="mt-0.5 size-4 shrink-0"
@@ -621,7 +622,7 @@ export function ImportMeetSheet({
                   </p>
                 )}
                 {draft.warnings.length > 0 && (
-                  <ul className="flex flex-col gap-1.5 rounded-lg border border-warning-subtle bg-warning-subtle px-3 py-2.5 text-sm text-warning-ink">
+                  <ul className={`flex flex-col gap-1.5 rounded-lg px-3 py-2.5 text-sm ${WARNING_SURFACE}`}>
                     {draft.warnings.map((w, i) => (
                       <li key={i} className="flex gap-2">
                         <AlertTriangle
@@ -683,6 +684,7 @@ export function ImportMeetSheet({
                     </label>
                     <Select
                       id="import-course"
+                      aria-label="Course"
                       value={course}
                       onValueChange={setCourseEdit}
                       size="md"
@@ -729,6 +731,10 @@ export function ImportMeetSheet({
                     </label>
                     <Select
                       id="import-target"
+                      // The visible label names a `<button>`, which takes its
+                      // accessible name from its contents. See SelectField in
+                      // MeetForm for the full note.
+                      aria-label="Save as"
                       value={effectiveTarget}
                       onValueChange={(next) => {
                         setTarget(next);
@@ -889,11 +895,21 @@ export function ImportMeetSheet({
         )}
 
         <SheetFooter className="flex-row items-center justify-end gap-2 border-t border-border">
-          {blockedReason && !done && (
+          {/* `!multi` because `blockedReason` is derived from the SINGLE
+              draft, and a workbook of twelve sets that draft to null - so a
+              finished season import rendered "Choose a file or paste a
+              programme." under twelve green "Added" lines, and, this being a
+              live region, read it out against the summary above announcing
+              twelve meets found. The multi path states its own blocked reason
+              inside MultiMeetReview.
+
+              Inked as an error, not a hint: it is the reason a primary action
+              will not fire, which is the rule MeetForm already wrote down. */}
+          {blockedReason && !done && !multi && (
             <p
               id="import-blocked"
               role="status"
-              className="mr-auto text-xs text-ink-muted"
+              className="mr-auto text-xs text-danger-ink"
             >
               {blockedReason}
             </p>
@@ -1066,12 +1082,17 @@ function ChangeRow({ change }: { change: Change }) {
  */
 function parseSummary(
   draft: MeetDraft,
-  truncated: { read: number; total: number } | null,
+  // `unit` too, for the reason the state that carries it gives: "2 of 5 pages"
+  // and "2 of 5 sheets" send you to two different places to fix it. The visible
+  // paragraph honoured that from the start; this one said "pages" whatever the
+  // file was, so a non-sighted importer of a 12-SHEET workbook went looking for
+  // pages that do not exist.
+  truncated: { read: number; total: number; unit: string } | null,
 ): string {
   const parts: string[] = [];
   if (truncated) {
     parts.push(
-      `Only the first ${truncated.read} of ${truncated.total} pages were read`,
+      `Only the first ${truncated.read} of ${truncated.total} ${truncated.unit} were read`,
     );
   }
   parts.push(

@@ -31,6 +31,7 @@ import {
   genderAllowsSwimmer,
 } from "@/lib/meets";
 import { EntryRosterTable, type EntryRow } from "./EntryRosterTable";
+import { WARNING_SURFACE } from "@/components/ui/callout";
 
 /*
   Sign swimmers up for one event, and record what they went.
@@ -257,7 +258,7 @@ export function MeetEntriesSheet({
               className={
                 "shrink-0 rounded-xl px-3 py-2 text-sm " +
                 (sheetNotice.tone === "warn"
-                  ? "border border-warning-500/30 bg-warning-50 text-warning-ink"
+                  ? WARNING_SURFACE
                   : "border border-gray-200 bg-gray-50 text-ink-muted")
               }
             >

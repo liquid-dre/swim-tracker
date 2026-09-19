@@ -78,9 +78,14 @@ function SheetContent({
             type a time, close, open 103 — and it sat at 16px in the hardest
             corner to reach one-handed while everything inside the sheet was
             sized to 44. `focus-visible`, not `focus`, so a pointer dismiss does
-            not leave a ring behind. */}
+            not leave a ring behind.
+
+            Ring offset, outline reset and transition duration all match the
+            rest of the tree: this shipped as the only `ring-offset-2`, the only
+            `outline-hidden` and the only untokenised `transition` in the app,
+            for no reason but that it was written in isolation. */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="absolute top-2.5 right-2.5 inline-flex size-11 items-center justify-center rounded-lg opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:pointer-events-none data-[state=open]:bg-secondary lg:size-8 touch:size-11">
+          <SheetPrimitive.Close className="absolute top-2.5 right-2.5 inline-flex size-11 items-center justify-center rounded-lg opacity-70 ring-offset-background transition-opacity [transition-duration:var(--dur-1)] hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:outline-none disabled:pointer-events-none data-[state=open]:bg-secondary lg:size-8 touch:size-11">
             <XIcon className="size-4" />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>

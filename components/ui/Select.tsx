@@ -117,9 +117,14 @@ export function Select({
         data-slot="select-trigger"
         className={cn(
           "group inline-flex w-full items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-ink-faint",
-          // "sm" is still ≥44px on touch viewports (PRODUCT.md), compacting
-          // to h-9 only in the dense lg+ toolbars.
-          size === "sm" ? "h-11 px-3 text-sm lg:h-9 touch:h-11" : "h-11 px-3 text-base",
+          // Both sizes carry the same height rule - 44px everywhere a finger
+          // reaches (PRODUCT.md), compacting only on a pointer-driven lg+
+          // surface. They differ in TYPE, not in target. `md` was swept with
+          // `sm` left behind, so a meet form stacked five 36px fields and then
+          // a 44px Course select 8px proud of all of them.
+          size === "sm"
+            ? "h-11 px-3 text-sm lg:h-9 touch:h-11"
+            : "h-11 px-3 text-base lg:h-9 touch:h-11",
           className,
         )}
       >

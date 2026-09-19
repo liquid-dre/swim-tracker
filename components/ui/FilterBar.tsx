@@ -54,9 +54,10 @@ export function FilterBar({
 }) {
   const hasRight = Boolean(trailing) || Boolean(filters);
   return (
-    // `items-end` so controls of different heights sit on one bottom edge (a
-    // 50px Segmented beside a 44px input left their two labels at different
-    // heights under `items-center`). `gap-y-3` because a wrapped row is a
+    // `items-end` so controls of different heights sit on one bottom edge - a
+    // 50px Segmented beside a 44px input. It aligns the CONTROLS, not the
+    // labels above them (nothing here does: `items-start` would, at the cost
+    // of the baseline). `gap-y-3` because a wrapped row is a
     // different group: at a uniform 8px the "Find" label sat 8px under the
     // control above it and 6px above its own, so 2px decided which control the
     // label belonged to.

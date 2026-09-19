@@ -1,6 +1,6 @@
 import { ButtonHTMLAttributes, forwardRef } from "react";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "primary" | "secondary" | "ghost" | "danger" | "dangerQuiet";
 type Size = "sm" | "md";
 
 const base =
@@ -51,6 +51,14 @@ const variants: Record<Variant, string> = {
   // normal-weight text needing 4.5. DESIGN.md §2 already made this call for
   // danger INK and it was never applied to the fill.
   danger: "bg-error-600 text-white shadow-theme-xs hover:bg-error-700",
+  // Destructive INK on a secondary shell. A solid red fill is the confirm
+  // dialog's answer, not a toolbar's: three filled buttons in one header
+  // (indigo, white, red) leaves a screen with no dominant action, against
+  // PRODUCT.md's "one anchor per screen". --danger-ink is error-700, locked
+  // against white and against its own tint in lib/contrast.test.ts.
+  dangerQuiet:
+    "bg-white text-danger-ink border border-error-500/40 shadow-theme-xs " +
+    "hover:bg-error-50 hover:border-error-500/60",
 };
 
 // ≥44px targets on touch viewports (PRODUCT.md); compact from lg up so the

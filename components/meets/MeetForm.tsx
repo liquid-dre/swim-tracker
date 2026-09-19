@@ -363,6 +363,7 @@ export function MeetForm({
                     >
                       <Select
                         id="meet-course"
+                        aria-label="Course"
                         value={course}
                         onValueChange={setCourse}
                         size="md"
@@ -390,6 +391,7 @@ export function MeetForm({
                     >
                       <Select
                         id="meet-gala"
+                        aria-label="Gala tour"
                         value={galaCode}
                         onValueChange={setGalaCode}
                         size="md"
@@ -542,7 +544,15 @@ export function MeetForm({
   );
 }
 
-/** A label + hint wrapper for `Select`, which (unlike Input/DateField) has none. */
+/*
+  A label + hint wrapper for `Select`, which (unlike Input/DateField) has none.
+
+  The visible `<label htmlFor>` is a click affordance, NOT the accessible name:
+  `Select` renders a Radix Trigger, which is a `<button>`, and a button's name
+  comes from its contents - the current value. So every `Select` inside one of
+  these also passes `aria-label`, or the field announces as its own value with
+  no idea what question it answers.
+*/
 function SelectField({
   id,
   label,

@@ -6,7 +6,7 @@ import { Trash2 } from "lucide-react";
 import { Select } from "@/components/ui/Select";
 import { normaliseDigits, parseDigits } from "@/components/log/TimeField";
 import { formatMeetDay, formatMeetDayDate, formatMeetDayShort } from "@/lib/meets";
-import { formatTime } from "@/lib/swim";
+import { clockFromDigits, formatTime } from "@/lib/swim";
 import { SwimOutcome } from "./SwimOutcome";
 
 /*
@@ -132,10 +132,12 @@ export function EntryRosterTable({
                   ? `Take ${row.name} off this event`
                   : `Take ${row.name} off this event — delete the recorded time first`
               }
+              // Same string as the accessible name. Two wordings of one fact
+              // is two things to keep true, and they had already diverged.
               title={
                 row.resultId === null
                   ? `Take ${row.name} off this event`
-                  : "Delete the recorded time before taking this swimmer off"
+                  : `Take ${row.name} off this event \u2014 delete the recorded time first`
               }
               aria-disabled={row.resultId !== null || undefined}
               onClick={() => {
@@ -156,13 +158,14 @@ export function EntryRosterTable({
                 category.
               </span>
             )}
-            {/* The programme moved under an entry already made. Said in words
-                beside a one-click fix, because the date drives `ageAtSwim` and
-                a swim on the wrong side of a birthday is judged against the
-                wrong cut with nothing downstream to flag it. */}
           </p>
 
-          {/* Its own line with a real button, not a 16px link inside a 12px
+          {/* The programme moved under an entry already made. Said in words
+              beside a one-click fix, because the date drives `ageAtSwim` and a
+              swim on the wrong side of a birthday is judged against the wrong
+              cut with nothing downstream to flag it.
+
+              Its own line with a real button, not a 16px link inside a 12px
               sentence: this is a poolside tap on a tablet, and the button
               rewrites a stored swim's date and `ageAtSwim`. */}
           {row.dayMismatch !== null && (
@@ -217,6 +220,14 @@ function RowTime({
     }
   }, [stored]);
 
+  // Bound to the DISPLAY string, never to the parse result, exactly as
+  // `TimeField` is. `parsed.text` is null on an out-of-range entry, so typing
+  // `6000` used to empty the box in the same render that inked it red and said
+  // "Seconds must be 00-59" - about a value the coach could no longer see. The
+  // digits were still in state, so the field looked empty but was not, and
+  // backspace on an empty input fires no event: the only way out was to guess.
+  const { minutes, ss, hh } = clockFromDigits(digits);
+  const display = digits === "" ? "" : `${minutes}:${ss}:${hh}`;
   const parsed = parseDigits(digits);
   const dirty = normaliseDigits(stored) !== digits;
 
@@ -235,7 +246,7 @@ function RowTime({
           parsed.error !== null ? `${row._id}-time-error` : undefined
         }
         disabled={busy}
-        value={parsed.text ?? ""}
+        value={display}
         placeholder="—:——:——"
         onChange={(e) => setDigits(normaliseDigits(e.target.value))}
         onBlur={commit}

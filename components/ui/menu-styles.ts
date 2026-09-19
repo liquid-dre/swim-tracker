@@ -3,8 +3,8 @@
   picker and filter selects (Radix Select) and the action menus (Radix Dropdown
   Menu) all draw their panel + item styling from here, so a "menu" reads the same
   everywhere. Colours come from DESIGN.md tokens — `bg-card` (white), `bg-accent`
-  (brand-50 hover tint) and `text-primary` (brand-500) — never literal Tailwind
-  indigo. The staggered item entrance is the shared `.stagger-menu` rule in
+  (brand-50 hover tint) and `text-brand-600` (see the note on MENU_ITEM for why
+  that, and not brand-500) — never literal Tailwind indigo. The staggered item entrance is the shared `.stagger-menu` rule in
   globals.css; both primitives put it on the element that wraps the rows.
 */
 
