@@ -127,6 +127,7 @@ export function ImportMeetSheet({
   const [readError, setReadError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [done, setDone] = useState<{
     created: boolean;
     eventCount: number;
@@ -144,6 +145,18 @@ export function ImportMeetSheet({
     [text],
   );
   const multi = drafts.length > 1;
+  /*
+    There is a REVIEW to protect, which is not the same as "this file holds
+    many meets". The review renders on `multi && !lockedMeet`; opened from a
+    meet's own page, `lockedMeet` pins the import to one fixture and the list
+    never appears. Gating the locks on `multi` alone left that sheet with every
+    input inert and a sentence explaining that twelve meets were being reviewed
+    below, where the only thing below said to go to the Meets list instead.
+  */
+  const reviewing = multi && !lockedMeet;
+  // Set by the review list when a pass finishes cleanly, so the footer can
+  // tell "done" from "a file has been parsed".
+  const [multiDone, setMultiDone] = useState(false);
   const draft: MeetDraft | null = multi ? null : (drafts[0] ?? null);
 
   // Confirmable fields, seeded from the parse. `null` means "not overridden";
@@ -485,7 +498,7 @@ export function ImportMeetSheet({
                 visible proxy guards nothing. */}
             <input
               ref={fileRef}
-              disabled={multi}
+              disabled={reviewing}
               type="file"
               accept=".pdf,application/pdf,.xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.csv,text/csv,.txt,text/plain"
               onChange={onFile}
@@ -500,19 +513,29 @@ export function ImportMeetSheet({
               // Same reason as the textarea below: `onFile` calls
               // `clearInput()` unconditionally, so a second file would discard
               // a review in progress without asking.
-              aria-disabled={(multi && !reading) || undefined}
-              aria-describedby={multi ? "meet-text-locked" : undefined}
+              aria-disabled={(reviewing && !reading) || undefined}
+              aria-describedby={reviewing ? "meet-text-locked" : undefined}
               onClick={() => {
-                if (multi) return;
+                if (reviewing) return;
                 fileRef.current?.click();
               }}
             >
               <Upload className="size-4" aria-hidden /> Choose a file
             </Button>
+            {/* Confirmed while a review is live. Two controls in this sheet
+                are disabled on the argument that discarding the list has no
+                undo and that its per-row outcomes are the only report a season
+                import produces — and this button did exactly that, in one
+                click, labelled "Clear". The "one obvious way out beats a
+                prompt on every keypress" argument is about the textarea; it
+                does not cover a deliberate press. */}
             {text !== "" && (
               <button
                 type="button"
-                onClick={clearInput}
+                onClick={() => {
+                  if (reviewing) setConfirmClear(true);
+                  else clearInput();
+                }}
                 className="tap inline-flex items-center rounded-md px-2 py-1 text-sm text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Clear
@@ -552,8 +575,8 @@ export function ImportMeetSheet({
             <textarea
               id="meet-text"
               value={text}
-              disabled={multi}
-              aria-describedby={multi ? "meet-text-locked" : undefined}
+              disabled={reviewing}
+              aria-describedby={reviewing ? "meet-text-locked" : undefined}
               onChange={(e) => {
                 setText(e.target.value);
                 setDone(null);
@@ -566,7 +589,7 @@ export function ImportMeetSheet({
               }
               className="h-32 w-full resize-y rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-ink outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] placeholder:text-ink-faint hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-ink-faint disabled:hover:border-gray-200"
             />
-            {multi && (
+            {reviewing && (
               <p id="meet-text-locked" className="text-xs text-warning-ink">
                 Locked while you review the {drafts.length} meets below —
                 changing the source would discard your decisions. Use Clear to
@@ -622,6 +645,7 @@ export function ImportMeetSheet({
           {multi && !lockedMeet && (
             <MultiMeetReview
               key={text}
+              onDone={() => setMultiDone(true)}
               drafts={drafts}
               meets={meets.map((m) => ({
                 _id: m._id,
@@ -961,13 +985,15 @@ export function ImportMeetSheet({
               {blockedReason}
             </p>
           )}
-          {/* `|| multi` because `done` is set only on the single-draft path:
-              the review list writes its own rows and reports per row, and is
-              mounted with no completion callback. Without it, twelve green
-              "Added" lines left this sheet's only exit reading "Cancel" — the
-              word for abandoning an irreversible write that already ran. */}
+          {/* `multiDone`, not `multi`: the review list reports per row and
+              this sheet cannot see its state, so the first version asked
+              whether a file held many meets — which is true the moment one
+              parses. The only exit then read "Done" above a button offering to
+              import twelve meets, and pressing it abandoned the review. It is
+              "Cancel" until a pass actually lands, and "Done" after, which is
+              the same rule the button below it follows. */}
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            {done || multi ? "Done" : "Cancel"}
+            {done || multiDone ? "Done" : "Cancel"}
           </Button>
           {!done && !multi && (
             // Replacing wears the destructive colour; adding a fixture does not.
@@ -990,6 +1016,26 @@ export function ImportMeetSheet({
             </Button>
           )}
         </SheetFooter>
+
+        {/* Confirmed only while a review is live; `clearInput` is the same
+            reset the textarea's lock points people at. */}
+        <ConfirmDialog
+          open={confirmClear}
+          onOpenChange={setConfirmClear}
+          title="Discard this review?"
+          description={
+            <>
+              The {drafts.length} meets below, every course and replace target
+              you have set, and the record of anything already imported will be
+              cleared. Meets already written to the calendar stay there — you
+              just lose the list saying which.
+            </>
+          }
+          confirmLabel="Discard"
+          onConfirm={async () => {
+            clearInput();
+          }}
+        />
 
         {isReplace && targetMeet && (
           <ConfirmDialog

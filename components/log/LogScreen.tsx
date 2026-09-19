@@ -571,7 +571,7 @@ function RecentList({
                 type="button"
                 aria-label={`Remove ${r.swimmer} ${r.event}`}
                 onClick={() => onDelete(r)}
-                className="inline-flex size-11 lg:size-8 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-danger-ink focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex size-11 lg:size-8 touch:size-11 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-danger-ink focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Trash2 className="size-4" />
               </button>

@@ -110,7 +110,7 @@ export function AccountCombobox({
         onBlur={() => setOpen(false)}
         onKeyDown={onKeyDown}
         className={
-          "h-11 lg:h-9 rounded-lg border bg-white px-3 text-base text-gray-800 placeholder:text-gray-500 " +
+          "h-11 lg:h-9 touch:h-11 rounded-lg border bg-white px-3 text-base text-gray-800 placeholder:text-gray-500 " +
           "transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] outline-none " +
           "focus:border-brand-300 focus:shadow-focus-ring border-gray-300 hover:border-gray-400 " +
           "disabled:cursor-not-allowed disabled:opacity-50"

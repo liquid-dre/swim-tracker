@@ -36,7 +36,7 @@ export function TimeInput({
           const parsed = e.target.value === "" ? null : parseHHMM(e.target.value);
           onChange(parsed);
         }}
-        className="h-11 lg:h-9 rounded-lg border border-gray-300 bg-white px-3 text-base text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
+        className="h-11 lg:h-9 touch:h-11 rounded-lg border border-gray-300 bg-white px-3 text-base text-gray-800 outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
       />
     </div>
   );
@@ -72,7 +72,7 @@ export function WeekdayCheckboxes({
               aria-checked={active}
               onClick={() => toggle(d)}
               className={cn(
-                "h-11 w-11 lg:h-9 lg:w-11 rounded-lg border text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring",
+                "h-11 w-11 lg:h-9 touch:h-11 lg:w-11 rounded-lg border text-sm font-medium outline-none transition-colors [transition-duration:var(--dur-1)] focus-visible:ring-2 focus-visible:ring-ring",
                 active
                   ? "border-brand-500 bg-brand-50 text-brand-600"
                   : "border-gray-300 bg-white text-ink-muted hover:border-gray-400",
