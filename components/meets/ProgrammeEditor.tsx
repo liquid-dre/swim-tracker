@@ -836,6 +836,7 @@ const ProgrammeLine = memo(function ProgrammeLine({
       ? ""
       : (dayOptions[line.day - 1]?.label ?? `day ${line.day}`);
   const problemId = `programme-line-${index}-problem`;
+  const dayId = `programme-line-${index}-day`;
 
   return (
     <li
@@ -877,8 +878,18 @@ const ProgrammeLine = memo(function ProgrammeLine({
             multi-day meet; there is nothing to pick otherwise. */}
         {dayOptions.length > 1 && (
           <div className="flex w-32 shrink-0 flex-col gap-1">
-            <span className="text-xs font-medium text-gray-700">Day</span>
+            {/* A real `<label htmlFor>`, not a bare span: the word was inert,
+                and MultiMeetReview fixed the identical defect. The
+                `aria-label` still carries the row, because twelve "Day"s in
+                one list need telling apart; the label carries the click. */}
+            <label
+              htmlFor={dayId}
+              className="text-xs font-medium text-gray-700"
+            >
+              Day
+            </label>
             <Select
+              id={dayId}
               aria-label={`Day for ${name}`}
               value={
                 line.day !== undefined && line.day <= dayOptions.length

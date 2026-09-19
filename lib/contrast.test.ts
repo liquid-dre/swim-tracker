@@ -237,18 +237,74 @@ describe("the treatments opacity was rejected for", () => {
     );
   });
 
-  test("a menu row and the listbox row that says it matches it are the same pair", () => {
-    expect(contrast(token("color-gray-500"), WHITE)).toBe(
-      contrast(token("color-gray-500"), WHITE),
+});
+
+/*
+  Two of the assertions that used to live here compared a token to itself.
+
+  They were written to back a comment claiming the menu row and the Add-event
+  listbox row use the same disabled ink — but what that comment describes is a
+  CLASS STRING in another file, and a test that only reads tokens cannot see
+  it. Both passed for any value, so repainting either row tomorrow stayed
+  green. These read the artefacts instead.
+*/
+describe("the claims that live in class strings, not in tokens", () => {
+  const read = (p: string) =>
+    readFileSync(new URL(p, import.meta.url), "utf8");
+
+  /** The ink a Tailwind class string sets for a given state prefix. */
+  function inkFor(source: string, prefix: string): string | null {
+    return (
+      new RegExp(`${prefix}text-([a-z]+-[0-9]+)`).exec(source)?.[1] ?? null
     );
+  }
+
+  test("the disabled menu row and the listbox row that says it matches use one ink", () => {
+    const menu = inkFor(read("../components/ui/menu-styles.ts"), "data-\\[disabled\\]:");
+    // The Add-event listbox hand-rolls its disabled row rather than using
+    // MENU_ITEM, and its comment says it matches. This is that claim.
+    const listbox = /text-gray-500 tap/.exec(
+      read("../components/meets/ProgrammeEditor.tsx"),
+    );
+    expect(menu).toBe("gray-500");
+    expect(listbox).not.toBeNull();
+  });
+
+  test("that ink clears AA on the panel it is read on", () => {
     expect(contrast(token("color-gray-500"), WHITE)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  test("no file outside this one states a contrast ratio in prose", () => {
+    // The habit four consecutive reviews caught. The relation belongs in a
+    // comment; the number belongs here.
+    const files = [
+      "../components/ui/Button.tsx",
+      "../components/ui/Select.tsx",
+      "../components/ui/DateField.tsx",
+      "../components/ui/callout.ts",
+      "../components/ui/menu-styles.ts",
+      "../components/meets/MultiMeetReview.tsx",
+      "../components/meets/ImportMeetSheet.tsx",
+      "../app/globals.css",
+      "../DESIGN.md",
+    ];
+    for (const f of files) {
+      expect({ file: f, ratios: read(f).match(/\d+\.\d+:1/g) }).toEqual({
+        file: f,
+        ratios: null,
+      });
+    }
   });
 });
 
 describe("the edges and inks the callout skin depends on", () => {
-  test("a border painted in its own fill is no border at all", () => {
-    // What `border-warning-subtle bg-warning-subtle` produced.
-    expect(contrast(token("color-warning-50"), token("color-warning-50"))).toBe(1);
+  test("the alias the old callout border used IS the fill it sat on", () => {
+    // `contrast(x, x) === 1` is true of any colour and locked nothing. The
+    // real claim is that `--warning-subtle` and `--color-warning-50` are the
+    // same value, which is WHY `border-warning-subtle bg-warning-subtle`
+    // painted an edge that did not exist. Assert that instead.
+    const alias = /--warning-subtle:\s*var\(--(color-warning-\d+)\)/.exec(CSS);
+    expect(alias?.[1]).toBe("color-warning-50");
   });
 
   test("the warning border actually used clears its fill", () => {

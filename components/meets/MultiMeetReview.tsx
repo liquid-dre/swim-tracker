@@ -20,6 +20,7 @@ import {
 import type { MeetDraft } from "@/lib/meetImport";
 import type { Course } from "@/lib/swim";
 import { courseMismatches } from "./programmeEditing";
+import { importPlan } from "./importPlan";
 import { WARNING_SURFACE } from "@/components/ui/callout";
 
 /*
@@ -190,64 +191,75 @@ export function MultiMeetReview({
     );
   }
 
-  // Every gate below counts only the rows that will actually be written. A
-  // skipped row must never hold the import up: being blocked on a missing
+  /*
+    ONE model, and the only place an index is read.
+
+    This component holds three arrays with three different lifetimes — `drafts`
+    (the parent's, re-derived from the pasted text), `rows` (the edits) and
+    `outcomes` (what each write did) — and every count, label, guard and dialog
+    used to correlate them by position. One of those correlations was made
+    against `included`, which is a FILTERED array: a single skipped row shifted
+    every lookup after it, so a retry could name the wrong meet in the
+    confirmation, or find no replacement at all and destroy a programme with no
+    dialog. Three separate defects, all the same decision.
+
+    So position is resolved exactly once, here, and everything below is a
+    projection of the result. A count and the dialog beside it cannot disagree
+    if neither is allowed to do its own arithmetic.
+  */
+  const view = drafts.map((draft, index) => {
+    const edits = rows[index];
+    const outcome = outcomes[index];
+    return {
+      index,
+      draft,
+      edits,
+      outcome,
+      suggestion: suggestions[index],
+      target:
+        edits.target === ""
+          ? null
+          : (meets.find((m) => m._id === edits.target) ?? null),
+      /** `runAll` writes this row on the next press: not skipped, not already in. */
+      willWrite: !edits.skip && outcome.status !== "saved",
+    };
+  });
+
+  // A skipped row must never hold the import up: being blocked on a missing
   // course for a meet you have just said you do not want would make skipping
   // it pointless.
-  const included = rows.filter((r) => !r.skip);
-  const skipped = rows.length - included.length;
+  const included = view.filter((v) => !v.edits.skip);
+  const skipped = view.length - included.length;
+
+  /*
+    What the next press writes, and what that destroys — from `importPlan`,
+    which is pure and tested, and which indexes the ORIGINAL rows rather than a
+    filtered copy of them. The previous version of these four lines did its own
+    arithmetic over `included`, whose indices do not address `outcomes`.
+  */
+  const plan = importPlan(rows, outcomes);
+  const outstanding = plan.write.map((i) => view[i]);
+  const replacing = plan.replaces.length;
+  const replaceTargets = plan.replaceIds
+    .map((id) => meets.find((m) => m._id === id) ?? null)
+    .filter((m): m is ExistingMeet => m !== null);
+  const duplicateTarget =
+    plan.duplicateId === null
+      ? null
+      : (meets.find((m) => m._id === plan.duplicateId)?.name ?? null);
 
   /** Undo every exclusion at once — a mis-click on row nine is cheap to fix. */
   function includeAll() {
     setRows((prev) => prev.map((r) => ({ ...r, skip: false })));
   }
-  const suggestable = suggestions.filter(
-    (s, i) => s !== null && !rows[i].skip && rows[i].course === "",
+
+  const suggestable = included.filter(
+    (v) => v.suggestion !== null && v.edits.course === "",
   ).length;
-  const missingCourse = included.filter((r) => r.course === "").length;
+  const missingCourse = included.filter((v) => v.edits.course === "").length;
   const rowsValid = included.every(
-    (r) => r.name.trim() !== "" && ISO.test(r.startDate),
+    (v) => v.edits.name.trim() !== "" && ISO.test(v.edits.startDate),
   );
-
-  /*
-    The rows a press of Import would actually WRITE.
-
-    `runAll` skips anything already saved, so on a retry after a partial
-    failure the committed rows are not in play — and counting them anyway made
-    the confirmation offer to replace programmes it would not touch.
-  */
-  const outstanding = included.filter((r, i) => outcomes[i]?.status !== "saved");
-
-  /*
-    How many of those DESTROY a programme.
-
-    A row whose normalised name and start date already match a fixture is
-    auto-targeted at it, which is what makes re-importing a season workbook in
-    November quietly aim at every meet already on the calendar. The single-meet
-    path treats ONE such replacement as worth a confirmation and a change
-    summary; twelve of them went through on one click, on a button that only
-    ever said how many meets would be written.
-  */
-  const replacing = outstanding.filter((r) => r.target !== "").length;
-
-  /** The meets those rows will replace, in order, each named once. */
-  const replaceTargets = outstanding
-    .map((r) => (r.target === "" ? null : (meets.find((m) => m._id === r.target) ?? null)))
-    .filter((m): m is ExistingMeet => m !== null)
-    .filter((m, i, all) => all.findIndex((x) => x._id === m._id) === i);
-
-  /*
-    Two rows cannot aim at one meet: the second write would silently overwrite
-    the first, and the confirmation would name the casualty twice. A blocked
-    reason, in the words of the thing to fix, like the others.
-  */
-  const duplicateTarget =
-    replaceTargets.length === outstanding.filter((r) => r.target !== "").length
-      ? null
-      : (meets.find(
-          (m) =>
-            outstanding.filter((r) => r.target === (m._id as string)).length > 1,
-        )?.name ?? null);
 
   /** Why the import cannot run, in the words of the thing to fix. */
   const blockedReason: string | null =
@@ -392,18 +404,18 @@ export function MultiMeetReview({
       )}
 
       <ul className="flex flex-col gap-3">
-        {drafts.map((draft, i) => (
+        {view.map((v) => (
           <MeetRow
-            key={i}
-            draft={draft}
-            row={rows[i]}
-            suggestion={suggestions[i]}
-            outcome={outcomes[i]}
-            target={meets.find((m) => m._id === rows[i].target) ?? null}
+            key={v.index}
+            draft={v.draft}
+            row={v.edits}
+            suggestion={v.suggestion}
+            outcome={v.outcome}
+            target={v.target}
             meets={meets}
             disabled={importing}
             frozen={finished}
-            onChange={(patch) => patchRow(i, patch)}
+            onChange={(patch) => patchRow(v.index, patch)}
           />
         ))}
       </ul>
@@ -446,11 +458,13 @@ export function MultiMeetReview({
           }}
           loading={importing}
         >
-          {/* The count is what will actually be WRITTEN, so leaving a meet out
-              is visible on the button before it is pressed. */}
+          {/* What will actually be WRITTEN — so leaving a meet out is visible
+              on the button before it is pressed, and a retry after a partial
+              failure says the two rows left rather than the twelve it started
+              with, which is what the dialog it opens has always said. */}
           {finished
             ? "Imported"
-            : `Import ${included.length} meet${included.length === 1 ? "" : "s"}`}
+            : `Import ${outstanding.length} meet${outstanding.length === 1 ? "" : "s"}`}
         </Button>
         {/* The count that is not on the button, because the button's count is
             what will be WRITTEN and this is what will be LOST. */}

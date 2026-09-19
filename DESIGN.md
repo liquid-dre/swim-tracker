@@ -41,11 +41,11 @@ don't strip the system to chase points.
 
   /* Semantic */
   --color-success-50:#ecfdf3; --color-success-500:#12b76a; --color-success-600:#039855;
---color-success-700: #027a48;  /* success ink: 600 is 3.57:1 on the canvas, under AA */
+--color-success-700: #027a48;  /* success ink: 600 misses AA on the canvas (lib/contrast.test.ts) */
   --color-error-50:#fef3f2;   --color-error-500:#f04438;   --color-error-600:#d92d20;
-  --color-error-700:#b42318; /* danger INK: 600 on error-50 is 4.4:1 and misses AA; 700 is 6.0:1 */
+  --color-error-700:#b42318; /* danger INK: 600 misses AA on error-50, 700 clears it (lib/contrast.test.ts) */
   --color-warning-50:#fffaeb; --color-warning-500:#f79009; --color-warning-600:#dc6803;
-  --color-warning-700:#93370d; /* warning INK: 600 on warning-50 is 3.3:1 and fails AA; 700 is 7.2:1 */
+  --color-warning-700:#93370d; /* warning INK: 600 fails AA on warning-50, 700 clears it (lib/contrast.test.ts) */
   --color-blue-light-500:#0ba5ec; --color-blue-light-600:#0086c9;
 
   /* Soft layered shadows (the "TailAdmin" depth) */
@@ -107,8 +107,10 @@ band**, used to make the product feel alive without touching the meaning of any 
 absolute and mirrors the discipline already applied to brand indigo: **aqua never encodes a tier, a
 stroke, a status or a chart series** — it lives only in chrome (the header band), motion (the ambient
 wave), focus energy, and the celebration moment. That is what lets it never be mistaken for a tier or
-a state. `--color-aqua-ink` (#0e7490) is the AA-safe text tone on white (4.6:1); raw `--color-aqua-500`
-is a fill / large-element colour only.
+a state. `--color-aqua-ink` (#0e7490) is the AA-safe text tone on white — asserted in
+`lib/contrast.test.ts`, not stated here, because the figure this line used to carry was wrong by
+three quarters of a point for as long as it existed; raw `--color-aqua-500` is a fill /
+large-element colour only.
 
 **"Aqua" is a colour, never a metric.** The scoring metric is called **World Aquatics points** in
 every surface, label and axis — never "aqua points", and never painted in the aqua ramp. Points are

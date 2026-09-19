@@ -336,7 +336,7 @@ export function MeetEntriesSheet({
             onOpenChange={setAddOpenChoice}
             className="shrink-0 rounded-xl border border-gray-200 bg-white"
           >
-            <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-ink outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
+            <CollapsibleTrigger className="tap flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-ink outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
               <span className="flex-1 text-left">Add swimmers</span>
               {!addOpen && roster !== undefined && (
                 <span className="text-xs font-normal tabular-nums text-ink-faint">

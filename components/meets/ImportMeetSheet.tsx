@@ -573,8 +573,16 @@ export function ImportMeetSheet({
             </p>
           )}
 
+          {/* Keyed on the source TEXT. `drafts` is re-derived on every
+              keystroke while MultiMeetReview's rows and outcomes are one-shot
+              `useState` initialisers, so pasting a second workbook over the
+              first left the list showing file A's names, dates and replace
+              targets while the import wrote file B's events — and a longer
+              file indexed past the end of both arrays and took the sheet
+              down. A new source text is a new review. */}
           {multi && !lockedMeet && (
             <MultiMeetReview
+              key={text}
               drafts={drafts}
               meets={meets.map((m) => ({
                 _id: m._id,
