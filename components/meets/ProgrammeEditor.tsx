@@ -156,10 +156,22 @@ export function ProgrammeEditor({
   const apply = useCallback(
     (edit: (lines: MeetEvent[]) => MeetEvent[], said: string) => {
       onChange((prev) => edit(prev));
+      // Any other edit retires the undo. Restoring a snapshot taken before an
+      // event was added, re-worded or removed would silently throw that work
+      // away — an "undo" that undoes more than it says is worse than none.
+      setUndo(null);
       if (said !== "") setAnnouncement(said);
     },
     [onChange],
   );
+
+  // The current list, for the one handler that needs to read it without
+  // becoming a new function on every keystroke — which would rebuild a prop on
+  // all sixty memoized rows to change one character in a name field.
+  const linesRef = useRef(lines);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
 
   // Every problem on a line, so a row that is wrong twice says so twice.
   const problemsByLine = useMemo(() => {
@@ -209,16 +221,19 @@ export function ProgrammeEditor({
       // assignment pass, and the only other escape is discarding every edit in
       // the sheet. A picker announces its own new value; "36 events moved"
       // is a fact no control reports, so this one says it.
-      dayFrom: (i, d, below, overwrites) =>
-        onChange((prev) => {
-          setUndo({ lines: prev, count: below + 1 });
-          setAnnouncement(
-            `${below + 1} events moved to day ${d}.${
-              overwrites > 0 ? ` ${overwrites} were on another day.` : ""
-            } Undo is available.`,
-          );
-          return setDayFrom(prev, i, d);
-        }),
+      dayFrom: (i, d, below, overwrites) => {
+        // The snapshot is taken OUTSIDE the updater. A state updater has to be
+        // pure — React calls it twice under StrictMode — so a `setUndo` inside
+        // it would record the snapshot twice and, on the second call, record
+        // the already-written list as the thing to go back to.
+        setUndo({ lines: linesRef.current, count: below + 1 });
+        onChange((prev) => setDayFrom(prev, i, d));
+        setAnnouncement(
+          `${below + 1} events moved to day ${d}.${
+            overwrites > 0 ? ` ${overwrites} were on another day.` : ""
+          } Undo is available.`,
+        );
+      },
       resolve: (i, event) => apply((ls) => resolveLine(ls, i, event), ""),
       clear: (i) => apply((ls) => unresolveLine(ls, i), ""),
       move: (i, delta, said) => apply((ls) => moveLine(ls, i, delta), said),
@@ -233,7 +248,10 @@ export function ProgrammeEditor({
       <AddEvent
         lines={lines}
         course={course}
-        onChange={onChange}
+        onChange={(next) => {
+          setUndo(null);
+          onChange(next);
+        }}
         onAdded={(label) =>
           setAnnouncement(`${label} added. ${lines.length + 1} events.`)
         }
