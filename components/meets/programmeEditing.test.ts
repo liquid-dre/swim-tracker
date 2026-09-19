@@ -17,6 +17,7 @@ import {
   setDayFrom,
   setLineDay,
   setLineGender,
+  shouldTeachCarryDown,
   splitLine,
   unresolveLine,
   updateLine,
@@ -440,5 +441,46 @@ describe("rankedNotice", () => {
   test("one event and many read differently", () => {
     expect(rankedNotice({ ...none, mismatched: 1 })?.text).toMatch(/^One event/);
     expect(rankedNotice({ ...none, mismatched: 4 })?.text).toMatch(/^4 events/);
+  });
+});
+
+/*
+  The teaching hint's INPUT, which is where the same bug landed twice: first
+  shown only while nothing had a day (so it vanished the instant step 1
+  completed — exactly when the control it names first appears), then derived
+  from "some line has a day" (so an imported part-dayed programme, the state it
+  exists for, suppressed it).
+*/
+describe("shouldTeachCarryDown", () => {
+  const base = { dayCount: 3, lineCount: 60, unplaced: 60, carriedDown: false };
+
+  test("teaches while there is still work and the coach has not used it", () => {
+    expect(shouldTeachCarryDown(base)).toBe(true);
+  });
+
+  test("keeps teaching after the first day is set by hand", () => {
+    // The moment "…and below" first appears is the moment it is needed.
+    expect(shouldTeachCarryDown({ ...base, unplaced: 59 })).toBe(true);
+  });
+
+  test("keeps teaching on an imported programme that arrived part-dayed", () => {
+    // The importer reads days from the document's own headings, so some lines
+    // have a day and the rest do not — and nobody has used the control yet.
+    expect(shouldTeachCarryDown({ ...base, unplaced: 30 })).toBe(true);
+  });
+
+  test("stops once the coach has actually used the carry-down", () => {
+    expect(shouldTeachCarryDown({ ...base, carriedDown: true })).toBe(false);
+  });
+
+  test("stops when every event has a day", () => {
+    expect(shouldTeachCarryDown({ ...base, unplaced: 0 })).toBe(false);
+  });
+
+  test("never teaches on a one-day meet or an empty programme", () => {
+    expect(shouldTeachCarryDown({ ...base, dayCount: 1 })).toBe(false);
+    expect(shouldTeachCarryDown({ ...base, lineCount: 0, unplaced: 0 })).toBe(
+      false,
+    );
   });
 });

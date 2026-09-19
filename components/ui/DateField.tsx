@@ -315,7 +315,7 @@ export function DateField({
               type="button"
               disabled={disabled}
               aria-label={label ? `Open calendar for ${label}` : "Open calendar"}
-              className="flex size-11 lg:size-7 touch:size-11 shrink-0 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-primary focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed"
+              className="flex size-11 lg:size-7 touch:size-10 shrink-0 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed"
             >
               <CalendarIcon aria-hidden className="size-4" strokeWidth={1.75} />
             </button>
@@ -400,12 +400,16 @@ function FlipCalendar({
   }
 
   return (
-    <div className="flex w-64 flex-col gap-3 p-3">
+    // 40px cells on touch need 7×40 + 6×2 gap + 24 padding = 316px. The width
+    // is what makes them square: `h-11` alone gave a 44×31 cell, which is not a
+    // 44px target and made the note below false. 316px still clears a 375px
+    // phone with room for its gutters.
+    <div className="flex w-64 flex-col gap-3 p-3 touch:w-[19.75rem]">
       <FlipDisplay date={selected} flip={flip} />
 
       {/* Month / year navigation: single chevrons step a month, double a year. */}
       <div className="flex items-center justify-between gap-1">
-        <div className="flex items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           <NavButton label="Previous year" onClick={() => shift(-12)}>
             <ChevronsLeft className="size-4" />
           </NavButton>
@@ -413,14 +417,18 @@ function FlipCalendar({
             <ChevronLeft className="size-4" />
           </NavButton>
         </div>
-        <div className="flex items-center gap-1.5 text-sm font-medium text-ink">
-          <span>{MONTH_NAMES[view.month]}</span>
+        {/* `min-w-0` + truncate so the LABEL gives way if anything ever
+            overflows, rather than the four steppers compressing below their
+            touch size — which is what they did when they were sized without
+            re-measuring this row. */}
+        <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-ink">
+          <span className="truncate">{MONTH_NAMES[view.month]}</span>
           <YearField
             year={view.year}
             onYear={(y) => setView((v) => ({ ...v, year: y }))}
           />
         </div>
-        <div className="flex items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           <NavButton label="Next month" onClick={() => shift(1)}>
             <ChevronRight className="size-4" />
           </NavButton>
@@ -454,16 +462,18 @@ function FlipCalendar({
               aria-pressed={isSelected}
               onClick={() => handleSelect(d)}
               className={cn(
-                // Day cells: ≥40px on touch (44px is impossible in a 7-col month
-                // grid that fits a phone popover; 40px is the WCAG 2.5.8 minimum).
-                "flex h-10 lg:h-8 touch:h-11 items-center justify-center rounded-md text-sm tabular-nums outline-none",
+                // Day cells: 40px square on touch. 44 is genuinely impossible
+                // in a 7-column month grid that still fits a phone popover, and
+                // 40 is the WCAG 2.5.8 minimum; the popover above is widened to
+                // make the WIDTH match, since a tall thin cell is not a target.
+                "flex h-10 lg:h-8 touch:h-10 items-center justify-center rounded-md text-sm tabular-nums outline-none",
                 "transition-colors [transition-duration:var(--dur-1)]",
                 "focus-visible:ring-2 focus-visible:ring-ring",
                 isSelected
                   ? "bg-brand-500 font-medium text-white"
                   : disabled
                     ? "cursor-not-allowed text-ink-faint opacity-40"
-                    : "text-gray-700 hover:bg-accent hover:text-primary",
+                    : "text-gray-700 hover:bg-accent hover:text-brand-600",
               )}
             >
               {d.getDate()}
@@ -518,7 +528,9 @@ function YearField({
           e.currentTarget.blur();
         }
       }}
-      className="w-[3.25rem] rounded-md border border-transparent bg-transparent px-1 py-0.5 text-center tabular-nums outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-200 focus:border-brand-300 focus:shadow-focus-ring"
+      // Matches the steppers beside it on touch; `shrink-0` so the month label
+      // is what gives way in the row, not the field you type into.
+      className="w-[3.25rem] shrink-0 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-center tabular-nums outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-200 focus:border-brand-300 focus:shadow-focus-ring touch:h-10"
     />
   );
 }
@@ -537,7 +549,9 @@ function NavButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="flex size-11 lg:size-7 touch:size-11 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
+      // 40px, not 44: four of these plus the month name and the year field
+      // share a 292px row, and 4×44 does not fit. 40 is the WCAG 2.5.8 floor.
+      className="flex size-11 shrink-0 lg:size-7 touch:size-10 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
     >
       {children}
     </button>

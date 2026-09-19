@@ -51,6 +51,7 @@ import {
   eventOptions,
   moveWouldNumber,
   reorderBlockedReason,
+  shouldTeachCarryDown,
   moveLine,
   removeLine,
   resolveLine,
@@ -327,11 +328,12 @@ export function ProgrammeEditor({
     interleaved,
     mismatched: mismatched.length,
     wouldNumber: moveWouldNumber(lines),
-    teaching:
-      dayOptions.length > 1 &&
-      lines.length > 0 &&
-      tally.unplaced > 0 &&
-      !carriedDown,
+    teaching: shouldTeachCarryDown({
+      dayCount: dayOptions.length,
+      lineCount: lines.length,
+      unplaced: tally.unplaced,
+      carriedDown,
+    }),
   });
 
   const on = useMemo<LineHandlers>(
@@ -669,7 +671,9 @@ function AddEvent({
             variant="secondary"
             size="sm"
             className="shrink-0"
-            aria-disabled={search.trim() === "" || exactMatch !== undefined}
+            aria-disabled={
+              search.trim() === "" || exactMatch !== undefined || undefined
+            }
             aria-describedby="programme-add-hint"
             onClick={() => {
               if (search.trim() === "" || exactMatch !== undefined) return;
@@ -736,9 +740,11 @@ function AddEvent({
           ? exactMatch.allowed
             ? `${exactMatch.label} is a real event, so add it from the list — a line typed by hand can never take a time.`
             : `${exactMatch.reason} Change the meet's course, or add it as a different event.`
-          : options.length === 0 && search.trim() !== ""
-            ? "No event matches that. \u201cAdd as written\u201d puts it on the programme anyway, where it will show but take no times."
-            : "Every event is Mixed unless you say otherwise. Split one into Boys and Girls with the split button on its row."}
+          : search.trim() === ""
+            ? "Type an event name to add a line the whitelist has no room for — a relay, a 25 m sprint."
+            : options.length === 0
+              ? "No event matches that. \u201cAdd as written\u201d puts it on the programme anyway, where it will show but take no times."
+              : "Every event is Mixed unless you say otherwise. Split one into Boys and Girls with the split button on its row."}
       </p>
     </div>
   );
@@ -1190,12 +1196,13 @@ const IconButton = forwardRef<
         "inline-flex size-11 items-center justify-center rounded-lg transition-colors [transition-duration:var(--dur-1)] lg:size-9 touch:size-11 " +
         "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
         // `aria-disabled` keeps the button focusable, so its disabled state is
-        // NOT exempt from contrast the way a native `disabled` one is: 40% of
-        // gray-500 is about 1.9:1 to land on. Dimmer ink, full opacity, and no
-        // hover — a dead arrow that lights up under the finger and does nothing
-        // reads as "pressed and ignored" on a touch screen, where the hover
-        // state then sticks.
-        "aria-disabled:text-gray-400 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-gray-400 " +
+        // NOT exempt from contrast the way a native `disabled` one is. gray-500
+        // on white is 4.97:1; gray-400 was 2.58:1 and 40% opacity about 1.9:1,
+        // neither of which a low-vision user can land on. "Inert" is carried by
+        // the cursor and the dead hover instead of by ink nobody can see — a
+        // greyed arrow that lights under the finger and does nothing reads as
+        // "pressed and ignored" on a touch screen, where the hover then sticks.
+        "aria-disabled:text-gray-500 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-gray-500 " +
         (danger
           ? "text-gray-500 hover:bg-error-50 hover:text-error-500"
           : "text-gray-500 hover:bg-gray-100 hover:text-gray-800")

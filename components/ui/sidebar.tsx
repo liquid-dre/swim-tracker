@@ -266,7 +266,8 @@ function SidebarTrigger({
       data-slot="sidebar-trigger"
       aria-label="Toggle Sidebar"
       className={cn(
-        "inline-flex size-7 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-4",
+        // The collapse toggle is on every page, and 28px is not a touch target.
+        "inline-flex size-7 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring touch:size-11 [&>svg]:size-4",
         className
       )}
       onClick={(event) => {
@@ -501,7 +502,7 @@ const sidebarMenuButtonVariants = cva(
         // ≥44px nav targets in the mobile sheet (PRODUCT.md); compact on lg+
         // where the sidebar is pointer-driven.
         default: "h-11 text-sm lg:h-8 touch:h-11",
-        sm: "h-11 text-xs lg:h-7",
+        sm: "h-11 text-xs lg:h-7 touch:h-11",
         lg: "h-12 text-sm group-data-[collapsible=icon]:p-0!",
       },
     },
@@ -707,7 +708,10 @@ function SidebarMenuSubButton({
       data-size={size}
       data-active={isActive}
       className={cn(
-        "flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground ring-sidebar-ring outline-hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground",
+        // Every sub-nav leaf under Swimmers / Performance / Qualifying, and the
+        // whole /me mirror. A bare `h-7` has no `lg:` for a grep to find, which
+        // is why it survived a sweep that only looked for `lg:`-prefixed sizes.
+        "flex h-7 touch:h-11 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sidebar-foreground ring-sidebar-ring outline-hidden hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-sidebar-accent-foreground",
         "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
         size === "sm" && "text-xs",
         size === "md" && "text-sm",

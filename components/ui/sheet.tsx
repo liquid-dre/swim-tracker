@@ -94,7 +94,10 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-header"
-      className={cn("flex flex-col gap-1.5 p-4", className)}
+      // `pr-14` clears the close button, which occupies the rightmost ~54px.
+      // Without it a long title ("Event 101 · Girls 13 years 100 Freestyle")
+      // ran underneath the control that dismisses the sheet.
+      className={cn("flex flex-col gap-1.5 p-4 pr-14", className)}
       {...props}
     />
   )

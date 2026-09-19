@@ -430,13 +430,30 @@ export function MeetEntriesSheet({
             Done
           </Button>
           {addOpen && (
-            <Button
-              loading={adding}
-              disabled={selected.length === 0}
-              onClick={onAdd}
-            >
-              Add to this event
-            </Button>
+            <>
+              {/* `aria-disabled`, with the reason, for the same reason every
+                  other dead control here got one: a native `disabled` button is
+                  unfocusable, so a keyboard user cannot reach it to learn why
+                  it will not act. It had no reason attached at all. */}
+              <span id="meet-entries-add-blocked" className="sr-only">
+                {selected.length === 0
+                  ? "Tick at least one swimmer to add them to this event."
+                  : ""}
+              </span>
+              <Button
+                loading={adding}
+                aria-disabled={selected.length === 0 || undefined}
+                aria-describedby={
+                  selected.length === 0 ? "meet-entries-add-blocked" : undefined
+                }
+                onClick={() => {
+                  if (selected.length === 0) return;
+                  onAdd();
+                }}
+              >
+                Add to this event
+              </Button>
+            </>
           )}
         </SheetFooter>
       </SheetContent>

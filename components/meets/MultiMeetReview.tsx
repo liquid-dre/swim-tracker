@@ -573,7 +573,12 @@ function MeetRow({
                 type="button"
                 onClick={() => onChange({ course: suggestion.course })}
                 disabled={locked}
-                className="self-start rounded-sm text-left text-2xs text-brand-500 outline-none hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
+                // `text-xs`, not `2xs` — that token is documented for
+                // micro-labels (chart annotations), not interactive copy — and
+                // a real height, because CLAUDE.md names this as how the
+                // multi-meet path resolves an unset course, and it was the
+                // smallest tap target on a twelve-row review.
+                className="inline-flex min-h-11 items-center self-start rounded-lg py-1 text-left text-xs text-brand-600 outline-none hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0 touch:min-h-11"
               >
                 {suggestion.reason} — use{" "}
                 {suggestion.course === "SCM" ? "short" : "long"} course

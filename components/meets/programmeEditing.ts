@@ -216,6 +216,33 @@ export function setDayFrom(
   return lines.map((line, i) => (i < index ? line : { ...line, day }));
 }
 
+/**
+ * Should the strip teach the carry-down?
+ *
+ * Pure and here rather than inline in the component, because this input is
+ * where the same bug landed twice: once shown only while NOTHING had a day (so
+ * it vanished the instant step 1 completed, which is exactly when the control
+ * it names first appears), and once derived from "some line has a day" (so an
+ * imported part-dayed programme — the state it exists for — suppressed it).
+ * `rankedNotice` was extracted for the same reason and has not regressed since.
+ *
+ * `carriedDown` is the coach having USED the control, which is the only thing
+ * that means they have found it. It cannot be derived from the lines.
+ */
+export function shouldTeachCarryDown(state: {
+  dayCount: number;
+  lineCount: number;
+  unplaced: number;
+  carriedDown: boolean;
+}): boolean {
+  return (
+    state.dayCount > 1 &&
+    state.lineCount > 0 &&
+    state.unplaced > 0 &&
+    !state.carriedDown
+  );
+}
+
 /** How many lines sit on each day, and how many sit on none. */
 export function countLinesByDay(
   lines: ReadonlyArray<MeetEvent>,

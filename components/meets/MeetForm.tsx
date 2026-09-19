@@ -198,6 +198,17 @@ export function MeetForm({
   // the editor could not be seen from the tab that causes it.
   const mismatched = courseMismatches(events, (course || null) as Course | null);
   const firstProblem = programmeProblems[0] ?? null;
+  // Said once, combined: two separate regions in one panel talk over each other.
+  const detailsConsequence = [
+    strandedByDates > 0
+      ? `${strandedByDates} ${strandedByDates === 1 ? "event is" : "events are"} on days this meet no longer runs; saving clears their day.`
+      : "",
+    mismatched.length > 0
+      ? `${mismatched.length} ${mismatched.length === 1 ? "event" : "events"} on the programme can't be swum in this course, so no time can be recorded against them.`
+      : "",
+  ]
+    .filter((s) => s !== "")
+    .join(" ");
   const valid =
     name.trim() !== "" && datesValid && programmeProblems.length === 0;
   const blockedReason =
@@ -304,6 +315,17 @@ export function MeetForm({
                       placeholder="HAS 1st Seeded Gala 2026"
                       maxLength={120}
                     />
+
+                    {/* ONE region for the two non-blocking consequences of a
+                        control the user just operated: pulling the end date in
+                        strands day assignments, and changing the course makes
+                        lines untimeable. Neither blocks the save, so neither
+                        belongs in the footer's region — and with `role="status"`
+                        stripped from both, a screen-reader user changed the
+                        course and heard nothing at all. */}
+                    <span role="status" className="sr-only">
+                      {detailsConsequence}
+                    </span>
 
                     <DateField
                       id="meet-start"
@@ -442,13 +464,13 @@ export function MeetForm({
         <SheetFooter className="flex-row flex-wrap items-center justify-end gap-2 border-t border-border">
           {/* A blocked save is an error, not a hint: it is announced, inked as
               one, and where the problem is a specific programme line it is the
-              way TO that line. `aria-describedby` on the disabled button below
-              cannot carry it — a disabled button is not focusable — so the live
-              region is how a screen-reader user learns why Save is unavailable. */}
-          {/* The live region is a separate sr-only line. With `role="status"`
-              on the paragraph, its BUTTON was inside the region, so the whole
-              "Go to the first of 3" string was re-announced on every keystroke
-              that changed the count. */}
+              way TO that line.
+
+              The region is its own sr-only line rather than the paragraph,
+              because the paragraph contains the "Go to the first of 3" BUTTON —
+              so the whole string was re-announced on every keystroke that
+              changed the count. Save itself is `aria-disabled`, so it stays
+              focusable and its `aria-describedby` reaches a keyboard user. */}
           <span role="status" className="sr-only">
             {blockedReason ?? ""}
           </span>
@@ -459,7 +481,7 @@ export function MeetForm({
             {blockedReason && firstProblem?.index != null ? (
               <button
                 type="button"
-                className="text-left underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                className="inline-flex h-11 items-center rounded-lg px-2 text-left underline underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:h-8 touch:h-11"
                 onClick={() => {
                   setTab("events");
                   setFocusLine(firstProblem.index);
@@ -479,9 +501,12 @@ export function MeetForm({
           </Button>
           <Button
             loading={saving}
-            disabled={!valid}
+            aria-disabled={!valid || undefined}
             aria-describedby={blockedReason ? "meet-form-blocked" : undefined}
-            onClick={() => onSave()}
+            onClick={() => {
+              if (!valid) return;
+              void onSave();
+            }}
           >
             {editing ? "Save meet" : "Add meet"}
           </Button>

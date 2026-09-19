@@ -8,7 +8,15 @@ const base =
   "transition-[background-color,border-color,color,transform] [transition-duration:var(--dur-1)] " +
   "[transition-timing-function:var(--ease-standard)] " +
   "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
-  "active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50";
+  "active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 " +
+  // The SAME visual state for `aria-disabled`, which callers use when a
+  // disabled control still has to explain itself — a native `disabled` button
+  // is unfocusable, so its reason reaches neither keyboard nor screen reader.
+  // Without these a button could be inert while still dimming for nobody,
+  // lighting under the pointer and animating the press: reachable but
+  // invisible, which is the trade the a11y fix was not meant to make.
+  "aria-disabled:opacity-50 aria-disabled:active:scale-100 aria-disabled:cursor-default " +
+  "aria-disabled:hover:bg-[initial] aria-disabled:pointer-events-none";
 
 const variants: Record<Variant, string> = {
   primary: "bg-brand-500 text-white shadow-theme-xs hover:bg-brand-600",
