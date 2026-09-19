@@ -146,7 +146,7 @@ export function AccountCombobox({
                 className={cn(
                   "flex cursor-pointer select-none items-baseline justify-between gap-3 rounded-md px-2 py-1.5 text-sm",
                   "transition-colors [transition-duration:var(--dur-1)]",
-                  i === active ? "bg-accent text-primary" : "text-gray-700",
+                  i === active ? "bg-accent text-brand-600" : "text-gray-700",
                 )}
               >
                 <span className="min-w-0">

@@ -177,13 +177,6 @@ export function MeetForm({
       })),
     [dayDates],
   );
-  // Pulling the end date in leaves lines pointing at days the meet no longer
-  // has. The server drops those assignments rather than guessing a new day
-  // (see `cleanEvents`), so say so BEFORE saving — discovering it afterwards
-  // means re-placing them with nothing to say which day they were on.
-  const strandedByDates = events.filter(
-    (e) => e.day !== undefined && e.day > dayOptions.length,
-  ).length;
   // The server caps a meet at 31 days (a typo'd end year is not a 3-year gala).
   // The picker enforces the same bound so the rule is visible, not discovered
   // by being rejected after filling the form in.
@@ -192,23 +185,25 @@ export function MeetForm({
     /^\d{4}-\d{2}-\d{2}$/.test(startDate) &&
     (endDate === "" ||
       (/^\d{4}-\d{2}-\d{2}$/.test(endDate) && endDate >= startDate));
+  // Pulling the end date in leaves lines pointing at days the meet no longer
+  // has. The server drops those assignments rather than guessing a new day
+  // (see `cleanEvents`), so say so BEFORE saving — discovering it afterwards
+  // means re-placing them with nothing to say which day they were on.
+  //
+  // Gated on `datesValid`: an end date typed before the start makes `meetDates`
+  // return a single day, which would raise this warning about nothing but a
+  // half-typed year.
+  const strandedByDates = datesValid
+    ? events.filter((e) => e.day !== undefined && e.day > dayOptions.length)
+        .length
+    : 0;
   const programmeProblems = validateLines(events);
   // Computed HERE, not inside the Events tab: the course is chosen on Details,
   // and `Tabs` unmounts the panel that is not showing — so a warning living in
   // the editor could not be seen from the tab that causes it.
   const mismatched = courseMismatches(events, (course || null) as Course | null);
   const firstProblem = programmeProblems[0] ?? null;
-  // Said once, combined: two separate regions in one panel talk over each other.
-  const detailsConsequence = [
-    strandedByDates > 0
-      ? `${strandedByDates} ${strandedByDates === 1 ? "event is" : "events are"} on days this meet no longer runs; saving clears their day.`
-      : "",
-    mismatched.length > 0
-      ? `${mismatched.length} ${mismatched.length === 1 ? "event" : "events"} on the programme can't be swum in this course, so no time can be recorded against them.`
-      : "",
-  ]
-    .filter((s) => s !== "")
-    .join(" ");
+
   const valid =
     name.trim() !== "" && datesValid && programmeProblems.length === 0;
   const blockedReason =
@@ -316,17 +311,6 @@ export function MeetForm({
                       maxLength={120}
                     />
 
-                    {/* ONE region for the two non-blocking consequences of a
-                        control the user just operated: pulling the end date in
-                        strands day assignments, and changing the course makes
-                        lines untimeable. Neither blocks the save, so neither
-                        belongs in the footer's region — and with `role="status"`
-                        stripped from both, a screen-reader user changed the
-                        course and heard nothing at all. */}
-                    <span role="status" className="sr-only">
-                      {detailsConsequence}
-                    </span>
-
                     <DateField
                       id="meet-start"
                       label="Starts"
@@ -344,7 +328,7 @@ export function MeetForm({
                       max={latestEnd}
                     />
                     {strandedByDates > 0 && (
-                      <p className="text-xs text-warning-ink">
+                      <p role="status" className="text-xs text-warning-ink">
                         {strandedByDates === 1
                           ? "One event is on a day this meet no longer runs"
                           : `${strandedByDates} events are on days this meet no longer runs`}
@@ -389,7 +373,7 @@ export function MeetForm({
                         ]}
                       />
                       {mismatched.length > 0 && (
-                        <p className="text-xs text-warning-ink">
+                        <p role="status" className="text-xs text-warning-ink">
                           {mismatched.length === 1
                             ? "One event on the programme can't be swum in this course."
                             : `${mismatched.length} events on the programme can't be swum in this course.`}{" "}

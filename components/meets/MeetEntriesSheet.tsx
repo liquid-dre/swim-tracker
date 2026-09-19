@@ -431,15 +431,19 @@ export function MeetEntriesSheet({
           </Button>
           {addOpen && (
             <>
-              {/* `aria-disabled`, with the reason, for the same reason every
-                  other dead control here got one: a native `disabled` button is
-                  unfocusable, so a keyboard user cannot reach it to learn why
-                  it will not act. It had no reason attached at all. */}
-              <span id="meet-entries-add-blocked" className="sr-only">
-                {selected.length === 0
-                  ? "Tick at least one swimmer to add them to this event."
-                  : ""}
-              </span>
+              {/* VISIBLE, not sr-only. A sighted coach tapping a dead button
+                  gets no cursor on touch, no hover and no tooltip — so a reason
+                  only a screen reader can hear means nothing happens and
+                  nothing explains it. `MeetForm`'s blocked save does the same
+                  thing in the same slot. */}
+              {selected.length === 0 && (
+                <p
+                  id="meet-entries-add-blocked"
+                  className="mr-auto min-w-0 text-xs text-ink-muted"
+                >
+                  Tick at least one swimmer to add them to this event.
+                </p>
+              )}
               <Button
                 loading={adding}
                 aria-disabled={selected.length === 0 || undefined}

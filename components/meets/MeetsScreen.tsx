@@ -520,26 +520,47 @@ function EmptyState({
   );
 }
 
-/** Echoes the real table, header row included, so nothing pops in on load. */
+/**
+ * Echoes whichever layout is about to arrive, so nothing reflows on load.
+ *
+ * Both shapes, because the real result is two: one card of table rows from `lg`
+ * up, a stack of separate cards below it. A single table-shaped skeleton on a
+ * phone resolved into cards and moved everything down the page.
+ */
 function MeetsSkeleton() {
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
-      <div className="h-9 border-b border-gray-200 bg-gray-50" />
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div
-          key={i}
-          className="flex items-center gap-4 border-b border-gray-100 px-4 py-3 last:border-b-0"
-        >
-          <div className="flex flex-1 flex-col gap-1.5">
-            <div className="h-4 w-2/5 animate-pulse rounded bg-gray-100" />
-            <div className="h-3 w-1/5 animate-pulse rounded bg-gray-100" />
+    <>
+      <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-sm lg:block">
+        <div className="h-9 border-b border-gray-200 bg-gray-50" />
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-4 border-b border-gray-100 px-4 py-3 last:border-b-0"
+          >
+            <div className="flex flex-1 flex-col gap-1.5">
+              <div className="h-4 w-2/5 animate-pulse rounded bg-gray-100" />
+              <div className="h-3 w-1/5 animate-pulse rounded bg-gray-100" />
+            </div>
+            <div className="h-4 w-32 animate-pulse rounded bg-gray-100" />
+            <div className="h-4 w-28 animate-pulse rounded bg-gray-100" />
+            <div className="h-4 w-10 animate-pulse rounded bg-gray-100" />
           </div>
-          <div className="hidden h-4 w-32 animate-pulse rounded bg-gray-100 lg:block" />
-          <div className="hidden h-4 w-28 animate-pulse rounded bg-gray-100 lg:block" />
-          <div className="hidden h-4 w-10 animate-pulse rounded bg-gray-100 lg:block" />
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+
+      <div className="flex flex-col gap-2 lg:hidden">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-theme-sm"
+          >
+            <div className="h-4 w-2/5 animate-pulse rounded bg-gray-100" />
+            <div className="mt-2 h-3 w-1/4 animate-pulse rounded bg-gray-100" />
+            <div className="mt-2 h-3 w-3/5 animate-pulse rounded bg-gray-100" />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 

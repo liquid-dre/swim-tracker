@@ -266,8 +266,10 @@ function SidebarTrigger({
       data-slot="sidebar-trigger"
       aria-label="Toggle Sidebar"
       className={cn(
-        // The collapse toggle is on every page, and 28px is not a touch target.
-        "inline-flex size-7 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring touch:size-11 [&>svg]:size-4",
+        // The MOBILE DRAWER trigger, not the collapse toggle (that is a
+        // SidebarMenuButton in AppSidebar). Its one call site sets the size, so
+        // the size is not decided here.
+        "inline-flex size-7 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-surface-2 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-4",
         className
       )}
       onClick={(event) => {

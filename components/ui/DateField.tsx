@@ -315,7 +315,7 @@ export function DateField({
               type="button"
               disabled={disabled}
               aria-label={label ? `Open calendar for ${label}` : "Open calendar"}
-              className="flex size-11 lg:size-7 touch:size-10 shrink-0 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed"
+              className="flex size-11 lg:size-7 touch:size-11 shrink-0 items-center justify-center rounded-md text-ink-faint outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed"
             >
               <CalendarIcon aria-hidden className="size-4" strokeWidth={1.75} />
             </button>
@@ -400,11 +400,16 @@ function FlipCalendar({
   }
 
   return (
-    // 40px cells on touch need 7×40 + 6×2 gap + 24 padding = 316px. The width
-    // is what makes them square: `h-11` alone gave a 44×31 cell, which is not a
-    // 44px target and made the note below false. 316px still clears a 375px
-    // phone with room for its gutters.
-    <div className="flex w-64 flex-col gap-3 p-3 touch:w-[19.75rem]">
+    // 44px cells on touch: 7×44 + 6×2 gap + 24 padding = 344px. The WIDTH is
+    // what makes them targets — `h-11` on the old 232px box gave a 44×31 cell,
+    // which is not a 44px anything.
+    //
+    // 344 is the real ceiling: a 375px phone leaves 359 after a 16px gutter and
+    // a 360px Android leaves exactly 344. Below that Radix shifts the popover
+    // flush to the edge rather than overflowing. That bound is why this is
+    // 344 and not more, not a claim that 44 was impossible — an earlier note
+    // here said so and the arithmetic never supported it.
+    <div className="flex w-64 flex-col gap-3 p-3 touch:w-[21.5rem]">
       <FlipDisplay date={selected} flip={flip} />
 
       {/* Month / year navigation: single chevrons step a month, double a year. */}
@@ -462,11 +467,12 @@ function FlipCalendar({
               aria-pressed={isSelected}
               onClick={() => handleSelect(d)}
               className={cn(
-                // Day cells: 40px square on touch. 44 is genuinely impossible
-                // in a 7-column month grid that still fits a phone popover, and
-                // 40 is the WCAG 2.5.8 minimum; the popover above is widened to
-                // make the WIDTH match, since a tall thin cell is not a target.
-                "flex h-10 lg:h-8 touch:h-10 items-center justify-center rounded-md text-sm tabular-nums outline-none",
+                // 44px square on touch — PRODUCT.md's rule, and what the
+                // widened popover above exists to allow. (For the record: WCAG
+                // 2.5.8 Target Size (Minimum) is 24×24 at AA; 44×44 is 2.5.5 at
+                // AAA. An earlier note here cited 2.5.8 as a 40px floor, which
+                // is wrong on both the number and the criterion.)
+                "flex h-10 lg:h-8 touch:h-11 items-center justify-center rounded-md text-sm tabular-nums outline-none",
                 "transition-colors [transition-duration:var(--dur-1)]",
                 "focus-visible:ring-2 focus-visible:ring-ring",
                 isSelected
@@ -528,9 +534,9 @@ function YearField({
           e.currentTarget.blur();
         }
       }}
-      // Matches the steppers beside it on touch; `shrink-0` so the month label
-      // is what gives way in the row, not the field you type into.
-      className="w-[3.25rem] shrink-0 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-center tabular-nums outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-200 focus:border-brand-300 focus:shadow-focus-ring touch:h-10"
+      // Matches the steppers beside it; `shrink-0` so the month label is what
+      // gives way in the row, not the field you type into.
+      className="w-[3.25rem] shrink-0 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-center tabular-nums outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-200 focus:border-brand-300 focus:shadow-focus-ring touch:h-11"
     />
   );
 }
@@ -549,9 +555,11 @@ function NavButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      // 40px, not 44: four of these plus the month name and the year field
-      // share a 292px row, and 4×44 does not fit. 40 is the WCAG 2.5.8 floor.
-      className="flex size-11 shrink-0 lg:size-7 touch:size-10 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
+      // 44px. Four of these plus the month name and the year field use
+      // 2×(2×44+2) + 2×4 + 52 + 6 + ~26 = 272px of the 320px row the widened
+      // popover gives — they fit. An earlier note here said 4×44 did not fit,
+      // measured against the OLD 232px box and carried over unchecked.
+      className="flex size-11 shrink-0 lg:size-7 touch:size-11 items-center justify-center rounded-md text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-accent hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
     >
       {children}
     </button>

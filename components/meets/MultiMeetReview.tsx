@@ -299,7 +299,7 @@ export function MultiMeetReview({
               type="button"
               onClick={includeAll}
               disabled={importing || finished}
-              className="rounded-sm font-medium text-brand-500 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              className="rounded-sm font-medium text-brand-600 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             >
               Put them all back
             </button>
@@ -349,7 +349,7 @@ export function MultiMeetReview({
         <label className="flex items-start gap-2 text-sm text-ink-muted">
           <input
             type="checkbox"
-            className="mt-0.5 size-4 rounded border-gray-300 text-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
+            className="mt-0.5 size-4 rounded border-gray-300 text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
             checked={allowNoCourse}
             onChange={(e) => setAllowNoCourse(e.target.checked)}
             disabled={importing}

@@ -40,8 +40,9 @@ export function AppTopbar() {
 
   return (
     <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-surface px-3">
-      {/* Mobile-only drawer trigger — a comfortable 40px tap target. */}
-      <SidebarTrigger className="size-10 md:hidden [&>svg]:size-5" />
+      {/* Mobile-only drawer trigger: 40px, and 44 on a touch pointer per
+          PRODUCT.md. The header is h-12, so 44 fits. */}
+      <SidebarTrigger className="size-10 touch:size-11 md:hidden [&>svg]:size-5" />
 
       <div className="ml-auto">
         <DropdownMenu>
