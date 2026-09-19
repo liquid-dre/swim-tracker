@@ -90,7 +90,13 @@ type LineHandlers = {
   update: (i: number, patch: Partial<MeetEvent>) => void;
   gender: (i: number, g: MeetEventGender) => void;
   day: (i: number, day: number | undefined) => void;
-  dayFrom: (i: number, day: number, below: number, overwrites: number) => void;
+  dayFrom: (
+    i: number,
+    day: number,
+    dayName: string,
+    below: number,
+    overwrites: number,
+  ) => void;
   resolve: (i: number, event: { distance: Distance; stroke: Stroke }) => void;
   clear: (i: number) => void;
   move: (i: number, delta: -1 | 1, said: string) => void;
@@ -145,9 +151,12 @@ export function ProgrammeEditor({
 }) {
   const [announcement, setAnnouncement] = useState("");
   /** The list as it stood before the last carry-down, for one step of undo. */
-  const [undo, setUndo] = useState<{ lines: MeetEvent[]; count: number } | null>(
-    null,
-  );
+  const [undo, setUndo] = useState<{
+    lines: MeetEvent[];
+    count: number;
+    /** Named, because the visible text was weaker than the announcement. */
+    dayName: string;
+  } | null>(null);
 
   // The row below is memoized, which only pays off if its props are stable —
   // and passing the whole `lines` array plus a closure over it would rebuild
@@ -216,6 +225,49 @@ export function ProgrammeEditor({
     [],
   );
 
+  /**
+   * The single most urgent thing to say about the list, or nothing.
+   *
+   * Ranked rather than stacked: something that blocks an action outranks
+   * something that will merely look different, which outranks teaching. Only
+   * the top one shows, so the strip always has one meaning.
+   */
+  const notice: { text: string; tone: "warn" | "muted" } | null = (() => {
+    if (mismatched.length > 0) {
+      return {
+        tone: "warn",
+        text:
+          (mismatched.length === 1
+            ? "One event here can't be swum in this meet's course."
+            : `${mismatched.length} events here can't be swum in this meet's course.`) +
+          " They will save, but no time can be recorded against them until the event or the meet's course changes.",
+      };
+    }
+    if (reorderBlocked !== null) return { tone: "warn", text: reorderBlocked };
+    if (interleaved) {
+      return {
+        tone: "warn",
+        text: "A day appears more than once in this running order, so the bands below repeat. The meet page groups each day together, so it will not look like this until the events of a day sit together here.",
+      };
+    }
+    if (moveWouldNumber(lines)) {
+      return {
+        tone: "muted",
+        text: "These events have no numbers. Moving one will number them all in their current order, because the number is what a meet's running order is.",
+      };
+    }
+    // Teaching, and only while it is needed: once a day is set the coach has
+    // found the control, and a permanent instruction is just another line to
+    // read past.
+    if (dayOptions.length > 1 && tally.unplaced === lines.length) {
+      return {
+        tone: "muted",
+        text: "A programme runs in order, so give the first event of each day its day, then use “…and below” under that row's Day picker to put the rest of the list on it.",
+      };
+    }
+    return null;
+  })();
+
   const on = useMemo<LineHandlers>(
     () => ({
       update: (i, patch) => apply((ls) => updateLine(ls, i, patch), ""),
@@ -227,15 +279,15 @@ export function ProgrammeEditor({
       // assignment pass, and the only other escape is discarding every edit in
       // the sheet. A picker announces its own new value; "36 events moved"
       // is a fact no control reports, so this one says it.
-      dayFrom: (i, d, below, overwrites) => {
+      dayFrom: (i, d, dayName, below, overwrites) => {
         // The snapshot is taken OUTSIDE the updater. A state updater has to be
         // pure — React calls it twice under StrictMode — so a `setUndo` inside
         // it would record the snapshot twice and, on the second call, record
         // the already-written list as the thing to go back to.
-        setUndo({ lines: linesRef.current, count: below + 1 });
+        setUndo({ lines: linesRef.current, count: below + 1, dayName });
         onChange((prev) => setDayFrom(prev, i, d));
         setAnnouncement(
-          `${below + 1} events moved to day ${d}.${
+          `${below + 1} events moved to ${dayName}.${
             overwrites > 0 ? ` ${overwrites} were on another day.` : ""
           } Undo is available.`,
         );
@@ -267,97 +319,70 @@ export function ProgrammeEditor({
         {announcement}
       </p>
 
-      {/* The one control on this row with no self-evident meaning, explained
-          once above the list rather than sixty times inside it. */}
-      {dayOptions.length > 1 && (
-        <p className="text-xs text-ink-muted">
-          A programme runs in order, so give the first event of each day its
-          day, then use <span className="font-medium">…and below</span> under
-          that row&rsquo;s Day picker to put the rest of the list on it.
-        </p>
-      )}
-
-      {/* Facts about the LIST, above the list. Putting either inside row 0 —
-          which an earlier pass did — attributes them to one event and hides
-          them from a coach working at row 40. */}
-      {mismatched.length > 0 && (
-        <p className="text-xs text-warning-ink">
-          {mismatched.length === 1
-            ? "One event here can't be swum in this meet's course."
-            : `${mismatched.length} events here can't be swum in this meet's course.`}{" "}
-          They will save, but no time can be recorded against them until the
-          event or the meet&rsquo;s course changes.
-        </p>
-      )}
-      {reorderBlocked !== null && (
-        <p className="text-xs text-warning-ink">{reorderBlocked}</p>
-      )}
-      {undo !== null && (
-        <p className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-          <span>
-            <span className="tabular-nums text-ink">{undo.count}</span> events
-            moved to one day.
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              const restore = undo.lines;
-              setUndo(null);
-              onChange(() => restore);
-              setAnnouncement("Those events are back on the days they were on.");
-            }}
-            className="rounded-sm font-medium text-brand-600 underline underline-offset-2 outline-none hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-          >
-            Undo
-          </button>
-        </p>
-      )}
-
-      {/* The running total, ALWAYS on a multi-day meet — not only while
-          something is unplaced. "Is Saturday about half of it?" is the question
-          being answered while the days are assigned, and a note that vanishes
-          the moment it reaches zero makes an absence the only completion
-          signal. */}
-      {interleaved && (
-        <p className="text-xs text-warning-ink">
-          A day appears more than once in this running order, so the bands below
-          repeat. The meet page groups each day together, so it will not look
-          like this until the events of a day sit together here.
-        </p>
-      )}
-
-      {/* Spaced spans, not `·`-joined: the separator is already inside every
-          day's own label ("Day 2 · Sun"), so joining with it too produced one
-          unreadable run. */}
-      {dayOptions.length > 1 && (
-        <p
-          role="status"
-          className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-ink-muted"
-        >
-          {tally.byDay.map((n, i) => (
-            <span key={i}>
-              {dayOptions[i].label}:{" "}
-              <span className="tabular-nums text-ink">{n}</span>
-            </span>
-          ))}
-          {tally.unplaced > 0 ? (
-            <span>
-              {DAY_NOT_LISTED}:{" "}
-              <span className="tabular-nums text-warning-ink">
-                {tally.unplaced}
-              </span>
-            </span>
-          ) : (
-            <span className="text-success-ink">Every event has a day.</span>
+      {/* One strip, not six stacked notices of equal weight: the tally is the
+          standing state, and under it at most ONE message. */}
+      {(dayOptions.length > 1 || notice !== null || undo !== null) && (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+          {dayOptions.length > 1 && (
+            <p
+              role="status"
+              className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-ink-muted"
+            >
+              {tally.byDay.map((n, i) => (
+                <span key={i}>
+                  {dayOptions[i].label}:{" "}
+                  <span className="tabular-nums text-ink">{n}</span>
+                </span>
+              ))}
+              {tally.unplaced > 0 ? (
+                <span>
+                  {DAY_NOT_LISTED}:{" "}
+                  <span className="tabular-nums text-warning-ink">
+                    {tally.unplaced}
+                  </span>
+                </span>
+              ) : (
+                <span className="text-success-ink">Every event has a day.</span>
+              )}
+            </p>
           )}
-        </p>
-      )}
-      {moveWouldNumber(lines) && (
-        <p className="text-xs text-ink-muted">
-          These events have no numbers. Moving one will number them all in their
-          current order, because the number is what a meet&rsquo;s running order
-          is.
-        </p>
+
+          {/* The undo outranks the notice: it is the only thing here that
+              expires, and it expires on the coach's very next edit. */}
+          {undo !== null ? (
+            <p className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+              <span>
+                <span className="tabular-nums text-ink">{undo.count}</span>{" "}
+                events moved to {undo.dayName}.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  const restore = undo.lines;
+                  setUndo(null);
+                  onChange(() => restore);
+                  setAnnouncement(
+                    "Those events are back on the days they were on.",
+                  );
+                }}
+                className="rounded-sm font-medium text-brand-600 underline underline-offset-2 outline-none hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+              >
+                Undo
+              </button>
+            </p>
+          ) : (
+            notice !== null && (
+              <p
+                className={
+                  "text-xs " +
+                  (notice.tone === "warn" ? "text-warning-ink" : "text-ink-muted")
+                }
+              >
+                {notice.text}
+              </p>
+            )
+          )}
+        </div>
       )}
 
       {lines.length === 0 ? (
@@ -370,9 +395,7 @@ export function ProgrammeEditor({
            programme's length, sixty identical bordered panels give the one line
            that needs attention the same weight as the fifty-nine that do not. */
         /* Banded where the day CHANGES, in array order, so the list never
-           reorders itself while the order is being stated. On a contiguous
-           programme these are the same bands the meet page draws; when they are
-           not, the band repeats and the note above says so. */
+           reorders itself while the order is being stated. */
         <ul className="divide-y divide-gray-100 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-theme-xs">
           {dayGroups.map((group) => (
             <Fragment key={group.day ?? "unplaced"}>
@@ -748,24 +771,20 @@ const ProgrammeLine = memo(function ProgrammeLine({
               }
               size="sm"
               options={[
-                { value: "", label: "Not set" },
+                // The band's own words, not the app's generic "Not set": one
+                // state, one name, wherever it is read.
+                { value: "", label: "Not listed" },
                 ...dayOptions.map((d) => ({
                   value: String(d.value),
                   label: d.label,
                 })),
               ]}
             />
-            {/* Beside the control it acts on, and in WORDS. As a fifth grey
-                icon in the action cluster it was the least discoverable thing
-                on the surface, and it is the entire reason the day feature is
-                workable at sixty rows.
-
-                It appears only once the row HAS a day, rather than sitting
-                there disabled. A disabled version needed its reason in a
-                `title`, which an iPad never shows — and `--ink-faint` and
-                `--ink-muted` both resolve to gray-500, so the disabled state
-                was pixel-identical to the live one. A control that cannot be
-                told apart from a working one is worse than no control. */}
+            {/* In words, beside the control it acts on, and only once the row
+                HAS a day: a disabled version can only explain itself through a
+                `title` an iPad never shows, and `--ink-faint` resolves to the
+                same gray-500 as `--ink-muted`, so it would not even look
+                disabled. */}
             {below > 0 && line.day !== undefined && (
               <button
                 type="button"
@@ -774,7 +793,9 @@ const ProgrammeLine = memo(function ProgrammeLine({
                     ? `Puts ${name} and the ${below} events below it on ${dayName}, changing ${overwrites} already on another day.`
                     : `Puts ${name} and the ${below} events below it on ${dayName}.`
                 }
-                onClick={() => on.dayFrom(index, line.day!, below, overwrites)}
+                onClick={() =>
+                  on.dayFrom(index, line.day!, dayName, below, overwrites)
+                }
                 className="inline-flex h-11 items-center self-start rounded-lg px-2 text-xs font-medium text-ink-muted outline-none transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-100 hover:text-ink focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 lg:h-8"
               >
                 {overwrites > 0
@@ -886,32 +907,35 @@ const ProgrammeLine = memo(function ProgrammeLine({
         </div>
       </div>
 
+      {/* The blocking problem keeps its own line — it is the only one that
+          stops a save, and what `aria-describedby` points at. The rest are one
+          muted line rather than four stacked sentences of equal weight. */}
       {problem !== null && (
         <p id={problemId} className="mt-2 text-xs font-medium text-danger-ink">
           {problem}
         </p>
       )}
-      {mismatched && (
-        <p className="mt-2 text-xs text-warning-ink">
-          Not swum in this meet&rsquo;s course, so no time can be recorded
-          against it.
+      {(mismatched || !resolved || entered === undefined || entered > 0) && (
+        <p className="mt-2 flex flex-wrap gap-x-2 text-xs text-ink-muted">
+          {mismatched && (
+            <span className="text-warning-ink">
+              Not swum in this meet&rsquo;s course, so it can take no time.
+            </span>
+          )}
+          {!resolved && (
+            <span>Not an event this app tracks, so it can take no time.</span>
+          )}
+          {entered === undefined ? (
+            <span className="text-ink-faint">Checking sign-ups…</span>
+          ) : (
+            entered > 0 && (
+              <span className="text-warning-ink">
+                {entered === 1 ? "1 swimmer" : `${entered} swimmers`} signed up;
+                removing it removes their sign-ups.
+              </span>
+            )
+          )}
         </p>
-      )}
-      {!resolved && (
-        <p className="mt-2 text-xs text-ink-muted">
-          Not an event this app tracks, so it appears on the programme but
-          nobody can be timed against it.
-        </p>
-      )}
-      {entered === undefined ? (
-        <p className="mt-2 text-xs text-ink-faint">Checking sign-ups…</p>
-      ) : (
-        entered > 0 && (
-          <p className="mt-2 text-xs text-warning-ink">
-            {entered === 1 ? "1 swimmer is" : `${entered} swimmers are`} signed
-            up for this event. Removing it removes their sign-ups.
-          </p>
-        )
       )}
     </li>
   );
@@ -1043,7 +1067,9 @@ const IconButton = forwardRef<
       className={
         "inline-flex size-11 items-center justify-center rounded-lg transition-colors [transition-duration:var(--dur-1)] lg:size-9 " +
         "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
-        "disabled:pointer-events-none disabled:opacity-40 " +
+        // NOT `disabled:pointer-events-none`: it suppresses the title, which
+        // is the only place a disabled button says why it is disabled.
+        "disabled:opacity-40 disabled:cursor-default " +
         (danger
           ? "text-gray-500 hover:bg-error-50 hover:text-error-500"
           : "text-gray-500 hover:bg-gray-100 hover:text-gray-800")

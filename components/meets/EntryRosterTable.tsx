@@ -59,6 +59,12 @@ export function EntryRosterTable({
   onSetDay: (entryId: string, swimDate: string) => void;
   onRemove: (entryId: string) => void;
 }) {
+  // Built once for the sheet, not once per option per row.
+  const dayOptions = days.map((day, i) => {
+    const label = formatMeetDayShort(datesOf(days), i + 1);
+    return { value: day, label, textValue: label };
+  });
+
   if (rows.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-ink-muted">
@@ -95,10 +101,7 @@ export function EntryRosterTable({
                 // "Day 2" alone left the roster naming the day a third way.
                 // `textValue` is what typeahead matches, so it has to be the
                 // label: nobody jumps to a row by typing "2026-11-29".
-                options={days.map((day, i) => {
-                  const label = formatMeetDayShort(datesOf(days), i + 1);
-                  return { value: day, label, textValue: label };
-                })}
+                options={dayOptions}
               />
             )}
 

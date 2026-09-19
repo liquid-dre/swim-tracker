@@ -62,12 +62,8 @@ export function GalaTag({ code }: { code: GalaCode }) {
  * someone has placed a line on a day: a programme nobody has dayed reads
  * exactly as it always did, as one list.
  *
- * ONE CARD, banded inside — not one card per day. DESIGN.md §5 states the house
- * rule as one card with its sections divided by `border-gray-100`, and three
- * stacked shadowed cards would give a three-day programme three equal visual
- * anchors where the page should have one. It also keeps the table to a single
- * horizontal scroll container, so a tablet cannot scroll Day 1 right while Day
- * 2 sits at zero.
+ * ONE CARD, banded inside — not one card per day (DESIGN.md §5), which also
+ * keeps the table to a single horizontal scroll container.
  */
 export function MeetProgrammeTable({
   events,
