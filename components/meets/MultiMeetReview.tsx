@@ -201,6 +201,15 @@ export function MultiMeetReview({
   const rowsValid = included.every(
     (r) => r.name.trim() !== "" && ISO.test(r.startDate),
   );
+  /** Why the import cannot run, in the words of the thing to fix. */
+  const blockedReason: string | null =
+    included.length === 0
+      ? "Every meet is left out — put at least one back to import."
+      : !rowsValid
+        ? "Every meet needs a name and a date."
+        : missingCourse > 0 && !allowNoCourse
+          ? `${missingCourse} ${missingCourse === 1 ? "meet needs" : "meets need"} a course before they can be imported.`
+          : null;
   const canImport =
     !importing &&
     !finished &&
@@ -365,8 +374,19 @@ export function MultiMeetReview({
       <div className="flex items-center gap-3">
         <Button
           variant="primary"
-          onClick={runAll}
-          disabled={!canImport}
+          // `aria-disabled` so the reason beside it is reachable by tab, and so
+          // the button does not take `disabled:opacity-50` — white on a 50%
+          // brand fill is 2.07:1.
+          aria-disabled={!canImport || undefined}
+          aria-describedby={
+            !canImport && blockedReason !== null
+              ? "multi-import-blocked"
+              : undefined
+          }
+          onClick={() => {
+            if (!canImport) return;
+            void runAll();
+          }}
           loading={importing}
         >
           {/* The count is what will actually be WRITTEN, so leaving a meet out
@@ -375,16 +395,14 @@ export function MultiMeetReview({
             ? "Imported"
             : `Import ${included.length} meet${included.length === 1 ? "" : "s"}`}
         </Button>
-        {included.length === 0 ? (
-          <span className="text-sm text-ink-muted">
-            Every meet is left out — put at least one back to import.
+        {blockedReason !== null && (
+          <span
+            id="multi-import-blocked"
+            role="status"
+            className="text-sm text-ink-muted"
+          >
+            {blockedReason}
           </span>
-        ) : (
-          !rowsValid && (
-            <span className="text-sm text-ink-muted">
-              Every meet needs a name and a date.
-            </span>
-          )
         )}
       </div>
     </div>
@@ -432,13 +450,15 @@ function MeetRow({
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p
+        {/* A heading, so a twelve-meet workbook can be navigated by meet
+            rather than tabbed through sixty identically-labelled fields. */}
+        <h3
           className={`min-w-0 truncate text-sm font-medium ${
-            row.skip ? "text-ink-faint line-through" : "text-ink"
+            row.skip ? "text-ink-muted line-through" : "text-ink"
           }`}
         >
           {title}
-        </p>
+        </h3>
         <div className="flex shrink-0 items-center gap-3">
           {/* The day split is stated, not applied unseen. A whole-season
               workbook is exactly where a multi-day gala arrives, and this
@@ -501,7 +521,11 @@ function MeetRow({
           strikethrough to judge the decision by. */}
       <div
         className={
-          row.skip ? "pointer-events-none select-none opacity-40" : undefined
+          // 60%, not 40%: the point is to show WHAT is being declined, and at
+          // 40% the labels composite to about 2.1:1 — unreadable. The dashed
+          // border, the struck title and the "Left out" sentence carry the
+          // state; the opacity only needs to recede it.
+          row.skip ? "pointer-events-none select-none opacity-60" : undefined
         }
         aria-hidden={row.skip}
       >
@@ -511,6 +535,7 @@ function MeetRow({
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Input
             label="Name"
+            aria-label={`${title} name`}
             value={row.name}
             onChange={(e) => onChange({ name: e.target.value })}
             disabled={locked}
@@ -539,6 +564,7 @@ function MeetRow({
           />
           <Input
             label="Starts at"
+            aria-label={`${title} start time`}
             type="time"
             value={row.startTime}
             onChange={(e) => onChange({ startTime: e.target.value })}
@@ -546,6 +572,7 @@ function MeetRow({
           />
           <Input
             label="Venue"
+            aria-label={`${title} venue`}
             value={row.venue}
             onChange={(e) => onChange({ venue: e.target.value })}
             disabled={locked}
@@ -602,7 +629,7 @@ function MeetRow({
               ]}
             />
             {target && (
-              <p className="text-2xs text-ink-faint">
+              <p className="text-xs text-ink-muted">
                 <Info aria-hidden className="mr-1 inline size-3" />
                 Same name and date — this replaces its programme
                 {target.eventCount > 0 &&
@@ -615,7 +642,7 @@ function MeetRow({
       </div>
 
       {draft.warnings.length > 0 && !saved && !row.skip && (
-        <ul className="flex flex-col gap-1 text-2xs text-ink-muted">
+        <ul className="flex flex-col gap-1 text-xs text-ink-muted">
           {draft.warnings.map((w) => (
             <li key={w}>{w}</li>
           ))}
@@ -623,19 +650,19 @@ function MeetRow({
       )}
 
       {saved && outcome.status === "saved" && (
-        <p className="flex items-center gap-1.5 text-2xs font-medium text-success-600">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-success-ink">
           <Check aria-hidden className="size-3.5" />
           {outcome.created ? "Added" : "Programme replaced"} —{" "}
           {outcome.eventCount} event{outcome.eventCount === 1 ? "" : "s"}
         </p>
       )}
       {outcome.status === "skipped" && (
-        <p className="text-2xs font-medium text-ink-faint">
+        <p className="text-xs font-medium text-ink-muted">
           Left out of this import.
         </p>
       )}
       {outcome.status === "failed" && (
-        <p className="flex items-start gap-1.5 text-2xs font-medium text-error-600">
+        <p className="flex items-start gap-1.5 text-xs font-medium text-danger-ink">
           <AlertTriangle aria-hidden className="mt-px size-3.5 shrink-0" />
           {outcome.message}
         </p>

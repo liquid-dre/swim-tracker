@@ -1195,14 +1195,15 @@ const IconButton = forwardRef<
       className={
         "inline-flex size-11 items-center justify-center rounded-lg transition-colors [transition-duration:var(--dur-1)] lg:size-9 touch:size-11 " +
         "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 " +
-        // `aria-disabled` keeps the button focusable, so its disabled state is
-        // NOT exempt from contrast the way a native `disabled` one is. gray-500
-        // on white is 4.97:1; gray-400 was 2.58:1 and 40% opacity about 1.9:1,
-        // neither of which a low-vision user can land on. "Inert" is carried by
-        // the cursor and the dead hover instead of by ink nobody can see — a
-        // greyed arrow that lights under the finger and does nothing reads as
-        // "pressed and ignored" on a touch screen, where the hover then sticks.
-        "aria-disabled:text-gray-500 aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-gray-500 " +
+        // A FILL carries inert, not ink. The ink stays gray-500 (4.97:1, so a
+        // low-vision user can still read it) — but that is also the ENABLED
+        // ink, so on a touch screen, which has no cursor and no hover, a dead
+        // arrow was pixel-identical to a live one. On a sixty-row programme
+        // with up to 120 dead arrows, which ones work became pure recall.
+        // `bg-gray-100` is the same inert surface `Button` uses, so the app has
+        // one vocabulary rather than one per component.
+        "aria-disabled:bg-gray-100 aria-disabled:text-gray-500 aria-disabled:cursor-default " +
+        "aria-disabled:hover:bg-gray-100 aria-disabled:hover:text-gray-500 " +
         (danger
           ? "text-gray-500 hover:bg-error-50 hover:text-error-500"
           : "text-gray-500 hover:bg-gray-100 hover:text-gray-800")

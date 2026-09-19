@@ -321,7 +321,16 @@ export function DateField({
             </button>
           </PopoverTrigger>
 
-          <PopoverContent align="end" className="w-auto p-0">
+          {/* `collisionPadding` because Radix defaults to 0 — without it the
+              popover can sit flush to the viewport edge — and a width cap
+              because floating-ui SHIFTS an oversized element, it does not
+              shrink one: below ~346px the calendar would simply overflow and
+              clip its last column. */}
+          <PopoverContent
+            align="end"
+            collisionPadding={8}
+            className="w-auto max-w-[calc(100vw-1rem)] overflow-x-auto p-0"
+          >
             <FlipCalendar
               selected={selected}
               min={min ? parseIso(min) : null}
@@ -400,15 +409,15 @@ function FlipCalendar({
   }
 
   return (
-    // 44px cells on touch: 7×44 + 6×2 gap + 24 padding = 344px. The WIDTH is
-    // what makes them targets — `h-11` on the old 232px box gave a 44×31 cell,
+    // 44px cells on touch: 7×44 + 6×2 gap + 24 padding = 344px of content,
+    // 346px once PopoverContent's 1px border is counted. The WIDTH is what
+    // makes them targets — `h-11` on the old 232px box gave a 44×31 cell,
     // which is not a 44px anything.
     //
-    // 344 is the real ceiling: a 375px phone leaves 359 after a 16px gutter and
-    // a 360px Android leaves exactly 344. Below that Radix shifts the popover
-    // flush to the edge rather than overflowing. That bound is why this is
-    // 344 and not more, not a claim that 44 was impossible — an earlier note
-    // here said so and the arithmetic never supported it.
+    // Nothing here guarantees it fits: the cap and the collision padding are on
+    // the PopoverContent above, which is what actually keeps it inside a narrow
+    // viewport. Three earlier versions of this note asserted a bound instead,
+    // and the arithmetic was wrong each time.
     <div className="flex w-64 flex-col gap-3 p-3 touch:w-[21.5rem]">
       <FlipDisplay date={selected} flip={flip} />
 

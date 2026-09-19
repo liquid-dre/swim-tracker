@@ -59,12 +59,15 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = "primary", size = "md", loading = false, disabled, className = "", children, ...props },
+  { variant = "primary", size = "md", loading = false, disabled, type, className = "", children, ...props },
   ref,
 ) {
   return (
     <button
       ref={ref}
+      // Defaults to "button": an `aria-disabled` Save keeps a live pointer, so
+      // without this it would submit any form it was dropped into.
+      type={type ?? "button"}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}

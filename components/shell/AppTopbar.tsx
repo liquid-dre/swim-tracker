@@ -52,7 +52,7 @@ export function AppTopbar() {
           >
             <span
               aria-hidden
-              className="flex size-7 items-center justify-center rounded-lg bg-brand-50 text-xs font-semibold text-brand-500"
+              className="flex size-7 items-center justify-center rounded-lg bg-brand-50 text-xs font-semibold text-brand-600"
             >
               {initials || <span className="size-3.5 rounded-full bg-gray-200" />}
             </span>

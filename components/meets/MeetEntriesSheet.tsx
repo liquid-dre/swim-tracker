@@ -399,7 +399,7 @@ export function MeetEntriesSheet({
                           type="checkbox"
                           checked={selected.includes(swimmer._id)}
                           onChange={() => toggle(swimmer._id)}
-                          className="size-4 rounded border-gray-300 text-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
+                          className="size-4 rounded border-gray-300 accent-brand-500 focus-visible:ring-2 focus-visible:ring-ring"
                         />
                         <span className="min-w-0 flex-1">{swimmer.name}</span>
                         <span className="tabular-nums text-xs text-ink-faint">

@@ -142,7 +142,7 @@ export function EntryRosterTable({
                 if (row.resultId !== null) return;
                 onRemove(row._id);
               }}
-              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors lg:size-9 touch:size-11 [transition-duration:var(--dur-1)] outline-none hover:bg-error-50 hover:text-error-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 aria-disabled:text-gray-500 aria-disabled:cursor-default aria-disabled:hover:bg-transparent"
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors lg:size-9 touch:size-11 [transition-duration:var(--dur-1)] outline-none hover:bg-error-50 hover:text-error-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 aria-disabled:bg-gray-100 aria-disabled:text-gray-500 aria-disabled:cursor-default aria-disabled:hover:bg-gray-100 aria-disabled:hover:text-gray-500"
             >
               <Trash2 aria-hidden className="size-4" />
             </button>

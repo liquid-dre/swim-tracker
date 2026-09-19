@@ -887,7 +887,11 @@ export function ImportMeetSheet({
 
         <SheetFooter className="flex-row items-center justify-end gap-2 border-t border-border">
           {blockedReason && !done && (
-            <p id="import-blocked" className="mr-auto text-xs text-ink-muted">
+            <p
+              id="import-blocked"
+              role="status"
+              className="mr-auto text-xs text-ink-muted"
+            >
               {blockedReason}
             </p>
           )}
@@ -896,12 +900,20 @@ export function ImportMeetSheet({
           </Button>
           {!done && !multi && (
             // Replacing wears the destructive colour; adding a fixture does not.
+            // `aria-disabled`, not `disabled`: a native disabled button is out
+            // of the tab order, so the `aria-describedby` below pointed at a
+            // reason no keyboard user could ever reach. It also took the
+            // shared base's `disabled:opacity-50`, which put white on a 50%
+            // brand fill at 2.07:1.
             <Button
               variant={isReplace ? "danger" : "primary"}
               loading={importing}
-              disabled={!canImport}
+              aria-disabled={!canImport || undefined}
               aria-describedby={blockedReason ? "import-blocked" : undefined}
-              onClick={onSubmit}
+              onClick={() => {
+                if (!canImport) return;
+                onSubmit();
+              }}
             >
               {isReplace ? "Replace programme" : "Add meet"}
             </Button>
