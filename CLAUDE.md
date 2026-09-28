@@ -252,6 +252,14 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   dropping a programme line with sign-ups needs an explicit confirmation and is refused outright when
   any of them has a time; an entry with a time cannot be removed until that time goes through the
   tombstoned `deleteResult`, which then frees the entry back to a plan.
+- **Meet summaries (`meetReports`) are club-scoped and STAFF-ONLY** — a coach's post-meet report file
+  (Convex storage), never parsed. Every function is `requireCoach`, so a viewer is refused server-side;
+  another club never sees it; type and size come from the `_storage` row, not the client. A refused
+  upload is **returned** (`{ error }`), not thrown, because a throw rolls back the storage delete and
+  orphans the file. `deleteMeet` refuses while any club's summary is on the meet.
+- **Attendance by month** reads the same reporting window as the season rate (`ratesByMonth`, one
+  copy of the fair-rate rule via `computeRates`); a month with no marks is listed, with a null rate.
+  The calendar's month strip and Insights' month period cap the month in progress at today.
 - **The event whitelist has ONE copy:** `EVENT_WHITELIST` in `lib/swim.ts`, shared by the `events`
   seed and the programme parser. Do not transcribe §4.3 a third time.
 - **The headline-PB rule has one copy too:** `fastestMeetSwim` in `lib/swim.ts`. It used to be

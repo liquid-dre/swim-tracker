@@ -12,6 +12,7 @@ import { assertManagesClub, attendanceBySwimmer, rosterSwimmers } from "./attend
 import {
   cleanIsoDate,
   computeRates,
+  ratesByMonth,
   resolveReportingWindow,
   todayIso,
 } from "./attendanceLib";
@@ -357,6 +358,21 @@ export const getSwimmerAttendanceFigure = query({
     ratePct: v.union(v.number(), v.null()),
     from: v.string(),
     to: v.string(),
+    // The same marks split by calendar month, newest first — every month the
+    // window touches, including ones with no sessions (`ratesByMonth`).
+    months: v.array(
+      v.object({
+        month: v.string(), // "YYYY-MM"
+        present: v.number(),
+        absent: v.number(),
+        late: v.number(),
+        excused: v.number(),
+        marked: v.number(),
+        attended: v.number(),
+        eligible: v.number(),
+        ratePct: v.union(v.number(), v.null()),
+      }),
+    ),
   }),
   handler: async (ctx, args) => {
     await requireSwimmerAccess(ctx, args.swimmerId);
@@ -371,7 +387,7 @@ export const getSwimmerAttendanceFigure = query({
       )
       .take(2000);
 
-    return { ...computeRates(rows), from, to };
+    return { ...computeRates(rows), from, to, months: ratesByMonth(rows, from, to) };
   },
 });
 
@@ -446,75 +462,139 @@ export const getAttendanceHeatmap = query({
     const to = cleanIsoDate(args.to ?? "") ?? window.end;
     if (from > to) return { from, to, variant: "summary" as const, days: [] };
 
-    const bySwimmer = async (swimmerId: Id<"swimmers">) =>
-      await ctx.db
-        .query("attendance")
-        .withIndex("by_swimmer_date", (q) =>
-          q.eq("swimmerId", swimmerId).gte("date", from).lte("date", to),
-        )
-        .take(4000);
-
-    // ---- one named swimmer -------------------------------------------------
-    if (args.swimmerId) {
-      // Coach → any swimmer in their club; viewer → only a linked one. Rejected
-      // server-side, so a direct call cannot read an unlinked swimmer.
-      await requireSwimmerAccess(ctx, args.swimmerId);
-      return {
-        from,
-        to,
-        variant: "swimmer" as const,
-        days: groupDays(await bySwimmer(args.swimmerId), true),
-      };
-    }
-
-    const { profile, swimmerIds } = await accessibleSwimmerIds(ctx);
-
-    // ---- a viewer's linked swimmers ---------------------------------------
-    if (swimmerIds !== "ALL") {
-      if (swimmerIds.length === 0) {
-        return { from, to, variant: "summary" as const, days: [] };
-      }
-      // One linked swimmer is really the swimmer view, so give it the richer
-      // per-day status rather than a rate that can only ever be 0 or 100.
-      if (swimmerIds.length === 1) {
-        return {
-          from,
-          to,
-          variant: "swimmer" as const,
-          days: groupDays(await bySwimmer(swimmerIds[0]), true),
-        };
-      }
-      const rows = [];
-      for (const id of swimmerIds) rows.push(...(await bySwimmer(id)));
-      return { from, to, variant: "summary" as const, days: groupDays(rows, false) };
-    }
-
-    // ---- the coach's club --------------------------------------------------
-    if (!profile.clubId) {
-      return { from, to, variant: "summary" as const, days: [] };
-    }
-    const rows = await ctx.db
-      .query("attendance")
-      .withIndex("by_club_date", (q) =>
-        q.eq("clubId", profile.clubId!).gte("date", from).lte("date", to),
-      )
-      .take(20000);
-
-    // A squad filter narrows to that squad's members, matching the calendar's
-    // own squad filter so the strip and the grid below never disagree.
-    let scoped = rows;
-    if (args.squadId) {
-      const memberships = await ctx.db
-        .query("squadMemberships")
-        .withIndex("by_squad", (q) => q.eq("squadId", args.squadId!))
-        .take(500);
-      const members = new Set(memberships.map((m) => String(m.swimmerId)));
-      scoped = rows.filter((r) => members.has(String(r.swimmerId)));
-    }
-
-    return { from, to, variant: "summary" as const, days: groupDays(scoped, false) };
+    const scoped = await scopedAttendanceRows(ctx, {
+      from,
+      to,
+      squadId: args.squadId,
+      swimmerId: args.swimmerId,
+    });
+    return {
+      from,
+      to,
+      variant: scoped.variant,
+      days: groupDays(scoped.rows, scoped.variant === "swimmer"),
+    };
   },
 });
+
+/**
+ * One month's attendance figure for the calendar strip — the same scope the
+ * grid and heatmap are showing (club, a squad, or one swimmer), so the three
+ * never disagree. Coach-only: the viewer calendar carries no rate summary.
+ *
+ * The range is capped at TODAY, for the reason `resolveReportingWindow` gives:
+ * a future session can only hold a pre-excusal, and counting those would put
+ * absences nobody has taken yet into this month's excused column.
+ */
+export const getAttendanceMonthSummary = query({
+  args: {
+    from: v.string(),
+    to: v.string(),
+    squadId: v.optional(v.id("squads")),
+    swimmerId: v.optional(v.id("swimmers")),
+  },
+  returns: v.object({
+    from: v.string(),
+    to: v.string(),
+    present: v.number(),
+    absent: v.number(),
+    late: v.number(),
+    excused: v.number(),
+    marked: v.number(),
+    attended: v.number(),
+    eligible: v.number(),
+    ratePct: v.union(v.number(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    await requireCoach(ctx);
+    const from = cleanIsoDate(args.from);
+    const monthEnd = cleanIsoDate(args.to);
+    if (from === null || monthEnd === null) {
+      throw new ConvexError("Invalid date range.");
+    }
+    const today = todayIso();
+    const to = monthEnd < today ? monthEnd : today;
+    if (from > to) return { from, to, ...computeRates([]) };
+    const { rows } = await scopedAttendanceRows(ctx, {
+      from,
+      to,
+      squadId: args.squadId,
+      swimmerId: args.swimmerId,
+    });
+    return { from, to, ...computeRates(rows) };
+  },
+});
+
+/**
+ * The attendance rows a calendar surface is showing, role-scoped. Three scopes,
+ * matching the calendar's own variants:
+ *   • one named swimmer (or a viewer's single linked swimmer) → `swimmer`;
+ *   • a viewer's several linked swimmers combined → `summary`;
+ *   • the coach's club, optionally narrowed to one squad → `summary`.
+ */
+async function scopedAttendanceRows(
+  ctx: QueryCtx,
+  args: {
+    from: string;
+    to: string;
+    squadId?: Id<"squads">;
+    swimmerId?: Id<"swimmers">;
+  },
+): Promise<{ variant: "summary" | "swimmer"; rows: Doc<"attendance">[] }> {
+  const { from, to } = args;
+  const bySwimmer = async (swimmerId: Id<"swimmers">) =>
+    await ctx.db
+      .query("attendance")
+      .withIndex("by_swimmer_date", (q) =>
+        q.eq("swimmerId", swimmerId).gte("date", from).lte("date", to),
+      )
+      .take(4000);
+
+  // ---- one named swimmer ---------------------------------------------------
+  if (args.swimmerId) {
+    // Coach → any swimmer in their club; viewer → only a linked one. Rejected
+    // server-side, so a direct call cannot read an unlinked swimmer.
+    await requireSwimmerAccess(ctx, args.swimmerId);
+    return { variant: "swimmer", rows: await bySwimmer(args.swimmerId) };
+  }
+
+  const { profile, swimmerIds } = await accessibleSwimmerIds(ctx);
+
+  // ---- a viewer's linked swimmers -----------------------------------------
+  if (swimmerIds !== "ALL") {
+    if (swimmerIds.length === 0) return { variant: "summary", rows: [] };
+    // One linked swimmer is really the swimmer view, so give it the richer
+    // per-day status rather than a rate that can only ever be 0 or 100.
+    if (swimmerIds.length === 1) {
+      return { variant: "swimmer", rows: await bySwimmer(swimmerIds[0]) };
+    }
+    const rows = [];
+    for (const id of swimmerIds) rows.push(...(await bySwimmer(id)));
+    return { variant: "summary", rows };
+  }
+
+  // ---- the coach's club ----------------------------------------------------
+  if (!profile.clubId) return { variant: "summary", rows: [] };
+  const rows = await ctx.db
+    .query("attendance")
+    .withIndex("by_club_date", (q) =>
+      q.eq("clubId", profile.clubId!).gte("date", from).lte("date", to),
+    )
+    .take(20000);
+
+  // A squad filter narrows to that squad's members, matching the calendar's
+  // own squad filter so the strip and the grid below never disagree.
+  if (!args.squadId) return { variant: "summary", rows };
+  const memberships = await ctx.db
+    .query("squadMemberships")
+    .withIndex("by_squad", (q) => q.eq("squadId", args.squadId!))
+    .take(500);
+  const members = new Set(memberships.map((m) => String(m.swimmerId)));
+  return {
+    variant: "summary",
+    rows: rows.filter((r) => members.has(String(r.swimmerId))),
+  };
+}
 
 /** Fold attendance rows into one entry per marked day, ascending by date. */
 function groupDays(

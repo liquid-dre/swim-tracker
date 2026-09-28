@@ -208,7 +208,7 @@ export function SwimmerProfileScreen({
       value: "attendance",
       label: "Attendance",
       content: (
-        <Panel hint="Training attendance this season. Excused absences don't count against the rate.">
+        <Panel hint="Training attendance this season, then month by month. Excused absences don't count against the rate.">
           <AttendanceFigure swimmerId={swimmerId} />
         </Panel>
       ),

@@ -248,3 +248,56 @@ export function computeRates(
     ratePct: eligible > 0 ? Math.round((attended / eligible) * 100) : null,
   };
 }
+
+/**
+ * Every calendar month ("YYYY-MM") that [fromIso, toIso] touches, oldest first.
+ * Derived from the range, not the data, so a month with no sessions still
+ * appears — "no training that month" is a fact a coach counting by month needs
+ * to see, not a gap they have to notice.
+ */
+export function monthsInRange(fromIso: string, toIso: string): string[] {
+  const from = cleanIsoDate(fromIso);
+  const to = cleanIsoDate(toIso);
+  if (from === null || to === null || from > to) return [];
+  const out: string[] = [];
+  let y = Number(from.slice(0, 4));
+  let m = Number(from.slice(5, 7));
+  const endKey = to.slice(0, 7);
+  // 240 months is a hard stop against a malformed window, never a real bound.
+  while (out.length < 240) {
+    const key = `${y}-${String(m).padStart(2, "0")}`;
+    out.push(key);
+    if (key >= endKey) break;
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  return out;
+}
+
+/**
+ * A swimmer's marks split by calendar month across [fromIso, toIso], NEWEST
+ * month first — the per-month breakdown a coach otherwise counts off the
+ * calendar by hand. Same fair-rate rules as `computeRates` (one copy): LATE is
+ * attended, EXCUSED is out of the denominator. Rows outside the range are
+ * ignored; a month with no marks is returned with zero counts and a null rate.
+ */
+export function ratesByMonth(
+  rows: ReadonlyArray<{ date: string; status: AttendanceStatus }>,
+  fromIso: string,
+  toIso: string,
+): Array<{ month: string } & AttendanceRates> {
+  const months = monthsInRange(fromIso, toIso);
+  const byMonth = new Map<string, Array<{ status: AttendanceStatus }>>(
+    months.map((m) => [m, []]),
+  );
+  for (const r of rows) {
+    if (r.date < fromIso || r.date > toIso) continue;
+    byMonth.get(r.date.slice(0, 7))?.push(r);
+  }
+  return months
+    .map((month) => ({ month, ...computeRates(byMonth.get(month)!) }))
+    .reverse();
+}

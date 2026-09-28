@@ -18,6 +18,7 @@ import { AttendanceMonthGrid } from "./AttendanceMonthGrid";
 import { AttendanceHeatmap } from "./AttendanceHeatmap";
 import { AttendanceAgenda } from "./AttendanceAgenda";
 import { SessionForm } from "./SessionForm";
+import { MonthAttendanceSummary } from "./MonthAttendanceSummary";
 import {
   MeetLegend,
   MeetPinSheet,
@@ -329,6 +330,25 @@ export function AttendanceCalendarScreen({
           variant={heatmap.variant}
           swimmerName={swimmerName || undefined}
           onSelectMonth={(year, month) => setView({ year, month })}
+        />
+      )}
+
+      {isCoach && (
+        <MonthAttendanceSummary
+          year={view.year}
+          month={view.month}
+          from={from}
+          to={to}
+          today={today}
+          squadId={squadId ? (squadId as Id<"squads">) : undefined}
+          swimmerId={swimmerId ? (swimmerId as Id<"swimmers">) : undefined}
+          scopeLabel={
+            swimmerId
+              ? swimmerName || "One swimmer"
+              : squadId
+                ? (squads ?? []).find((s) => s._id === squadId)?.name ?? "One squad"
+                : "All swimmers"
+          }
         />
       )}
 

@@ -301,6 +301,31 @@ export default defineSchema({
     // pointing at a row that no longer exists.
     .index("by_result", ["resultId"]),
 
+  // A coach's written summary of how their club did at a meet — the gala
+  // progress report a head coach writes up afterwards (who swam, who won, who
+  // dropped time, talking points). Stored as the FILE the coach wrote, in
+  // Convex storage, not parsed: it is prose for coaches to read, and nothing
+  // downstream computes from it.
+  //
+  // Club-scoped and staff-only, the `meetEntries` pattern: the meet is global,
+  // but "Sharks Borrowdale's report on the 1st seeded gala" belongs to Sharks.
+  // Viewers never read this table — it names other people's children and says
+  // which of them went slower than seed.
+  meetReports: defineTable({
+    meetId: v.id("meets"),
+    clubId: v.id("clubs"),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    contentType: v.string(),
+    size: v.number(), // bytes, from the _storage row — never trusted from the client
+    uploadedBy: v.id("profiles"),
+    uploadedAt: v.number(),
+  })
+    // A club's reports on one meet — the meet page's own subscription.
+    .index("by_club_meet", ["clubId", "meetId"])
+    // Every club's, so `deleteMeet` can refuse rather than orphan them.
+    .index("by_meet", ["meetId"]),
+
   // DEPRECATED — superseded by galas.tourDate / galas.tourName.
   // Retained ONLY so `migrations.migrateToGalas` can copy the super-user-entered
   // dates across; dropped in the narrowing deploy once that has run. Nothing
