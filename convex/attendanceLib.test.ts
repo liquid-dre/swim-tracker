@@ -9,7 +9,9 @@ import {
   isSeasonOver,
   isValidMinuteOfDay,
   isValidWeekdays,
+  monthsInRange,
   parseHHMM,
+  ratesByMonth,
   resolveGenerationWindow,
   resolveReportingWindow,
   resolveSeasonEnd,
@@ -240,5 +242,49 @@ describe("computeRates", () => {
   });
   test("empty → zeroed", () => {
     expect(computeRates([])).toMatchObject({ marked: 0, ratePct: null });
+  });
+});
+
+describe("monthsInRange", () => {
+  test("every month the range touches, oldest first, across a year end", () => {
+    expect(monthsInRange("2025-11-15", "2026-02-03")).toEqual([
+      "2025-11",
+      "2025-12",
+      "2026-01",
+      "2026-02",
+    ]);
+  });
+  test("a single day is one month; an inverted or malformed range is none", () => {
+    expect(monthsInRange("2026-09-28", "2026-09-28")).toEqual(["2026-09"]);
+    expect(monthsInRange("2026-10-01", "2026-09-01")).toEqual([]);
+    expect(monthsInRange("nope", "2026-09-01")).toEqual([]);
+  });
+});
+
+describe("ratesByMonth", () => {
+  const rows = [
+    { date: "2026-07-02", status: "PRESENT" as const },
+    { date: "2026-07-09", status: "ABSENT" as const },
+    { date: "2026-09-01", status: "LATE" as const },
+    { date: "2026-09-03", status: "EXCUSED" as const },
+    { date: "2026-09-05", status: "PRESENT" as const },
+    { date: "2026-10-01", status: "EXCUSED" as const }, // after the range
+  ];
+
+  test("newest month first, each with its own fair rate", () => {
+    const out = ratesByMonth(rows, "2026-07-01", "2026-09-28");
+    expect(out.map((m) => m.month)).toEqual(["2026-09", "2026-08", "2026-07"]);
+    expect(out[0]).toMatchObject({ attended: 2, eligible: 2, excused: 1, ratePct: 100 });
+    expect(out[2]).toMatchObject({ attended: 1, eligible: 2, ratePct: 50 });
+  });
+
+  test("a month with no training is listed, with a null rate rather than 0%", () => {
+    const aug = ratesByMonth(rows, "2026-07-01", "2026-09-28")[1];
+    expect(aug).toMatchObject({ month: "2026-08", marked: 0, ratePct: null });
+  });
+
+  test("marks outside the range never count — a future pre-excusal included", () => {
+    const out = ratesByMonth(rows, "2026-07-01", "2026-09-28");
+    expect(out.reduce((n, m) => n + m.marked, 0)).toBe(5);
   });
 });

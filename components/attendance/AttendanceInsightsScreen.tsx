@@ -25,6 +25,8 @@ import { trailForHref } from "@/lib/nav";
 import { formatShortDate } from "@/lib/format";
 import { usePrefersReducedMotion } from "@/hooks/use-reduced-motion";
 import { CHART, CHART_ANIM_MS } from "@/components/analysis/chartTheme";
+import { monthsInRange } from "@/convex/attendanceLib";
+import { monthBounds, monthTitle } from "./attendance-format";
 
 /*
   Attendance insights (§R18) — coach-only analytics over the season. A per-squad
@@ -81,19 +83,59 @@ function RateTooltip({ row }: { row: SquareDatum }) {
   );
 }
 
-export function AttendanceInsightsScreen() {
+/** "2026-09" → "September 2026". */
+function monthLabel(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  return monthTitle(y, m - 1);
+}
+
+/** The ISO range a "YYYY-MM" period reads — capped at today for the month in progress. */
+function periodRange(key: string, today: string): { from: string; to: string } {
+  const [y, m] = key.split("-").map(Number);
+  const { from, to } = monthBounds(y, m - 1);
+  return { from, to: to < today ? to : today };
+}
+
+export function AttendanceInsightsScreen({
+  today,
+  initialMonth = null,
+}: {
+  today: string;
+  /** "YYYY-MM" from `?month=` — the calendar's month strip links here. */
+  initialMonth?: string | null;
+}) {
   const [squadId, setSquadId] = useState<string>("");
+  // "" = the whole season; otherwise one calendar month, "YYYY-MM".
+  const [period, setPeriod] = useState<string>(
+    initialMonth && /^\d{4}-\d{2}$/.test(initialMonth) ? initialMonth : "",
+  );
   const reduced = usePrefersReducedMotion();
 
   const squads = useQuery(api.squads.listSquads, {});
+  const range = period ? periodRange(period, today) : null;
   const data = useQuery(api.attendanceInsights.getAttendanceInsights, {
     squadId: squadId ? (squadId as Id<"squads">) : undefined,
+    ...(range ?? {}),
   });
+
+  // The season's months, remembered across refetches so the period picker does
+  // not empty itself for a beat every time the period or squad changes.
+  const [season, setSeason] = useState<{ from: string; to: string } | null>(null);
+  if (data && (season?.from !== data.seasonFrom || season?.to !== data.seasonTo)) {
+    setSeason({ from: data.seasonFrom, to: data.seasonTo });
+  }
+  const seasonMonths = season ? monthsInRange(season.from, season.to).reverse() : [];
+  if (period && !seasonMonths.includes(period)) seasonMonths.unshift(period);
 
   const squadOptions = [
     { value: "", label: "All squads" },
     ...(squads ?? []).map((s) => ({ value: s._id, label: s.name })),
   ];
+  const periodOptions = [
+    { value: "", label: "Whole season" },
+    ...seasonMonths.map((m) => ({ value: m, label: monthLabel(m) })),
+  ];
+  const periodName = period ? monthLabel(period) : "this season";
 
   const chartData: SquareDatum[] =
     data?.perSquad
@@ -114,12 +156,22 @@ export function AttendanceInsightsScreen() {
         breadcrumb={trailForHref("/attendance/insights")}
         description={
           data
-            ? `Season ${formatShortDate(data.from)} – ${formatShortDate(data.to)}.`
+            ? `${period ? monthLabel(period) : "Season"} ${formatShortDate(data.from)} – ${formatShortDate(data.to)}.`
             : "Attendance across the season."
         }
       />
 
       <FilterBar
+        primary={
+          <FilterField label="Period">
+            <Select
+              aria-label="Period"
+              value={period}
+              onValueChange={setPeriod}
+              options={periodOptions}
+            />
+          </FilterField>
+        }
         trailing={
           <FilterField label="Squad">
             <Select
@@ -155,7 +207,7 @@ export function AttendanceInsightsScreen() {
           <div className="h-64 animate-pulse rounded-lg bg-gray-100" />
         ) : chartData.length === 0 ? (
           <p className="py-16 text-center text-sm text-ink-muted">
-            No attendance recorded in this season yet.
+            No attendance recorded {periodName === "this season" ? "this season" : `in ${periodName}`} yet.
           </p>
         ) : (
           <div className="h-72 w-full">
@@ -237,6 +289,62 @@ export function AttendanceInsightsScreen() {
                   <td className="px-4 py-2.5 text-right tabular-nums text-ink-muted">
                     {s.eligible}
                   </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Every swimmer, for the period — the table a coach counting a month's
+          attendance actually needs, rather than only the bottom ten. */}
+      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-theme-sm">
+        <div className="border-b border-gray-100 bg-gray-50 px-4 py-2.5">
+          <h2 className="text-sm font-semibold text-ink">
+            Every swimmer, {period ? monthLabel(period) : "whole season"}
+          </h2>
+        </div>
+        {data === undefined ? (
+          <div className="h-40 animate-pulse bg-white" />
+        ) : data.perSwimmer.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-ink-muted">
+            No active swimmers in this squad.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 text-left text-2xs uppercase tracking-wide text-ink-faint">
+                <th scope="col" className="px-3 py-2 font-semibold sm:px-4">Swimmer</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold sm:px-4">Rate</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold sm:px-4">Attended</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold sm:px-4">Late</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold sm:px-4">Absent</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold sm:px-4">Excused</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.perSwimmer.map((s) => (
+                <tr key={s.swimmerId} className="border-b border-gray-50 last:border-b-0">
+                  <th scope="row" className="px-3 py-2.5 text-left font-normal text-ink sm:px-4">
+                    {s.name}
+                  </th>
+                  {s.marked === 0 ? (
+                    <td colSpan={5} className="px-3 py-2.5 text-right text-ink-faint sm:px-4">
+                      Nothing marked
+                    </td>
+                  ) : (
+                    <>
+                      <td className="px-3 py-2.5 text-right font-medium tabular-nums text-ink sm:px-4">
+                        {s.ratePct != null ? `${s.ratePct}%` : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink sm:px-4">
+                        {s.attended}/{s.eligible}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink-muted sm:px-4">{s.late}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink-muted sm:px-4">{s.absent}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-ink-muted sm:px-4">{s.excused}</td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>

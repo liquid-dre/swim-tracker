@@ -606,6 +606,18 @@ export const deleteMeet = mutation({
       );
     }
 
+    // A coach's meet summary is that club's document, not the super-user's to
+    // destroy by tidying the calendar — refuse, as for sign-ups.
+    const report = await ctx.db
+      .query("meetReports")
+      .withIndex("by_meet", (q) => q.eq("meetId", meetId))
+      .first();
+    if (report !== null) {
+      throw new ConvexError(
+        "A coach has uploaded a meet summary to this meet. It must be removed before the meet can be deleted.",
+      );
+    }
+
     const linked = await ctx.db
       .query("results")
       .withIndex("by_meet", (q) => q.eq("meetId", meetId))

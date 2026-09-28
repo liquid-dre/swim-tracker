@@ -58,6 +58,10 @@ export const getAttendanceInsights = query({
   returns: v.object({
     from: v.string(),
     to: v.string(),
+    // The whole-season window, whatever range was asked for — what the screen's
+    // month picker lists its months from.
+    seasonFrom: v.string(),
+    seasonTo: v.string(),
     overall: v.object(ratesShape),
     perSquad: v.array(
       v.object({
@@ -88,6 +92,8 @@ export const getAttendanceInsights = query({
     const emptyResult = (from: string, to: string) => ({
       from,
       to,
+      seasonFrom: window.start,
+      seasonTo: window.end,
       overall: ratesFromCounts(emptyCounts()),
       perSquad: [],
       perSwimmer: [],
@@ -192,6 +198,8 @@ export const getAttendanceInsights = query({
     return {
       from,
       to,
+      seasonFrom: window.start,
+      seasonTo: window.end,
       overall: ratesFromCounts(overall),
       perSquad,
       perSwimmer,

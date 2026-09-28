@@ -27,6 +27,7 @@ import { COURSE_LABEL, GalaTag, MeetProgrammeTable } from "./meetShared";
 import { ImportMeetSheet } from "./ImportMeetSheet";
 import { MeetForm } from "./MeetForm";
 import { MeetEntriesSheet } from "./MeetEntriesSheet";
+import { MeetReports } from "./MeetReports";
 import { ViewerMeetEntries } from "./ViewerMeetEntries";
 
 /*
@@ -249,6 +250,10 @@ export function MeetDetailScreen({
         upcoming={isUpcoming(meet, today)}
         onOpenLine={isViewer ? undefined : setOpenLineId}
       />
+
+      {/* After the programme: a summary is written once the meet has been
+          swum, and the programme is what a coach opens this page for first. */}
+      {!isViewer && <MeetReports meetId={meetId} />}
 
       {!isViewer && (
         <MeetEntriesSheet
