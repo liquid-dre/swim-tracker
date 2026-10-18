@@ -6,6 +6,7 @@ import type { FunctionReturnType } from "convex/server";
 import {
   ArrowRight,
   CheckCircle2,
+  ChevronRight,
   Circle,
   ListChecks,
   Timer,
@@ -15,6 +16,7 @@ import type { LucideIcon } from "lucide-react";
 
 import type { api } from "@/convex/_generated/api";
 import { buttonClasses } from "@/components/ui/Button";
+import { CloseToCutSheet } from "@/components/dashboard/CloseToCutSheet";
 import { TierBadge } from "@/components/ui/TierBadge";
 import { formatTime, GALA_SHORT } from "@/lib/swim";
 import { formatSeconds } from "@/lib/format";
@@ -40,6 +42,8 @@ const NEXT_TIER_SHORT = GALA_SHORT;
 // ---------------------------------------------------------------------------
 
 export function SquadStats({ data }: { data: DashboardData | undefined }) {
+  const [closeOpen, setCloseOpen] = useState(false);
+
   if (data === undefined) {
     return (
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-busy>
@@ -98,8 +102,12 @@ export function SquadStats({ data }: { data: DashboardData | undefined }) {
         value={counts.closeToCut}
         sub="within 1.0s of a cut"
         tone={counts.closeToCut > 0 ? "warn" : "muted"}
+        // Zero opens nothing: an empty panel behind a click is a dead end.
+        onOpen={counts.closeToCut > 0 ? () => setCloseOpen(true) : undefined}
+        openLabel="Show the swimmers within a second of a cut"
       />
       </div>
+      <CloseToCutSheet open={closeOpen} onOpenChange={setCloseOpen} data={data} />
     </div>
   );
 }
@@ -260,15 +268,29 @@ function StatCard({
   value,
   sub,
   tone = "muted",
+  onOpen,
+  openLabel,
 }: {
   label: string;
   value: number;
   sub: string;
   tone?: "up" | "warn" | "muted";
+  /** When set, the card is a button that opens a panel of what it counts. */
+  onOpen?: () => void;
+  /** Accessible name of that action, read before the card's own text. */
+  openLabel?: string;
 }) {
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-theme-sm sm:p-5">
-      <div className="text-xs font-medium text-ink-muted">{label}</div>
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2 text-xs font-medium text-ink-muted">
+        {label}
+        {onOpen && (
+          <ChevronRight
+            aria-hidden
+            className="size-4 shrink-0 text-ink-faint transition-[color,translate] [transition-duration:var(--dur-1)] group-hover:translate-x-0.5 group-hover:text-brand-500 motion-reduce:group-hover:translate-x-0"
+          />
+        )}
+      </div>
       <div className="mt-1.5 text-2xl font-bold leading-none tracking-tight text-ink tabular-nums">
         <CountUp value={value} />
       </div>
@@ -282,7 +304,24 @@ function StatCard({
       >
         {sub}
       </div>
-    </div>
+    </>
+  );
+
+  const surface = "rounded-2xl border border-gray-200 bg-white p-4 shadow-theme-sm sm:p-5";
+  if (!onOpen) return <div className={surface}>{body}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-haspopup="dialog"
+      aria-label={openLabel ? `${openLabel}: ${value} ${sub}` : undefined}
+      className={cn(
+        surface,
+        "group text-left outline-none transition-colors [transition-duration:var(--dur-1)] hover:border-brand-300 focus-visible:ring-2 focus-visible:ring-ring active:bg-gray-50",
+      )}
+    >
+      {body}
+    </button>
   );
 }
 
@@ -425,7 +464,10 @@ function RosterRow({ row }: { row: DashboardData["roster"][number] }) {
         <div className="flex flex-col items-start gap-0.5">
           <TierBadge gala={top?.gala ?? "NONE"} course={top?.course ?? null} />
           {isClose && (
-            <span className="text-2xs font-medium tabular-nums text-warning-ink">
+            <span
+              className="text-2xs font-medium tabular-nums text-warning-ink"
+              title="Gap on this row's top event only. Close to a cut, above, lists every event within 1.0s."
+            >
               {formatSeconds(top!.gapMs as number)}s to {NEXT_TIER_SHORT[top!.nextGala!]}
             </span>
           )}

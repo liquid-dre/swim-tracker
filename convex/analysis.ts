@@ -85,7 +85,7 @@ const qualifyingWindowValidator = v.object({
   qualifyingFrom: v.union(v.string(), v.null()),
   qualifyingTo: v.union(v.string(), v.null()),
 });
-const qualifyingWindowsValidator = v.object({
+export const qualifyingWindowsValidator = v.object({
   SANS: v.optional(qualifyingWindowValidator),
   SANY: v.optional(qualifyingWindowValidator),
   SANJ: v.optional(qualifyingWindowValidator),
@@ -129,7 +129,7 @@ function tagCuts(
 }
 
 /** Resolve every gala's cut for one event in BOTH courses at the swimmer's ages. */
-function resolveBothCourses(
+export function resolveBothCourses(
   tagged: ReadonlyArray<StandardCut & { gala: GalaCode; course: Course }>,
   galaRefs: ReadonlyArray<GalaRef>,
   ages: Record<GalaCode, number>,
