@@ -1,11 +1,14 @@
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import { requireCoach } from "./authz";
 import {
   computeAge,
   computeMatrixCell,
   computePersonalBests,
+  EVENT_WHITELIST,
   eventKey,
+  eventLabel,
   eventSortKey,
   galaResolutionAges,
   pickApplicableStandardsPerGala,
@@ -18,7 +21,19 @@ import {
   type StandardCut,
   type Stroke,
 } from "../lib/swim";
-import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
+import {
+  galaCodeValidator,
+  loadGalas,
+  qualifyingWindowsByGala,
+  toGalaRefs,
+} from "./galas";
+import { qualifyingWindowsValidator, resolveBothCourses } from "./analysis";
+import {
+  closeToCutVerdict,
+  compareCloseEvents,
+  compareCloseSwimmers,
+  type CloseEvent,
+} from "../lib/closeToCut";
 
 /*
   Coach dashboard squad overview (the "punchy home" — the vibrance revamp). One
@@ -41,8 +56,8 @@ import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
 const DASH_SWIMMERS_LIMIT = 500;
 const DASH_STANDARDS_LIMIT = 5000;
 const SWIMMER_RESULTS_LIMIT = 2000;
-// "Close to a cut" threshold and the recent-PB window, matching the dashboard copy.
-const CLOSE_MS = 1000; // within 1.00s of the next cut
+// The recent-PB window, matching the dashboard copy. The "close to a cut"
+// threshold lives with its rule in lib/closeToCut.
 const PB_WINDOW_DAYS = 7; // "PBs this week"
 const TREND_POINTS = 6; // recent meet times in the roster sparkline
 
@@ -79,6 +94,18 @@ const topEvent = v.object({
   trend: v.array(v.number()),
 });
 
+// One event a swimmer is within a second of a gala they have not yet made in
+// either course (lib/closeToCut) — a row in the dashboard's close-to-a-cut panel.
+const closeEvent = v.object({
+  distance,
+  stroke,
+  label: v.string(),
+  course, // the course the gap was measured in — the nearer of the two
+  pbMs: v.number(), // the qualifying time behind the gap
+  nextGala: galaCodeValidator,
+  gapMs: v.number(),
+});
+
 const rosterRow = v.object({
   swimmerId: v.id("swimmers"),
   name: v.string(),
@@ -109,8 +136,20 @@ export const getCoachDashboard = query({
       swimmers: v.number(), // active swimmers
       pbsThisWeek: v.number(), // lifetime headline PBs set in the last 7 days
       cutsQualified: v.number(), // swimmer×event×course PBs that meet a gala cut
-      closeToCut: v.number(), // swimmers within 1.00s of a next cut
+      closeToCut: v.number(), // swimmers within 1.00s of a next cut (= closeToCut.length)
     }),
+    // The swimmers behind that count, closest first, each with every close
+    // event (closest first). Same loop as the count, so the two never disagree.
+    closeToCut: v.array(
+      v.object({
+        swimmerId: v.id("swimmers"),
+        name: v.string(),
+        age: v.number(),
+        events: v.array(closeEvent),
+      }),
+    ),
+    // The basis the close-to-a-cut panel states via <QualifyingBasis>.
+    qualifyingWindows: qualifyingWindowsValidator,
     // First-run signals: which setup steps (swimmers → standards → results)
     // still need doing. Drives the dashboard checklist for a new coach.
     setup: v.object({
@@ -175,7 +214,12 @@ export const getCoachDashboard = query({
 
     let pbsThisWeek = 0;
     let cutsQualified = 0;
-    let closeToCut = 0;
+    const closeToCut: Array<{
+      swimmerId: Id<"swimmers">;
+      name: string;
+      age: number;
+      events: CloseEvent[];
+    }> = [];
     let hasResults = false;
     let digestSwims = 0;
     const digestPbSwimmers: string[] = [];
@@ -229,7 +273,6 @@ export const getCoachDashboard = query({
         nextGala: GalaCode | null;
         gapMs: number | null;
       } | null = null;
-      let swimmerIsClose = false;
 
       // Readiness is judged on QUALIFYING times, not on the all-time PBs above:
       // the counts on this card ("cuts qualified", "close to a cut") are claims
@@ -240,6 +283,10 @@ export const getCoachDashboard = query({
         results as ResultForPB[],
         galaRefs,
       );
+      // Same rule as the status matrix: galas WITH a tour date judge at the
+      // swimmer's age on tour day; the rest at their CURRENT age (§4.9) — never
+      // the age a PB was swum, so these counts match the qualification screens.
+      const ages = galaResolutionAges(swimmer.dob, age, galaRefs);
 
       // Both courses count (§4.2): a swimmer is qualified on an event if either
       // their LCM or their SCM qualifying time beats that course's own cut, so
@@ -248,15 +295,11 @@ export const getCoachDashboard = query({
         if (!pb.headline) continue;
         const course = pb.course as Course;
         const pbByGala = qualifyingPbs.get(eventKey(pb.distance, pb.stroke)) ?? {};
-        // Same rule as the status matrix: galas WITH a tour date judge at the
-        // swimmer's age on tour day; the rest at their CURRENT age (§4.9) —
-        // never the age the PB was swum, so these counts match what the
-        // qualification screens show.
         const applicable = pickApplicableStandardsPerGala(
           (cutsByEvent.get(`${swimmer.gender}|${pb.distance}|${pb.stroke}`) ?? [])
             .filter((c) => c.course === course),
           galaRefs,
-          galaResolutionAges(swimmer.dob, age, galaRefs),
+          ages,
         );
         const cell = computeMatrixCell(
           pbByGala,
@@ -270,9 +313,6 @@ export const getCoachDashboard = query({
         // cannot be their headline event.
         if (cell.pbMs === null) continue;
         if (cell.gala !== null) cutsQualified += 1;
-        if (cell.gapMs !== null && cell.gapMs > 0 && cell.gapMs <= CLOSE_MS) {
-          swimmerIsClose = true;
-        }
 
         const candidate = {
           distance: pb.distance,
@@ -287,7 +327,39 @@ export const getCoachDashboard = query({
         if (top === null || isBetterTop(candidate, top)) top = candidate;
       }
 
-      if (swimmerIsClose) closeToCut += 1;
+      // Close to a cut: one verdict per EVENT across both courses (the status
+      // matrix's Best-of-both rule), so a gap in one course to a gala already
+      // made in the other is not counted. Every whitelisted event is judged;
+      // one with no qualifying time or no cut simply returns null.
+      const closeEvents: CloseEvent[] = [];
+      for (const e of EVENT_WHITELIST) {
+        const pbByGala = qualifyingPbs.get(eventKey(e.distance, e.stroke));
+        if (pbByGala === undefined) continue;
+        const verdict = closeToCutVerdict(
+          pbByGala,
+          resolveBothCourses(
+            cutsByEvent.get(`${swimmer.gender}|${e.distance}|${e.stroke}`) ?? [],
+            galaRefs,
+            ages,
+          ),
+        );
+        if (verdict === null) continue;
+        closeEvents.push({
+          distance: e.distance,
+          stroke: e.stroke,
+          label: eventLabel(e.distance, e.stroke),
+          ...verdict,
+        });
+      }
+      if (closeEvents.length > 0) {
+        closeEvents.sort(compareCloseEvents);
+        closeToCut.push({
+          swimmerId: swimmer._id,
+          name: swimmer.name,
+          age,
+          events: closeEvents,
+        });
+      }
 
       // Trend: recent MEET times for the chosen top event (chronological).
       let trend: number[] = [];
@@ -321,8 +393,10 @@ export const getCoachDashboard = query({
         swimmers: swimmers.length,
         pbsThisWeek,
         cutsQualified,
-        closeToCut,
+        closeToCut: closeToCut.length,
       },
+      closeToCut: closeToCut.sort(compareCloseSwimmers),
+      qualifyingWindows: qualifyingWindowsByGala(galas),
       setup: {
         hasStandards: allStandards.length > 0,
         hasResults,
