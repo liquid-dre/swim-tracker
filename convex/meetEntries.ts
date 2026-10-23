@@ -723,12 +723,6 @@ export const recordEntryTime = mutation({
  */
 const MAX_PAST_MEETS = 40;
 
-/**
- * How far ahead the Upcoming list reaches: the next fixture and the one after
- * it. Enough to plan the fortnight, short enough that the nearest still leads.
- */
-const MAX_UPCOMING_MEETS = 2;
-
 /** One meet as a swimmer's own record of it. */
 const swimmerMeetEvent = v.object({
   /** The programme line, when this came from a sign-up. Null for a logged swim. */
@@ -782,8 +776,8 @@ const swimmerMeetBlock = v.object({
 export const getSwimmerMeets = query({
   args: { swimmerId: v.id("swimmers") },
   returns: v.object({
-    /** The next meets they are down for, nearest first; empty when nothing is ahead. */
-    upcoming: v.array(swimmerMeetBlock),
+    /** The next meet they are down for, or null when nothing is ahead. */
+    upcoming: v.union(swimmerMeetBlock, v.null()),
     past: v.array(swimmerMeetBlock),
     /** True when `past` stopped at the cap, so the screen can say so. */
     pastTruncated: v.boolean(),
@@ -793,7 +787,7 @@ export const getSwimmerMeets = query({
 
     const swimmer = await ctx.db.get(swimmerId);
     if (swimmer === null)
-      return { upcoming: [], past: [], pastTruncated: false };
+      return { upcoming: null, past: [], pastTruncated: false };
 
     // Prefix seek on `by_swimmer_meet` — the traversal the schema comment calls
     // "what am I down for?". There is no by_swimmer_date index, so the split
@@ -942,9 +936,9 @@ export const getSwimmerMeets = query({
     pastBlocks.sort((a, b) => b.startDate.localeCompare(a.startDate));
 
     return {
-      // The next two, nearest first: listing every future fixture would bury
-      // the one that matters most.
-      upcoming: upcomingBlocks.slice(0, MAX_UPCOMING_MEETS),
+      // Only the nearest: "what is next" is one meet, and listing four would
+      // bury it.
+      upcoming: upcomingBlocks[0] ?? null,
       past: pastBlocks.slice(0, MAX_PAST_MEETS),
       pastTruncated: pastBlocks.length > MAX_PAST_MEETS,
     };

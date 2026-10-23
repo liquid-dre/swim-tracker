@@ -21,10 +21,9 @@ import { formatTime } from "@/lib/swim";
   A swimmer's meets — the two questions a coach asks about one swimmer that no
   other tab on this profile answers.
 
-  UPCOMING is the next TWO meets, nearest first: the fixture ahead and the one
-  after it, so a coach can plan the fortnight without every future fixture
-  burying the nearest. The date is the point as much as the events are, so it
-  leads each card.
+  UPCOMING is deliberately ONE meet. "What is Andile down for next" has a single
+  answer, and listing four future fixtures would bury it. The date is the point
+  as much as the events are, so it leads.
 
   PAST expands in place rather than navigating. A coach checking what somebody
   went at the last gala should not lose the profile they were reading to find
@@ -67,31 +66,24 @@ export function SwimmerMeetsTab({
           <Skeleton className="h-12 w-full rounded-xl" />
         </div>
       ) : mode === "upcoming" ? (
-        data.upcoming.length === 0 ? (
+        data.upcoming === null ? (
           <Empty>
             {firstName} isn&rsquo;t entered for anything yet. Sign them up from
             a meet&rsquo;s programme.
           </Empty>
         ) : (
-          <div className="flex flex-col gap-3">
-            {data.upcoming.map((meet) => (
-              <section
-                key={meet.meetId}
-                className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm"
-              >
-                <header className="flex flex-col gap-2">
-                  <h3 className="text-base font-semibold text-ink">
-                    {meet.name}
-                  </h3>
-                  <MeetFacts meet={meet} />
-                </header>
-                <EventList
-                  events={meet.events}
-                  emptyLabel={`${firstName} is on this meet's sheet but not down for any event yet.`}
-                />
-              </section>
-            ))}
-          </div>
+          <section className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm">
+            <header className="flex flex-col gap-2">
+              <h3 className="text-base font-semibold text-ink">
+                {data.upcoming.name}
+              </h3>
+              <MeetFacts meet={data.upcoming} />
+            </header>
+            <EventList
+              events={data.upcoming.events}
+              emptyLabel={`${firstName} is on this meet's sheet but not down for any event yet.`}
+            />
+          </section>
         )
       ) : data.past.length === 0 ? (
         <Empty>
