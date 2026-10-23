@@ -16,7 +16,7 @@ import schema from "./schema";
   club that logs the second way, so both are read — and a swim that came through
   the sheet must not then be counted twice on its own meet.
 
-  UPCOMING IS ONE MEET. The nearest, not the next four.
+  UPCOMING IS THE NEXT TWO MEETS, nearest first — never every future fixture.
 
   ACCESS. A coach may read any swimmer; a viewer only their own. The gate is
   `requireSwimmerAccess`, the same one the profile itself uses.
@@ -82,8 +82,8 @@ async function setup() {
     });
     await ctx.db.insert("swimmerAccess", { profileId: viewer, swimmerId: swimmer });
 
-    // Three meets: one last month, one last week, one next week — plus a
-    // further one next month, which must NOT be the one Upcoming reports.
+    // Four meets: one last month, one last week, one next week, and one next
+    // month — Upcoming reports the last two, nearest first.
     const meet = async (name: string, startDate: string) =>
       await ctx.db.insert("meets", {
         name,
@@ -166,7 +166,7 @@ async function setup() {
         createdAt: 0,
       });
     }
-    // …and one at the meet AFTER it, to prove Upcoming reports the nearest.
+    // …and one at the meet AFTER it, which Upcoming lists second.
     await ctx.db.insert("meetEntries", {
       meetId: later,
       lineId: "line-free",
@@ -194,18 +194,57 @@ async function setup() {
 }
 
 describe("getSwimmerMeets", () => {
-  test("Upcoming is the NEAREST meet, with its events in programme order", async () => {
+  test("Upcoming is the next TWO meets, nearest first, events in programme order", async () => {
     const { asCoach, ids } = await setup();
     const data = await asCoach.query(api.meetEntries.getSwimmerMeets, {
       swimmerId: ids.swimmer,
     });
-    expect(data.upcoming?.name).toBe("2nd Seeded Gala");
-    expect(data.upcoming?.startDate).toBe(NEXT_WEEK);
+    expect(data.upcoming.map((m) => m.name)).toEqual([
+      "2nd Seeded Gala",
+      "3rd Seeded Gala",
+    ]);
+    expect(data.upcoming[0].startDate).toBe(NEXT_WEEK);
     // Entered back-first, but event 1 comes first — the event number IS the
     // running order (`compareMeetEvents`).
-    expect(data.upcoming?.events.map((e) => e.eventNumber)).toEqual([1, 2]);
+    expect(data.upcoming[0].events.map((e) => e.eventNumber)).toEqual([1, 2]);
     // Nothing swum yet: a plan, not a missing value.
-    expect(data.upcoming?.events.every((e) => e.timeMs === null)).toBe(true);
+    expect(data.upcoming[0].events.every((e) => e.timeMs === null)).toBe(true);
+  });
+
+  test("Upcoming stops at two, however many meets are ahead", async () => {
+    const { t, asCoach, ids } = await setup();
+    await t.run(async (ctx) => {
+      const id = await ctx.db.insert("meets", {
+        name: "4th Seeded Gala",
+        startDate: shiftDays(60),
+        course: "LCM",
+        events: [
+          { id: "l", eventNumber: 1, rawLabel: "100 Free", distance: 100, stroke: "FREE" },
+        ],
+        createdAt: 0,
+      });
+      await ctx.db.insert("meetEntries", {
+        meetId: id,
+        lineId: "l",
+        swimmerId: ids.swimmer,
+        clubId: ids.club,
+        meetStartDate: shiftDays(60),
+        swimDate: shiftDays(60),
+        rawLabel: "100 Free",
+        eventNumber: 1,
+        distance: 100,
+        stroke: "FREE",
+        enteredBy: (await ctx.db.query("profiles").first())!._id,
+        createdAt: 0,
+      });
+    });
+    const data = await asCoach.query(api.meetEntries.getSwimmerMeets, {
+      swimmerId: ids.swimmer,
+    });
+    expect(data.upcoming.map((m) => m.name)).toEqual([
+      "2nd Seeded Gala",
+      "3rd Seeded Gala",
+    ]);
   });
 
   test("Past includes a meet reached only through a logged result", async () => {
@@ -283,7 +322,7 @@ describe("getSwimmerMeets", () => {
     const data = await asCoach.query(api.meetEntries.getSwimmerMeets, {
       swimmerId: ids.swimmer,
     });
-    expect(data.upcoming?.meetId).toBe(todayMeet);
+    expect(data.upcoming[0]?.meetId).toBe(todayMeet);
     expect(data.past.some((m) => m.name === "Today Gala")).toBe(false);
   });
 
@@ -292,7 +331,7 @@ describe("getSwimmerMeets", () => {
     const data = await asCoach.query(api.meetEntries.getSwimmerMeets, {
       swimmerId: ids.other,
     });
-    expect(data).toEqual({ upcoming: null, past: [], pastTruncated: false });
+    expect(data).toEqual({ upcoming: [], past: [], pastTruncated: false });
   });
 
   test("a viewer reads their own swimmer and is refused another", async () => {
@@ -300,7 +339,7 @@ describe("getSwimmerMeets", () => {
     const mine = await asViewer.query(api.meetEntries.getSwimmerMeets, {
       swimmerId: ids.swimmer,
     });
-    expect(mine.upcoming?.name).toBe("2nd Seeded Gala");
+    expect(mine.upcoming[0]?.name).toBe("2nd Seeded Gala");
 
     await expect(
       asViewer.query(api.meetEntries.getSwimmerMeets, { swimmerId: ids.other }),
