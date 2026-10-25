@@ -431,10 +431,39 @@ export default defineSchema({
     approvedLevel: v.optional(coachLevel),
     decidedBy: v.optional(v.id("profiles")),
     decidedAt: v.optional(v.number()),
+    // When the requester dismissed a rejection ("continue without coach
+    // access"); until then the rejection holds their waiting screen.
+    seenAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_club_status", ["clubId", "status"])
     .index("by_profile", ["profileId"]),
+
+  // The club's coach-permission history, shown on its Permissions screen: who
+  // asked to join, who decided, and every level change or removal. Snapshots
+  // names (as accessEvents does) so the history reads true after a rename.
+  coachPermissionEvents: defineTable({
+    clubId: v.id("clubs"),
+    type: v.union(
+      v.literal("REQUESTED"),
+      v.literal("CANCELLED"),
+      v.literal("APPROVED"),
+      v.literal("REJECTED"),
+      v.literal("LEVEL_CHANGED"),
+      v.literal("REMOVED"),
+      v.literal("JOINED_BY_INVITE"),
+      v.literal("ASSIGNED_BY_ADMIN"),
+    ),
+    at: v.number(),
+    subjectProfileId: v.id("profiles"),
+    subjectName: v.string(),
+    subjectEmail: v.string(),
+    actorProfileId: v.id("profiles"),
+    actorName: v.string(),
+    fromLevel: v.optional(coachLevel),
+    toLevel: v.optional(coachLevel),
+    reason: v.optional(v.string()),
+  }).index("by_club_at", ["clubId", "at"]),
 
   // Self-service viewer access requests (access-control P2). A signed-in viewer
   // who has found their swimmer asks the owning club's coach for read access; the

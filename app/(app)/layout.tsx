@@ -4,6 +4,7 @@ import { AppSidebar } from "@/components/shell/AppSidebar";
 import { AppTopbar } from "@/components/shell/AppTopbar";
 import { RoleGuard } from "@/components/shell/RoleGuard";
 import { InviteRedeemer } from "@/components/shell/InviteRedeemer";
+import { CoachRequestGate } from "@/components/shell/CoachRequestGate";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 /*
@@ -24,13 +25,17 @@ export default async function AppLayout({
     <SidebarProvider defaultOpen={defaultOpen}>
       {/* Redeems a stashed coach invite once the session is live (P0). */}
       <InviteRedeemer />
-      <AppSidebar />
-      <SidebarInset>
-        <AppTopbar />
-        <div className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">
-          <RoleGuard>{children}</RoleGuard>
-        </div>
-      </SidebarInset>
+      {/* An open coach request with nothing behind it holds the whole app
+          behind "waiting for approval" (and files the sign-up request). */}
+      <CoachRequestGate>
+        <AppSidebar />
+        <SidebarInset>
+          <AppTopbar />
+          <div className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-6 md:px-8 md:py-8">
+            <RoleGuard>{children}</RoleGuard>
+          </div>
+        </SidebarInset>
+      </CoachRequestGate>
     </SidebarProvider>
   );
 }

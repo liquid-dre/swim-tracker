@@ -7,6 +7,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronRight, Droplets, LogOut, PanelLeftClose } from "lucide-react";
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useQuery } from "convex/react";
+
+import { api } from "@/convex/_generated/api";
 
 import {
   Collapsible,
@@ -20,6 +23,7 @@ import {
   SidebarGroup,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -77,6 +81,9 @@ export function AppSidebar() {
   // not a coach-collapsed view.
   const role: Role | undefined = profile == null ? undefined : accessRole(profile);
   const nav = role ? navForRole(role) : [];
+  const pendingRequests =
+    useQuery(api.coachPermissions.pendingCoachRequestCount, role === "COACH" ? {} : "skip") ??
+    0;
 
   return (
     <Sidebar collapsible="icon">
@@ -119,6 +126,15 @@ export function AppSidebar() {
                         <span>{node.label}</span>
                       </Link>
                     </SidebarMenuButton>
+                    {/* Coach requests waiting on this club's super coaches. */}
+                    {node.href === "/permissions" && pendingRequests > 0 && (
+                      <SidebarMenuBadge
+                        className="bg-brand-50 text-brand-600 tabular-nums"
+                        aria-label={`${pendingRequests} waiting`}
+                      >
+                        {pendingRequests}
+                      </SidebarMenuBadge>
+                    )}
                   </SidebarMenuItem>
                 );
               }

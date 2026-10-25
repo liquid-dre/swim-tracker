@@ -1,9 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, LogOut, UserCog, X } from "lucide-react";
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useMutation, useQuery } from "convex/react";
 
+import { api } from "@/convex/_generated/api";
+import { RequestCoachAccessSheet } from "@/components/permissions/RequestCoachAccessSheet";
+import { notify } from "@/lib/notify";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +34,14 @@ export function AppTopbar() {
   const role: Role | undefined = profile == null ? undefined : accessRole(profile);
   const { signOut } = useAuthActions();
   const router = useRouter();
+
+  // A parent who has started coaching asks a club from here; while that waits
+  // (their swimmers stay usable) the same item cancels it.
+  const isViewer = profile?.role === "VIEWER";
+  const myRequest = useQuery(api.coachPermissions.myCoachRequest, isViewer ? {} : "skip");
+  const cancelRequest = useMutation(api.coachPermissions.cancelMyCoachRequest);
+  const [askOpen, setAskOpen] = useState(false);
+  const pending = myRequest?.status === "PENDING" ? myRequest : null;
 
   const initials =
     profile?.name
@@ -74,6 +87,27 @@ export function AppTopbar() {
               </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            {isViewer &&
+              (pending ? (
+                <DropdownMenuItem
+                  onClick={() =>
+                    void notify
+                      .promise(cancelRequest({}), {
+                        loading: "Cancelling…",
+                        success: "Coach request cancelled",
+                      })
+                      .catch(() => {})
+                  }
+                >
+                  <X />
+                  Cancel coach request ({pending.clubName})
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={() => setAskOpen(true)}>
+                  <UserCog />
+                  Request coach access
+                </DropdownMenuItem>
+              ))}
             <DropdownMenuItem
               onClick={async () => {
                 await signOut();
@@ -86,6 +120,7 @@ export function AppTopbar() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {isViewer && <RequestCoachAccessSheet open={askOpen} onOpenChange={setAskOpen} />}
     </header>
   );
 }

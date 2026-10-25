@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { notify } from "@/lib/notify";
+import { COACH_LEVELS, coachLevelLabel, type CoachLevel } from "@/lib/coachLevel";
 import { trailForHref } from "@/lib/nav";
 import {
   AccountCombobox,
@@ -35,7 +36,7 @@ export function AdminClubsScreen() {
       <PageHeader
         title="Clubs & coaches"
         breadcrumb={trailForHref("/admin/clubs")}
-        description="Create clubs and put a coach in each — invite a new one by link, or assign an existing account. Coaches never choose their own club; each edits only their own club's swimmers, while times and rankings stay shared across every club."
+        description="Create clubs and give each its first super coach — invite a new one by link, or assign an existing account. After that, a club's super coaches approve the coaches who ask to join it, on their own Permissions screen."
       />
 
       <ClubsSection clubs={clubs} />
@@ -52,7 +53,33 @@ type CoachRow = {
   email: string;
   clubId: Id<"clubs"> | null;
   clubName: string | null;
+  level: CoachLevel;
 };
+
+const LEVEL_OPTIONS = COACH_LEVELS.map((l) => ({ value: l, label: coachLevelLabel(l) }));
+
+/** The role an invite or assignment grants — Super by default, a club's first. */
+function LevelField({
+  value,
+  onChange,
+  label,
+}: {
+  value: CoachLevel;
+  onChange: (level: CoachLevel) => void;
+  label: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5" style={{ minWidth: "10rem" }}>
+      <span className="text-sm font-medium text-gray-700">Role</span>
+      <Select
+        aria-label={label}
+        value={value}
+        onValueChange={(v) => onChange(v as CoachLevel)}
+        options={LEVEL_OPTIONS}
+      />
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Clubs
@@ -195,6 +222,7 @@ function CoachesSection({
   const accounts = useQuery(api.clubs.listAssignableAccounts, {});
   const [selected, setSelected] = useState<AssignableAccount | null>(null);
   const [clubId, setClubId] = useState<string>("");
+  const [level, setLevel] = useState<CoachLevel>("SUPER");
   const [saving, setSaving] = useState(false);
 
   const hasClubs = (clubs?.length ?? 0) > 0;
@@ -205,7 +233,11 @@ function CoachesSection({
     setSaving(true);
     try {
       await notify.promise(
-        assignCoach({ email: selected.email, clubId: clubId as Id<"clubs"> }),
+        assignCoach({
+          email: selected.email,
+          clubId: clubId as Id<"clubs">,
+          coachLevel: level,
+        }),
         { loading: "Assigning coach…", success: (r) => `${r?.name ?? "Coach"} assigned` },
       );
       setSelected(null);
@@ -243,6 +275,7 @@ function CoachesSection({
             options={(clubs ?? []).map((c) => ({ value: c._id, label: c.name }))}
           />
         </div>
+        <LevelField value={level} onChange={setLevel} label="Role for the coach" />
         <div className="pt-7">
           <Button
             type="submit"
@@ -265,6 +298,7 @@ function CoachesSection({
               <tr className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
                 <th scope="col" className="px-4 py-2.5 font-medium sm:px-5">Coach</th>
                 <th scope="col" className="hidden px-4 py-2.5 font-medium sm:table-cell">Club</th>
+                <th scope="col" className="hidden px-4 py-2.5 font-medium sm:table-cell">Role</th>
                 <th scope="col" className="px-4 py-2.5 text-right font-medium sm:px-5">Remove</th>
               </tr>
             </thead>
@@ -297,11 +331,14 @@ function CoachRowView({ coach }: { coach: CoachRow }) {
         <div className="font-medium text-ink">{coach.name}</div>
         <div className="text-xs text-ink-faint">{coach.email}</div>
         <div className="mt-0.5 text-xs text-ink-muted sm:hidden">
-          {coach.clubName ?? "No club"}
+          {coach.clubName ?? "No club"} · {coachLevelLabel(coach.level)}
         </div>
       </td>
       <td className="hidden px-4 py-3 text-ink-muted sm:table-cell">
         {coach.clubName ?? <span className="text-warning-600">No club</span>}
+      </td>
+      <td className="hidden px-4 py-3 text-ink-muted sm:table-cell">
+        {coachLevelLabel(coach.level)}
       </td>
       <td className="px-4 py-3 text-right sm:px-5">
         <button
@@ -353,6 +390,7 @@ type InviteRow = {
   clubName: string | null;
   token: string;
   createdAt: number;
+  level: CoachLevel;
 };
 
 function inviteLink(token: string): string {
@@ -365,6 +403,7 @@ function CoachInvitesSection({ clubs }: { clubs: ClubRow[] | undefined }) {
   const createInvite = useMutation(api.clubs.createCoachInvite);
   const [email, setEmail] = useState("");
   const [clubId, setClubId] = useState<string>("");
+  const [level, setLevel] = useState<CoachLevel>("SUPER");
   const [saving, setSaving] = useState(false);
 
   const hasClubs = (clubs?.length ?? 0) > 0;
@@ -374,7 +413,11 @@ function CoachInvitesSection({ clubs }: { clubs: ClubRow[] | undefined }) {
     if (email.trim() === "" || clubId === "" || saving) return;
     setSaving(true);
     try {
-      const res = await createInvite({ email, clubId: clubId as Id<"clubs"> });
+      const res = await createInvite({
+        email,
+        clubId: clubId as Id<"clubs">,
+        coachLevel: level,
+      });
       const link = inviteLink(res.token);
       const copied = await copyText(link);
       notify.success(
@@ -397,7 +440,7 @@ function CoachInvitesSection({ clubs }: { clubs: ClubRow[] | undefined }) {
       <SectionHeader
         icon={<Mail aria-hidden className="size-4 text-ink-faint" strokeWidth={1.75} />}
         title="Invite a coach"
-        hint="For someone without an account yet. We email a single-use sign-up link (and copy it here) that makes them a coach of this club the moment they join — they never pick their own club."
+        hint="For someone without an account yet. We email a single-use sign-up link (and copy it here) that makes them a coach of this club, at the role you pick, the moment they join — no approval step."
       />
 
       <form onSubmit={submit} className="flex flex-wrap items-end gap-2">
@@ -421,6 +464,7 @@ function CoachInvitesSection({ clubs }: { clubs: ClubRow[] | undefined }) {
             options={(clubs ?? []).map((c) => ({ value: c._id, label: c.name }))}
           />
         </div>
+        <LevelField value={level} onChange={setLevel} label="Role for the invite" />
         <Button
           type="submit"
           disabled={email.trim() === "" || clubId === "" || !hasClubs}
@@ -483,11 +527,11 @@ function InviteRowView({ invite }: { invite: InviteRow }) {
       <td className="px-4 py-3 sm:px-5">
         <div className="font-medium text-ink">{invite.email}</div>
         <div className="mt-0.5 text-xs text-ink-muted sm:hidden">
-          {invite.clubName ?? "Unknown club"}
+          {invite.clubName ?? "Unknown club"} · {coachLevelLabel(invite.level)}
         </div>
       </td>
       <td className="hidden px-4 py-3 text-ink-muted sm:table-cell">
-        {invite.clubName ?? "Unknown club"}
+        {invite.clubName ?? "Unknown club"} · {coachLevelLabel(invite.level)}
       </td>
       <td className="px-4 py-3 text-right sm:px-5">
         <div className="inline-flex items-center gap-1">
