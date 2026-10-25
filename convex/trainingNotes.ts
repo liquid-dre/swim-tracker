@@ -10,6 +10,7 @@ import {
   requireSwimmerAccess,
 } from "./authz";
 import { isAssistantCoach, isFullStaff } from "../lib/coachLevel";
+import { ownsSquad } from "./squads";
 
 /*
   Training notes (§R16). Dated coaching notes about training FOCUS, scoped to a
@@ -108,11 +109,7 @@ async function authorizeNoteWrite(
     if (!ids.squadId) throw new ConvexError("Pick a squad for this note.");
     const squad = await ctx.db.get(ids.squadId);
     if (!squad) throw new ConvexError("Squad not found.");
-    if (
-      profile.role !== "SUPER_USER" &&
-      squad.clubId !== undefined &&
-      squad.clubId !== profile.clubId
-    ) {
+    if (!ownsSquad(profile, squad)) {
       throw new ConvexError("You can only write notes on your own club's squads.");
     }
   }
@@ -241,9 +238,7 @@ function mayModifySquadNote(
   profile: Doc<"profiles">,
   squad: Doc<"squads">,
 ): boolean {
-  if (profile.role === "SUPER_USER") return true;
-  if (!isFullStaff(profile)) return false;
-  return squad.clubId === undefined || squad.clubId === profile.clubId;
+  return isFullStaff(profile) && ownsSquad(profile, squad);
 }
 
 /** Newest-first: by the phase date, then by when it was written (stable). */
@@ -381,6 +376,9 @@ export const getSquadTrainingNotes = query({
     const profile = await requireStaff(ctx);
     const squad = await ctx.db.get(args.squadId);
     if (!squad) throw new ConvexError("Squad not found.");
+    if (!ownsSquad(profile, squad)) {
+      throw new ConvexError("That squad is in another club.");
+    }
     const canModify = mayModifySquadNote(profile, squad);
 
     const notes = await ctx.db

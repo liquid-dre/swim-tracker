@@ -49,7 +49,10 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   lucide icons, TailAdmin-style but on our tokens). Nav IA (coach view): **Dashboard**; **Swimmers**
   (Roster, Squads, Log a time); **Performance** (Comparison, Progression, Stroke profile, Points,
   Season improvement); **Qualifying** (Status matrix, Road to qualify, Gala qualification, Standards);
-  **Meets** (a bare top-level item — one screen, so no group of one).
+  **Meets** (a bare top-level item — one screen, so no group of one); **Permissions** (a bare item,
+  Super coach + Admin only: coach join requests, coach levels, the junior/senior age split).
+  Assistant (Senior / Junior) coaches get the same IA minus every `fullStaffOnly` screen (Log a
+  time, Squads, Schedule, Audit, Permissions) — `accessRole` maps a profile to its nav key.
   The viewer nav is a **mirror of that IA under `/me`** — the same groups and the same screens, minus
   anything that edits — not the older Overview / Progress / History shape earlier revisions of this
   file described. `lib/nav.ts` is the single source of truth; it is deny-by-default, so a new viewer
@@ -264,8 +267,18 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   seed and the programme parser. Do not transcribe §4.3 a third time.
 - **The headline-PB rule has one copy too:** `fastestMeetSwim` in `lib/swim.ts`. It used to be
   written out in `computePersonalBests`, `logResult` and `getEventComparison` separately.
-- **Roles:** coaches edit; viewers are read-only and see only their linked swimmer(s), enforced
-  server-side in every query and mutation.
+- **Roles:** the Admin (`SUPER_USER`) sees every club; a `COACH` carries a **level** —
+  **Super** (absent `coachLevel` = Super: everything in their club, plus Permissions), **Senior** or
+  **Junior** (read the club; write ONLY swimmer training notes for their age group, editing only
+  notes they wrote). Junior = age today ≤ `clubs.juniorMaxAge` (default 12, per club); one copy of
+  that rule in `lib/coachLevel.ts`. `requireCoach` is the fail-closed WRITE gate (refuses
+  assistants), `requireStaff` the READ gate, `managesSwimmer` the one "may edit" rule. **Every coach
+  reads only their own club** (`staffSeesSwimmer` / `staffSwimmers` / `readableSwimmerSet`); a
+  clubless swimmer or squad is Admin-only until assigned in Admin › Unassigned. Coaches join by
+  REQUEST (`coachRequests`): approved with a level by the club's Super coaches or the Admin; a club
+  never loses its last Super coach to its own coaches. Viewers are read-only and see only their
+  linked swimmer(s). All of it enforced server-side in every query and mutation
+  (docs/access-control.md).
 
 ## Workflow
 Every UI step ends with the impeccable ≥ 35/40 gate. Prefer tables over card grids on data screens.

@@ -9,6 +9,8 @@ import {
   requireStaff,
   requireSignedIn,
   requireSuperUser,
+  staffSeesSwimmer,
+  staffSwimmers,
 } from "./authz";
 import { grantSwimmerAccess } from "./swimmerAccess";
 import { computeAge } from "../lib/swim";
@@ -248,15 +250,17 @@ export const listSwimmers = query({
         .withIndex("by_squad", (q) => q.eq("squadId", args.squadId!))
         .take(LIMIT);
       const loaded = await Promise.all(memberships.map((m) => ctx.db.get(m.swimmerId)));
-      swimmers = loaded.filter((s): s is NonNullable<typeof s> => s !== null);
+      // Own club only, even through another club's squad id.
+      swimmers = loaded.filter(
+        (s): s is NonNullable<typeof s> => s !== null && staffSeesSwimmer(profile, s),
+      );
       if (args.activeOnly) swimmers = swimmers.filter((s) => s.active);
-    } else if (args.activeOnly) {
-      swimmers = await ctx.db
-        .query("swimmers")
-        .withIndex("by_active", (q) => q.eq("active", true))
-        .take(LIMIT);
     } else {
-      swimmers = await ctx.db.query("swimmers").take(LIMIT);
+      // The coach's own club (the Admin, every club).
+      swimmers = await staffSwimmers(ctx, profile, {
+        activeOnly: args.activeOnly,
+        limit: LIMIT,
+      });
     }
 
     // Case-insensitive substring search on name, in memory (bounded set).
@@ -361,7 +365,8 @@ export const listForProfile = query({
     const LIMIT = 500;
     let swimmers;
     if (swimmerIds === "ALL") {
-      swimmers = await ctx.db.query("swimmers").take(LIMIT);
+      // Staff: their own club (the Admin, every club).
+      swimmers = await staffSwimmers(ctx, profile, { limit: LIMIT });
     } else {
       const loaded = await Promise.all(swimmerIds.map((id) => ctx.db.get(id)));
       swimmers = loaded.filter((s): s is NonNullable<typeof s> => s !== null);

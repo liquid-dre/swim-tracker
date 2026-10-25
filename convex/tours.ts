@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
-import { accessibleSwimmerIds } from "./authz";
+import { accessibleSwimmerIds, staffSwimmers } from "./authz";
 import { galaCodeValidator, loadGalas, toGalaRefs } from "./galas";
 import {
   computeAge,
@@ -89,7 +89,7 @@ export const getTourQualification = query({
   }),
   handler: async (ctx) => {
     // Staff → the active roster; a viewer → only their linked swimmer(s).
-    const { swimmerIds } = await accessibleSwimmerIds(ctx);
+    const { profile, swimmerIds } = await accessibleSwimmerIds(ctx);
 
     const galas = await loadGalas(ctx);
     const galaRefs = toGalaRefs(galas);
@@ -129,10 +129,11 @@ export const getTourQualification = query({
     // (active or not — a parent should still see their own child).
     let swimmers;
     if (swimmerIds === "ALL") {
-      swimmers = await ctx.db
-        .query("swimmers")
-        .withIndex("by_active", (q) => q.eq("active", true))
-        .take(QUAL_SWIMMERS_LIMIT);
+      // Staff: their own club's active roster (the Admin, every club's).
+      swimmers = await staffSwimmers(ctx, profile, {
+        activeOnly: true,
+        limit: QUAL_SWIMMERS_LIMIT,
+      });
     } else {
       const loaded = await Promise.all(swimmerIds.map((id) => ctx.db.get(id)));
       swimmers = loaded.filter((s): s is NonNullable<typeof s> => s !== null);

@@ -24,7 +24,7 @@ import {
   the route is reserved server-side (every clubs mutation requires the super-user)
   and in the shell (RoleGuard + isRouteAllowed). Two jobs: create the clubs, and
   assign each coach to one. A coach then edits only their own club's swimmers
-  (Phase 5), while times and rankings stay shared across every club.
+  (Phase 5) and, since coach levels, reads only their own club too.
 */
 
 export function AdminClubsScreen() {

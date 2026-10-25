@@ -1,9 +1,24 @@
 import { ConvexError, v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { assertCoachManagesSwimmer, requireCoach, requireStaff } from "./authz";
 
 // Squad management (BRD §5, Step 4). Coaches only. Membership is many-to-many
 // via the `squadMemberships` join table — a swimmer can be in several squads.
+// A squad belongs to a club (`squads.clubId`): a coach reads and edits only
+// their own club's squads; the Admin, every club's.
+
+/** Whether staff `profile` may see / manage `squad` — the squad's club rule. */
+export function ownsSquad(profile: Doc<"profiles">, squad: Doc<"squads">): boolean {
+  if (profile.role === "SUPER_USER") return true;
+  return profile.clubId != null && squad.clubId === profile.clubId;
+}
+
+function assertOwnsSquad(profile: Doc<"profiles">, squad: Doc<"squads">): void {
+  if (!ownsSquad(profile, squad)) {
+    throw new ConvexError("You can only manage your own club's squads.");
+  }
+}
 
 function cleanName(name: string): string {
   const trimmed = name.trim();
@@ -45,9 +60,10 @@ export const updateSquad = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
     const squad = await ctx.db.get(args.squadId);
     if (!squad) throw new ConvexError("Squad not found.");
+    assertOwnsSquad(profile, squad);
     const patch: Partial<{ name: string; description: string | undefined }> = {};
     if (args.name !== undefined) patch.name = cleanName(args.name);
     if (args.description !== undefined)
@@ -61,7 +77,10 @@ export const deleteSquad = mutation({
   args: { squadId: v.id("squads") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
+    const squad = await ctx.db.get(args.squadId);
+    if (!squad) return null; // already gone
+    assertOwnsSquad(profile, squad);
     // Remove the squad and its membership rows (swimmers themselves are kept).
     const memberships = await ctx.db
       .query("squadMemberships")
@@ -83,6 +102,7 @@ export const addToSquad = mutation({
     assertCoachManagesSwimmer(profile, swimmer);
     const squad = await ctx.db.get(args.squadId);
     if (!squad) throw new ConvexError("Squad not found.");
+    assertOwnsSquad(profile, squad);
 
     // Idempotent: don't create a duplicate membership.
     const existing = await ctx.db
@@ -134,8 +154,17 @@ export const listSquads = query({
     }),
   ),
   handler: async (ctx) => {
-    await requireStaff(ctx);
-    const squads = await ctx.db.query("squads").take(500);
+    const profile = await requireStaff(ctx);
+    // A coach's own club's squads; the Admin, every club's.
+    const squads =
+      profile.role === "SUPER_USER"
+        ? await ctx.db.query("squads").take(500)
+        : profile.clubId == null
+          ? []
+          : await ctx.db
+              .query("squads")
+              .withIndex("by_club", (q) => q.eq("clubId", profile.clubId))
+              .take(500);
     squads.sort((a, b) => a.name.localeCompare(b.name));
     return await Promise.all(
       squads.map(async (squad) => {

@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import {
   assertCoachManagesSwimmer,
   requireCoach,
+  staffSeesSwimmer,
   requireSignedIn,
 } from "./authz";
 import { recordAccessEvent } from "./audit";
@@ -231,7 +232,14 @@ export const listSwimmerViewers = query({
     }),
   ),
   handler: async (ctx, { swimmerId }) => {
-    await requireCoach(ctx);
+    // Full staff of the swimmer's own club (the Admin, any club): which parents
+    // are linked, and their emails, is not another club's business.
+    const profile = await requireCoach(ctx);
+    const swimmer = await ctx.db.get(swimmerId);
+    if (!swimmer) throw new ConvexError("Swimmer not found.");
+    if (!staffSeesSwimmer(profile, swimmer)) {
+      throw new ConvexError("That swimmer is in another club.");
+    }
 
     const links = await ctx.db
       .query("swimmerAccess")

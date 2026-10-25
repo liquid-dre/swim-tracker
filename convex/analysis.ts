@@ -3,8 +3,11 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
 import {
   accessibleSwimmerIds,
+  readableSwimmerSet,
   requireSwimmerAccess,
   requireSwimmersAccess,
+  staffSeesSwimmer,
+  staffSwimmers,
 } from "./authz";
 import {
   computeAge,
@@ -249,10 +252,9 @@ export const getEventComparison = query({
   handler: async (ctx, args) => {
     // Role-scoped. A coach / super-user sees the full cross-roster leaderboard;
     // a viewer sees only the swimmer(s) they are linked to (a parent comparing
-    // their own children against each other and the cut). accessibleSwimmerIds
-    // returns "ALL" for staff, so their leaderboard is unchanged.
-    const { swimmerIds } = await accessibleSwimmerIds(ctx);
-    const accessible = swimmerIds === "ALL" ? null : new Set(swimmerIds);
+    // their own children against each other and the cut). A coach ranks their
+    // own club; the Admin, every club (readableSwimmerSet).
+    const { readable: accessible } = await readableSwimmerSet(ctx);
     const galas = await loadGalas(ctx);
     const galaRefs = toGalaRefs(galas);
     const codeById = new Map(galas.map((g) => [g._id, g.code as GalaCode]));
@@ -712,9 +714,9 @@ export const getQualificationMatrix = query({
     qualifyingWindows: qualifyingWindowsValidator,
   }),
   handler: async (ctx, args) => {
-    // Role-scoped. Staff get the full roster (optionally squad-filtered); a
-    // viewer gets a matrix of only their linked swimmer(s).
-    const { swimmerIds } = await accessibleSwimmerIds(ctx);
+    // Role-scoped. Staff get their club's roster (optionally squad-filtered;
+    // the Admin, every club's); a viewer gets only their linked swimmer(s).
+    const { profile, swimmerIds } = await accessibleSwimmerIds(ctx);
     const galas = await loadGalas(ctx);
     const galaRefs = toGalaRefs(galas);
     const codeById = new Map(galas.map((g) => [g._id, g.code as GalaCode]));
@@ -782,9 +784,11 @@ export const getQualificationMatrix = query({
       const loaded = await Promise.all(
         memberships.map((m) => ctx.db.get(m.swimmerId)),
       );
-      swimmers = loaded.filter((s): s is NonNullable<typeof s> => s !== null);
+      swimmers = loaded.filter(
+        (s): s is NonNullable<typeof s> => s !== null && staffSeesSwimmer(profile, s),
+      );
     } else {
-      swimmers = await ctx.db.query("swimmers").take(MATRIX_SWIMMERS_LIMIT);
+      swimmers = await staffSwimmers(ctx, profile, { limit: MATRIX_SWIMMERS_LIMIT });
     }
 
     const today = new Date().toISOString().slice(0, 10);
@@ -1567,9 +1571,8 @@ export const getSeasonImprovement = query({
   }),
   handler: async (ctx, args) => {
     // Role-scoped. Staff rank the whole roster; a viewer ranks only their linked
-    // swimmer(s). accessibleSwimmerIds returns "ALL" for staff.
-    const { swimmerIds } = await accessibleSwimmerIds(ctx);
-    const accessible = swimmerIds === "ALL" ? null : new Set(swimmerIds);
+    // swimmer(s). A coach ranks their own club (readableSwimmerSet).
+    const { readable: accessible } = await readableSwimmerSet(ctx);
 
     // Resolve the season window: an explicit arg wins, then the stored setting,
     // then the rolling 12-month default. The effective start drives everything.
