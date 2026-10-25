@@ -2,6 +2,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { dedupeSwimmerIds } from "./attendanceLib";
+import { isFullStaff } from "../lib/coachLevel";
 
 // Shared server helpers for session attendance (§R18). Ctx-bound, so they live in
 // convex/ rather than the pure attendanceLib. No registered functions here.
@@ -21,7 +22,7 @@ export function assertManagesClub(
       "You aren't assigned to a club yet. Ask an admin to add you to one.",
     );
   }
-  if (profile.role !== "SUPER_USER" && profile.role !== "COACH") {
+  if (!isFullStaff(profile)) {
     throw new ConvexError("Only coaches can do that.");
   }
   if (clubId !== profile.clubId) {

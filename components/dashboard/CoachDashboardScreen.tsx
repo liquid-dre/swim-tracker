@@ -20,6 +20,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { SquadStats, RosterOverview } from "@/components/dashboard/squadOverview";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 import { useGreeting } from "@/lib/useGreeting";
+import { useStaffAccess } from "@/lib/useStaffAccess";
 import { trailForHref } from "@/lib/nav";
 
 /*
@@ -55,6 +56,7 @@ export function CoachDashboardScreen() {
   // Time-aware greeting as the heading. The breadcrumb still reads "Dashboard"
   // (where you are); the h1 greets by first name at the coach's local time.
   const greeting = useGreeting(profile?.name);
+  const { fullStaff } = useStaffAccess();
 
   // Stamp this visit ONCE and hold the previous visit in state — the anchor
   // for "since you were last here". State (not the live profile field) keeps
@@ -82,7 +84,11 @@ export function CoachDashboardScreen() {
         variant="water"
         title={greeting}
         breadcrumb={trailForHref("/dashboard")}
-        description="Log a swim and jump into your squad's readiness. Times you log flow straight into progression, the status matrix and the road to every cut."
+        description={
+          fullStaff
+            ? "Log a swim and jump into your squad's readiness. Times you log flow straight into progression, the status matrix and the road to every cut."
+            : "Your club's readiness at a glance: progression, the status matrix and the road to every cut."
+        }
       />
 
       {/* What changed while the coach was away — one calm, specific line.
@@ -114,31 +120,34 @@ export function CoachDashboardScreen() {
       {/* Squad at a glance — headline counts across the roster. */}
       <SquadStats data={dashboard} />
 
-      {/* Hero — log a time. The one action a coach reaches for most, poolside. */}
-      <section className="flex flex-col gap-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
-        <div className="flex items-start gap-4">
-          <span
-            aria-hidden
-            className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-500"
-          >
-            <Timer className="size-5" strokeWidth={1.75} />
-          </span>
-          <div className="min-w-0">
-            <h2 className="text-md font-semibold text-ink">Log a time</h2>
-            <p className="mt-1 max-w-[52ch] text-sm text-ink-muted">
-              Record a meet, trial or practice swim. The form keeps your last meet
-              and date, so entering a whole heat stays fast.
-            </p>
+      {/* Hero — log a time. The one action a coach reaches for most, poolside.
+          Not offered to an assistant coach, who enters no times. */}
+      {fullStaff && (
+        <section className="flex flex-col gap-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-theme-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="flex items-start gap-4">
+            <span
+              aria-hidden
+              className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-500"
+            >
+              <Timer className="size-5" strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-md font-semibold text-ink">Log a time</h2>
+              <p className="mt-1 max-w-[52ch] text-sm text-ink-muted">
+                Record a meet, trial or practice swim. The form keeps your last meet
+                and date, so entering a whole heat stays fast.
+              </p>
+            </div>
           </div>
-        </div>
-        <Link
-          href="/log"
-          className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-500 px-5 text-base font-medium text-white shadow-theme-xs outline-none transition-[background-color,transform] [transition-duration:var(--dur-1)] [transition-timing-function:var(--ease-standard)] hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98]"
-        >
-          <Timer className="size-4" aria-hidden />
-          Log a time
-        </Link>
-      </section>
+          <Link
+            href="/log"
+            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-500 px-5 text-base font-medium text-white shadow-theme-xs outline-none transition-[background-color,transform] [transition-duration:var(--dur-1)] [transition-timing-function:var(--ease-standard)] hover:bg-brand-600 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98]"
+          >
+            <Timer className="size-4" aria-hidden />
+            Log a time
+          </Link>
+        </section>
+      )}
 
       {/* Roster · top event — one representative event per swimmer, with trend. */}
       <RosterOverview data={dashboard} />

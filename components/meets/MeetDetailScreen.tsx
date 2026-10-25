@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
+import { useStaffAccess } from "@/lib/useStaffAccess";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -64,6 +65,9 @@ export function MeetDetailScreen({
   const deleteMeet = useMutation(api.meets.deleteMeet);
   const profile = useCurrentProfile();
   const canEdit = !isViewer && profile?.role === "SUPER_USER";
+  // Signing swimmers up and uploading summaries are Super Coach work; an
+  // assistant coach reads the programme, its tallies and the summaries.
+  const { fullStaff } = useStaffAccess();
   // Sign-ups across EVERY club, which is what `deleteMeet` refuses on. The
   // sheet's own counts are this club's; showing those here would let the
   // super-user read "nobody is entered" and then be refused anyway.
@@ -248,14 +252,14 @@ export function MeetDetailScreen({
         meet={meet}
         signups={isViewer ? undefined : tallies}
         upcoming={isUpcoming(meet, today)}
-        onOpenLine={isViewer ? undefined : setOpenLineId}
+        onOpenLine={isViewer || !fullStaff ? undefined : setOpenLineId}
       />
 
       {/* After the programme: a summary is written once the meet has been
           swum, and the programme is what a coach opens this page for first. */}
       {!isViewer && <MeetReports meetId={meetId} />}
 
-      {!isViewer && (
+      {!isViewer && fullStaff && (
         <MeetEntriesSheet
           meetId={meetId}
           lineId={openLineId}

@@ -109,11 +109,13 @@ export function RosterTable({
                 </td>
                 <td className="px-4 py-3 text-right sm:px-6">
                   {s.editable === false ? (
+                    // Coaches only list their own club, so a row they can't edit
+                    // means their coach role reads but doesn't edit swimmers.
                     <span
                       className="text-xs text-ink-faint"
-                      title="This swimmer belongs to another club"
+                      title="Your coach role can read swimmers but not edit them"
                     >
-                      Other club
+                      Read only
                     </span>
                   ) : (
                     <RowActions

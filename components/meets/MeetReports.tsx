@@ -17,6 +17,7 @@ import {
   reportContentType,
 } from "@/lib/meetReports";
 import { notify } from "@/lib/notify";
+import { useStaffAccess } from "@/lib/useStaffAccess";
 
 /*
   Meet summaries on the meet page — the coach's written report on how the club
@@ -41,6 +42,8 @@ type Report = {
 export function MeetReports({ meetId }: { meetId: Id<"meets"> }) {
   const reports = useQuery(api.meetReports.listMeetReports, { meetId });
   const generateUploadUrl = useMutation(api.meetReports.generateUploadUrl);
+  // An assistant coach reads summaries; uploading and removing is full staff.
+  const { fullStaff } = useStaffAccess();
   const addMeetReport = useMutation(api.meetReports.addMeetReport);
   const deleteMeetReport = useMutation(api.meetReports.deleteMeetReport);
 
@@ -128,15 +131,17 @@ export function MeetReports({ meetId }: { meetId: Id<"meets"> }) {
             if (file) void upload(file);
           }}
         />
-        <Button
-          variant="secondary"
-          size="sm"
-          loading={uploading}
-          onClick={() => inputRef.current?.click()}
-        >
-          {!uploading && <Upload className="size-4" aria-hidden />}
-          Upload summary
-        </Button>
+        {fullStaff && (
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={uploading}
+            onClick={() => inputRef.current?.click()}
+          >
+            {!uploading && <Upload className="size-4" aria-hidden />}
+            Upload summary
+          </Button>
+        )}
       </header>
 
       {reports === undefined ? (
@@ -145,8 +150,9 @@ export function MeetReports({ meetId }: { meetId: Id<"meets"> }) {
         </div>
       ) : reports.length === 0 ? (
         <p className="px-5 py-6 text-sm text-ink-muted">
-          No summary yet. Upload the gala report once results are in — a PDF,
-          Word document or photo of it.
+          {fullStaff
+            ? "No summary yet. Upload the gala report once results are in — a PDF, Word document or photo of it."
+            : "No summary yet."}
         </p>
       ) : (
         <ul className="divide-y divide-gray-200">
@@ -180,14 +186,16 @@ export function MeetReports({ meetId }: { meetId: Id<"meets"> }) {
                   {r.uploadedByName && ` · ${r.uploadedByName}`}
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label={`Remove ${r.fileName}`}
-                onClick={() => setDeleting(r)}
-              >
-                <Trash2 className="size-4" aria-hidden />
-              </Button>
+              {fullStaff && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Remove ${r.fileName}`}
+                  onClick={() => setDeleting(r)}
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                </Button>
+              )}
             </li>
           ))}
         </ul>

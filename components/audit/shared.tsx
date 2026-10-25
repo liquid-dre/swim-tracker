@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { roleLabel, type Role } from "@/lib/nav";
+import { roleLabel, type StoredRole as Role } from "@/lib/nav";
 
 /*
   Shared vocabulary for the two coach-only audit logs (§R17). Every status, event

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { requireStaff, staffSwimmers } from "./authz";
 import {
   computeAge,
   computeMatrixCell,
@@ -168,7 +168,7 @@ export const getCoachDashboard = query({
     roster: v.array(rosterRow),
   }),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
 
     const today = new Date().toISOString().slice(0, 10);
     const pbCutoff = new Date(Date.now() - PB_WINDOW_DAYS * 86_400_000)
@@ -205,11 +205,12 @@ export const getCoachDashboard = query({
       else cutsByEvent.set(key, [cut]);
     }
 
-    // The active roster only — the dashboard is "who's in the water now".
-    const swimmers = await ctx.db
-      .query("swimmers")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .take(DASH_SWIMMERS_LIMIT);
+    // The active roster only — the dashboard is "who's in the water now" —
+    // of the coach's own club (the Admin, every club).
+    const swimmers = await staffSwimmers(ctx, profile, {
+      activeOnly: true,
+      limit: DASH_SWIMMERS_LIMIT,
+    });
     swimmers.sort((a, b) => a.name.localeCompare(b.name));
 
     let pbsThisWeek = 0;

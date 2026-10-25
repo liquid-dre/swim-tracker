@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { requireCoach, requireStaff } from "./authz";
 import {
   assertManagesClub,
   attendanceBySwimmer,
@@ -253,7 +253,7 @@ export const listSessionsInRange = query({
   },
   returns: v.array(sessionSummary),
   handler: async (ctx, args) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
     if (!profile.clubId) return [];
     const from = cleanIsoDate(args.from);
     const to = cleanIsoDate(args.to);
@@ -408,7 +408,7 @@ export const getSessionRoster = query({
     roster: v.array(rosterEntry),
   }),
   handler: async (ctx, args) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
     const session = await ctx.db.get(args.sessionId);
     if (!session) throw new ConvexError("Session not found.");
     assertManagesClub(profile, session.clubId);

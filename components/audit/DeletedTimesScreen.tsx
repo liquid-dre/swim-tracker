@@ -14,7 +14,7 @@ import { DateField } from "@/components/ui/DateField";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { SchoolGalaBadge } from "@/components/ui/SchoolGalaBadge";
 import { trailForHref } from "@/lib/nav";
-import type { Role } from "@/lib/nav";
+import type { StoredRole as Role } from "@/lib/nav";
 import { formatTime, type SwimType } from "@/lib/swim";
 import { formatDateTime, formatShortDate } from "@/lib/format";
 import { RoleChip } from "./shared";

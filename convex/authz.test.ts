@@ -147,16 +147,20 @@ describe("viewer role (read-only, linked swimmers only)", () => {
     ).rejects.toThrow(/only view your own swimmer/i);
   });
 
-  test("listForProfile scopes to linked swimmers; staff see everyone", async () => {
-    const { asViewer, asCoach, ids } = await setup();
+  test("listForProfile scopes to linked swimmers; a coach to their club; the Admin sees all", async () => {
+    const { asViewer, asCoach, asSuper, ids } = await setup();
 
     const viewerList = await asViewer.query(api.swimmers.listForProfile, {});
     expect(viewerList.role).toBe("VIEWER");
     expect(viewerList.swimmers.map((s) => s._id)).toEqual([ids.swimmerA]);
 
+    // Own club only (docs/access-control.md) — Ben is Club B's.
     const coachList = await asCoach.query(api.swimmers.listForProfile, {});
     expect(coachList.role).toBe("COACH");
-    expect(new Set(coachList.swimmers.map((s) => s._id))).toEqual(
+    expect(coachList.swimmers.map((s) => s._id)).toEqual([ids.swimmerA]);
+
+    const adminList = await asSuper.query(api.swimmers.listForProfile, {});
+    expect(new Set(adminList.swimmers.map((s) => s._id))).toEqual(
       new Set([ids.swimmerA, ids.swimmerB]),
     );
   });
@@ -253,7 +257,7 @@ describe("galas (reference data is super-user; qualification is role-scoped)", (
   });
 
   test("qualification is scoped: a viewer sees ONLY their linked swimmer", async () => {
-    const { t, asViewer, asCoach, ids } = await setup();
+    const { t, asViewer, asCoach, asSuper, ids } = await setup();
 
     // Both swimmers qualify for SANJ 100 Free — Ava (F, linked to the viewer)
     // and Ben (M, unlinked).
@@ -305,13 +309,19 @@ describe("galas (reference data is super-user; qualification is role-scoped)", (
       }
     });
 
-    // The coach sees both; the viewer sees only Ava — across EVERY gala.
-    const coachView = await asCoach.query(api.tours.getTourQualification, {});
+    // The Admin sees both; Club A's coach only Ava (own club); the viewer
+    // only Ava (linked) — across EVERY gala.
+    const adminView = await asSuper.query(api.tours.getTourQualification, {});
     expect(
       new Set(
-        coachView.galas.flatMap((x) => x.swimmers.map((s) => s.swimmerId)),
+        adminView.galas.flatMap((x) => x.swimmers.map((s) => s.swimmerId)),
       ),
     ).toEqual(new Set([ids.swimmerA, ids.swimmerB]));
+
+    const coachView = await asCoach.query(api.tours.getTourQualification, {});
+    expect(
+      coachView.galas.flatMap((x) => x.swimmers.map((s) => s.swimmerId)),
+    ).toEqual([ids.swimmerA]);
 
     const viewerView = await asViewer.query(api.tours.getTourQualification, {});
     expect(

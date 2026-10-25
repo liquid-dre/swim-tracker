@@ -3,7 +3,7 @@ import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { readableSwimmerSet, requireCoach } from "./authz";
 import { eventLabel } from "../lib/swim";
 
 /*
@@ -242,6 +242,7 @@ export const listAccessLog = query({
   },
   handler: async (ctx, args) => {
     await requireCoach(ctx);
+    const { readable } = await readableSwimmerSet(ctx);
 
     // Newest-first over the append-only log; the most selective filter picks
     // the index, the rest refine it. Every index here ends on creation order,
@@ -269,7 +270,12 @@ export const listAccessLog = query({
         ),
       )
       .paginate(args.paginationOpts);
-    const events = paged.page;
+    // A Super Coach reads their own club's trail; the Admin, every club's. The
+    // club is a join, so it narrows after the page loads — a short page is
+    // fine, pagination carries on from the real cursor.
+    const events = paged.page.filter(
+      (ev) => readable === null || readable.has(ev.swimmerId),
+    );
 
     // Current status per (viewerEmail|swimmerId) link. active > pending > the
     // latest terminal event → revoked/expired. Live links/pendings win over any
@@ -379,6 +385,7 @@ export const listTimeEntryLog = query({
   },
   handler: async (ctx, args) => {
     await requireCoach(ctx);
+    const { readable } = await readableSwimmerSet(ctx);
 
     // Newest-entered first (createdAt ≈ _creationTime; there's no createdAt
     // index, and both the default index and by_swimmer end on creation order).
@@ -407,7 +414,10 @@ export const listTimeEntryLog = query({
         ),
       )
       .paginate(args.paginationOpts);
-    const results = paged.page;
+    // Own club only (the Admin, every club) — narrowed after the page loads.
+    const results = paged.page.filter(
+      (r) => readable === null || readable.has(r.swimmerId),
+    );
 
     const getProfile = profileResolver(ctx);
     const swimmerName = swimmerNameResolver(ctx);
@@ -467,8 +477,26 @@ export const listEnterers = query({
     }),
   ),
   handler: async (ctx) => {
-    await requireCoach(ctx);
-    const profiles = await ctx.db.query("profiles").take(500);
+    const caller = await requireCoach(ctx);
+    let profiles = await ctx.db.query("profiles").take(500);
+    if (caller.role !== "SUPER_USER") {
+      // A Super Coach filters by the people who can have entered their club's
+      // times: its own coaches, and parents linked to its swimmers.
+      const { readable } = await readableSwimmerSet(ctx);
+      const linkedViewers = new Set<Id<"profiles">>();
+      for (const id of readable ?? []) {
+        const links = await ctx.db
+          .query("swimmerAccess")
+          .withIndex("by_swimmer", (q) => q.eq("swimmerId", id))
+          .take(50);
+        for (const l of links) linkedViewers.add(l.profileId);
+      }
+      profiles = profiles.filter(
+        (p) =>
+          (p.role === "COACH" && p.clubId === caller.clubId) ||
+          linkedViewers.has(p._id),
+      );
+    }
     return profiles
       .map((p) => ({ _id: p._id, name: p.name, role: p.role }))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -494,6 +522,7 @@ export const listDeletedTimeLog = query({
   },
   handler: async (ctx, args) => {
     await requireCoach(ctx);
+    const { readable } = await readableSwimmerSet(ctx);
 
     // Both indexes end on `at`, so newest-first is an ordered index scan either
     // way — unlike Part B, which has no createdAt index to lean on.
@@ -522,25 +551,27 @@ export const listDeletedTimeLog = query({
       .paginate(args.paginationOpts);
 
     // Every name and role was snapshotted at deletion time, so there is nothing
-    // to join and — unlike Part B's role filter — nothing that has to be dropped
-    // after the page loads. A full page here is always a full page.
-    const page = paged.page.map((d) => ({
-      _id: d._id,
-      at: d.at,
-      actorName: d.actorName,
-      actorRole: d.actorRole as Role,
-      reason: d.reason ?? null,
-      swimmerId: d.swimmerId,
-      swimmerName: d.swimmerName,
-      label: eventLabel(d.distance, d.stroke),
-      course: d.course,
-      timeMs: d.timeMs,
-      swimType: d.swimType,
-      swimDate: d.swimDate,
-      enteredByName: d.enteredByName,
-      enteredByRole: d.enteredByRole as Role,
-      originalCreatedAt: d.originalCreatedAt,
-    }));
+    // to join. The one narrowing after the page loads is the club: a Super
+    // Coach reads their own club's deletions (the Admin, every club's).
+    const page = paged.page
+      .filter((d) => readable === null || readable.has(d.swimmerId))
+      .map((d) => ({
+        _id: d._id,
+        at: d.at,
+        actorName: d.actorName,
+        actorRole: d.actorRole as Role,
+        reason: d.reason ?? null,
+        swimmerId: d.swimmerId,
+        swimmerName: d.swimmerName,
+        label: eventLabel(d.distance, d.stroke),
+        course: d.course,
+        timeMs: d.timeMs,
+        swimType: d.swimType,
+        swimDate: d.swimDate,
+        enteredByName: d.enteredByName,
+        enteredByRole: d.enteredByRole as Role,
+        originalCreatedAt: d.originalCreatedAt,
+      }));
 
     return { ...paged, page };
   },

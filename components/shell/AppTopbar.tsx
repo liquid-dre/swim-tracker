@@ -1,9 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, LogOut, UserCog, X } from "lucide-react";
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useMutation, useQuery } from "convex/react";
 
+import { api } from "@/convex/_generated/api";
+import { RequestCoachAccessSheet } from "@/components/permissions/RequestCoachAccessSheet";
+import { notify } from "@/lib/notify";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { roleLabel, type Role } from "@/lib/nav";
+import { accessRole, roleLabel, type Role } from "@/lib/nav";
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
 
 /*
@@ -26,9 +31,17 @@ export function AppTopbar() {
   const profile = useCurrentProfile();
   // Unknown until the profile resolves — don't label a loading viewer "Coach".
   // The real role passes through so a SUPER_USER reads as "Admin", not "Coach".
-  const role: Role | undefined = profile == null ? undefined : profile.role;
+  const role: Role | undefined = profile == null ? undefined : accessRole(profile);
   const { signOut } = useAuthActions();
   const router = useRouter();
+
+  // A parent who has started coaching asks a club from here; while that waits
+  // (their swimmers stay usable) the same item cancels it.
+  const isViewer = profile?.role === "VIEWER";
+  const myRequest = useQuery(api.coachPermissions.myCoachRequest, isViewer ? {} : "skip");
+  const cancelRequest = useMutation(api.coachPermissions.cancelMyCoachRequest);
+  const [askOpen, setAskOpen] = useState(false);
+  const pending = myRequest?.status === "PENDING" ? myRequest : null;
 
   const initials =
     profile?.name
@@ -69,11 +82,32 @@ export function AppTopbar() {
                 {profile?.name ?? "Signed in"}
               </span>
               <span className="block truncate text-xs text-ink-muted">
-                {role ? roleLabel(role) : ""}
+                {profile ? roleLabel(profile.role, profile.coachLevel) : ""}
                 {profile?.email ? ` · ${profile.email}` : ""}
               </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            {isViewer &&
+              (pending ? (
+                <DropdownMenuItem
+                  onClick={() =>
+                    void notify
+                      .promise(cancelRequest({}), {
+                        loading: "Cancelling…",
+                        success: "Coach request cancelled",
+                      })
+                      .catch(() => {})
+                  }
+                >
+                  <X />
+                  Cancel coach request ({pending.clubName})
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem onClick={() => setAskOpen(true)}>
+                  <UserCog />
+                  Request coach access
+                </DropdownMenuItem>
+              ))}
             <DropdownMenuItem
               onClick={async () => {
                 await signOut();
@@ -86,6 +120,7 @@ export function AppTopbar() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {isViewer && <RequestCoachAccessSheet open={askOpen} onOpenChange={setAskOpen} />}
     </header>
   );
 }

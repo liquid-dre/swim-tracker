@@ -1,8 +1,17 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { requireCoach, requireSignedIn, requireSuperUser } from "./authz";
+import { requireSignedIn, requireSuperUser } from "./authz";
+import { closePendingRequest, recordPermissionEvent } from "./coachPermissions";
+import { coachLevelOf } from "../lib/coachLevel";
+
+const coachLevelValidator = v.union(
+  v.literal("SUPER"),
+  v.literal("SENIOR"),
+  v.literal("JUNIOR"),
+);
 
 // Club administration (access-control Phase 4c). A club owns swimmers and is the
 // edit boundary for coaches (Phase 5). Only the SUPER_USER creates clubs and
@@ -44,7 +53,7 @@ export const renameClub = mutation({
 });
 
 // ---------------------------------------------------------------------------
-// listClubs — every club with its coach / swimmer counts (staff read)
+// listClubs — every club with its coach / swimmer counts (Admin read)
 // ---------------------------------------------------------------------------
 
 export const listClubs = query({
@@ -58,7 +67,9 @@ export const listClubs = query({
     }),
   ),
   handler: async (ctx) => {
-    await requireCoach(ctx); // staff (coach or super-user)
+    // The Admin only: another club's coach and swimmer counts are not a
+    // coach's business now that every coach reads only their own club.
+    await requireSuperUser(ctx);
     const clubs = await ctx.db.query("clubs").take(200);
     const out = [];
     for (const club of clubs) {
@@ -140,6 +151,7 @@ export const listCoaches = query({
       email: v.string(),
       clubId: v.union(v.id("clubs"), v.null()),
       clubName: v.union(v.string(), v.null()),
+      level: coachLevelValidator,
     }),
   ),
   handler: async (ctx) => {
@@ -157,6 +169,7 @@ export const listCoaches = query({
         email: c.email,
         clubId: c.clubId ?? null,
         clubName: club?.name ?? null,
+        level: coachLevelOf(c) ?? "SUPER",
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -171,14 +184,19 @@ export const listCoaches = query({
 // signed up), looked up by the email they used, normalised the same way auth
 // stores it. Setting a coach's club is also how you MOVE a coach between clubs.
 export const assignCoachToClub = mutation({
-  args: { email: v.string(), clubId: v.id("clubs") },
+  // The level defaults to SUPER — this is how a new club gets its first.
+  args: {
+    email: v.string(),
+    clubId: v.id("clubs"),
+    coachLevel: v.optional(coachLevelValidator),
+  },
   returns: v.object({
     profileId: v.id("profiles"),
     name: v.string(),
     email: v.string(),
   }),
-  handler: async (ctx, { email, clubId }) => {
-    await requireSuperUser(ctx);
+  handler: async (ctx, { email, clubId, coachLevel }) => {
+    const admin = await requireSuperUser(ctx);
 
     const club = await ctx.db.get(clubId);
     if (!club) throw new ConvexError("That club no longer exists.");
@@ -199,7 +217,17 @@ export const assignCoachToClub = mutation({
       throw new ConvexError("That account is a super-user and already sees every club.");
     }
 
-    await ctx.db.patch(profile._id, { role: "COACH", clubId });
+    const level = coachLevel ?? "SUPER";
+    await ctx.db.patch(profile._id, { role: "COACH", clubId, coachLevel: level });
+    await closePendingRequest(ctx, profile._id, admin._id);
+    await recordPermissionEvent(ctx, {
+      clubId,
+      type: "ASSIGNED_BY_ADMIN",
+      subject: profile,
+      actor: admin,
+      fromLevel: profile.clubId === clubId ? (coachLevelOf(profile) ?? undefined) : undefined,
+      toLevel: level,
+    });
     return { profileId: profile._id, name: profile.name, email: profile.email };
   },
 });
@@ -212,13 +240,28 @@ export const removeCoach = mutation({
   args: { profileId: v.id("profiles") },
   returns: v.null(),
   handler: async (ctx, { profileId }) => {
-    await requireSuperUser(ctx);
+    // The Admin is not bound by the last-Super-Coach guard: they are how a
+    // club is put right when that matters (coachPermissions.ts).
+    const admin = await requireSuperUser(ctx);
     const profile = await ctx.db.get(profileId);
     if (!profile) return null;
     if (profile.role !== "COACH") {
       throw new ConvexError("That account is not a coach.");
     }
-    await ctx.db.patch(profileId, { role: "VIEWER", clubId: undefined });
+    await ctx.db.patch(profileId, {
+      role: "VIEWER",
+      clubId: undefined,
+      coachLevel: undefined,
+    });
+    if (profile.clubId) {
+      await recordPermissionEvent(ctx, {
+        clubId: profile.clubId,
+        type: "REMOVED",
+        subject: profile,
+        actor: admin,
+        fromLevel: coachLevelOf(profile) ?? "SUPER",
+      });
+    }
     return null;
   },
 });
@@ -246,9 +289,14 @@ function normaliseEmail(raw: string): string {
 }
 
 export const createCoachInvite = mutation({
-  args: { email: v.string(), clubId: v.id("clubs") },
+  // The level the redeemer gets; defaults to SUPER (a club's first coach).
+  args: {
+    email: v.string(),
+    clubId: v.id("clubs"),
+    coachLevel: v.optional(coachLevelValidator),
+  },
   returns: v.object({ token: v.string(), email: v.string(), clubName: v.string() }),
-  handler: async (ctx, { email, clubId }) => {
+  handler: async (ctx, { email, clubId, coachLevel }) => {
     const admin = await requireSuperUser(ctx);
 
     const club = await ctx.db.get(clubId);
@@ -276,6 +324,7 @@ export const createCoachInvite = mutation({
       token,
       createdAt: Date.now(),
       createdBy: admin._id,
+      coachLevel: coachLevel ?? "SUPER",
     });
 
     // Best-effort invite email (no-op if Resend isn't configured).
@@ -298,6 +347,7 @@ export const listCoachInvites = query({
       clubName: v.union(v.string(), v.null()),
       token: v.string(),
       createdAt: v.number(),
+      level: coachLevelValidator,
     }),
   ),
   handler: async (ctx) => {
@@ -313,6 +363,7 @@ export const listCoachInvites = query({
         clubName: club?.name ?? null,
         token: i.token,
         createdAt: i.createdAt,
+        level: i.coachLevel ?? "SUPER",
       });
     }
     return out.sort((a, b) => b.createdAt - a.createdAt);
@@ -379,10 +430,24 @@ export const redeemCoachInvite = mutation({
       throw new ConvexError("You're a super-user and already manage every club.");
     }
 
-    await ctx.db.patch(profile._id, { role: "COACH", clubId: invite.clubId });
+    // Possession of the token skips approval: the Admin already decided.
+    const level = invite.coachLevel ?? "SUPER";
+    await ctx.db.patch(profile._id, {
+      role: "COACH",
+      clubId: invite.clubId,
+      coachLevel: level,
+    });
     await ctx.db.patch(invite._id, {
       redeemedAt: Date.now(),
       redeemedBy: profile._id,
+    });
+    await closePendingRequest(ctx, profile._id, profile._id);
+    await recordPermissionEvent(ctx, {
+      clubId: invite.clubId,
+      type: "JOINED_BY_INVITE",
+      subject: profile,
+      actor: profile,
+      toLevel: level,
     });
     return { clubName: club.name };
   },
@@ -390,3 +455,147 @@ export const redeemCoachInvite = mutation({
 
 // Type export for the admin screen (kept alongside the queries it comes from).
 export type ClubId = Id<"clubs">;
+
+// ---------------------------------------------------------------------------
+// Unassigned — the backfill before every read becomes own-club (Admin)
+// ---------------------------------------------------------------------------
+//
+// Coaches read only their own club (docs/access-control.md), so a swimmer or a
+// squad with no club is invisible to every coach. Swimmers carry no "created
+// by", so no rule can recover their club: the Admin assigns them here. A squad
+// CAN be inferred — when every member is in one club, it is that club's — and
+// `inferSquadClubs` fills those in; empty and mixed squads stay for a person.
+
+/** The single club every member of a squad shares, or null (none / mixed). */
+async function unanimousMemberClub(
+  ctx: QueryCtx,
+  squadId: Id<"squads">,
+): Promise<Id<"clubs"> | null> {
+  const memberships = await ctx.db
+    .query("squadMemberships")
+    .withIndex("by_squad", (q) => q.eq("squadId", squadId))
+    .take(500);
+  let club: Id<"clubs"> | null = null;
+  for (const m of memberships) {
+    const swimmer = await ctx.db.get(m.swimmerId);
+    if (!swimmer?.clubId) return null; // an unassigned member decides nothing
+    if (club !== null && club !== swimmer.clubId) return null;
+    club = swimmer.clubId;
+  }
+  return club;
+}
+
+export const listUnassigned = query({
+  args: {},
+  returns: v.object({
+    swimmers: v.array(
+      v.object({
+        _id: v.id("swimmers"),
+        name: v.string(),
+        active: v.boolean(),
+        squadNames: v.array(v.string()),
+      }),
+    ),
+    squads: v.array(
+      v.object({
+        _id: v.id("squads"),
+        name: v.string(),
+        memberCount: v.number(),
+        // The club every member shares, when they all share one.
+        suggestedClubId: v.union(v.id("clubs"), v.null()),
+        suggestedClubName: v.union(v.string(), v.null()),
+      }),
+    ),
+  }),
+  handler: async (ctx) => {
+    await requireSuperUser(ctx);
+    const unassignedSwimmers = await ctx.db
+      .query("swimmers")
+      .withIndex("by_club", (q) => q.eq("clubId", undefined))
+      .take(1000);
+    const swimmers = [];
+    for (const s of unassignedSwimmers) {
+      const memberships = await ctx.db
+        .query("squadMemberships")
+        .withIndex("by_swimmer", (q) => q.eq("swimmerId", s._id))
+        .take(20);
+      const squadNames: string[] = [];
+      for (const m of memberships) {
+        const squad = await ctx.db.get(m.squadId);
+        if (squad) squadNames.push(squad.name);
+      }
+      swimmers.push({ _id: s._id, name: s.name, active: s.active, squadNames });
+    }
+    swimmers.sort((a, b) => a.name.localeCompare(b.name));
+
+    const unassignedSquads = await ctx.db
+      .query("squads")
+      .withIndex("by_club", (q) => q.eq("clubId", undefined))
+      .take(500);
+    const squads = [];
+    for (const sq of unassignedSquads) {
+      const memberCount = (
+        await ctx.db
+          .query("squadMemberships")
+          .withIndex("by_squad", (q) => q.eq("squadId", sq._id))
+          .take(500)
+      ).length;
+      const suggested = await unanimousMemberClub(ctx, sq._id);
+      squads.push({
+        _id: sq._id,
+        name: sq.name,
+        memberCount,
+        suggestedClubId: suggested,
+        suggestedClubName: suggested ? ((await ctx.db.get(suggested))?.name ?? null) : null,
+      });
+    }
+    squads.sort((a, b) => a.name.localeCompare(b.name));
+    return { swimmers, squads };
+  },
+});
+
+/** Give every squad whose members all share a club that club. Returns how many. */
+export const inferSquadClubs = mutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx) => {
+    await requireSuperUser(ctx);
+    const squads = await ctx.db
+      .query("squads")
+      .withIndex("by_club", (q) => q.eq("clubId", undefined))
+      .take(500);
+    let filled = 0;
+    for (const sq of squads) {
+      const club = await unanimousMemberClub(ctx, sq._id);
+      if (club === null) continue;
+      await ctx.db.patch(sq._id, { clubId: club });
+      filled++;
+    }
+    return filled;
+  },
+});
+
+/** Put the chosen swimmers and squads in one club. */
+export const bulkAssignClub = mutation({
+  args: {
+    clubId: v.id("clubs"),
+    swimmerIds: v.array(v.id("swimmers")),
+    squadIds: v.array(v.id("squads")),
+  },
+  returns: v.null(),
+  handler: async (ctx, { clubId, swimmerIds, squadIds }) => {
+    await requireSuperUser(ctx);
+    if (swimmerIds.length + squadIds.length > 500) {
+      throw new ConvexError("Assign at most 500 at a time.");
+    }
+    const club = await ctx.db.get(clubId);
+    if (!club) throw new ConvexError("That club no longer exists.");
+    for (const id of swimmerIds) {
+      if (await ctx.db.get(id)) await ctx.db.patch(id, { clubId });
+    }
+    for (const id of squadIds) {
+      if (await ctx.db.get(id)) await ctx.db.patch(id, { clubId });
+    }
+    return null;
+  },
+});

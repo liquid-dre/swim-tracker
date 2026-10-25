@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { requireCoach, requireStaff } from "./authz";
 import { loadMeetOrThrow, requireClub } from "./meetEntriesShared";
 import {
   MAX_REPORT_BYTES,
@@ -123,7 +123,7 @@ export const listMeetReports = query({
     }),
   ),
   handler: async (ctx, { meetId }) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
     if (!profile.clubId) return [];
     await loadMeetOrThrow(ctx, meetId);
 

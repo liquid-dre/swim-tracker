@@ -1,12 +1,16 @@
 import { ConvexError, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import {
   accessibleSwimmerIds,
   assertCoachManagesSwimmer,
+  managesSwimmer,
   requireCoach,
+  requireStaff,
   requireSignedIn,
   requireSuperUser,
+  staffSeesSwimmer,
+  staffSwimmers,
 } from "./authz";
 import { grantSwimmerAccess } from "./swimmerAccess";
 import { computeAge } from "../lib/swim";
@@ -231,11 +235,9 @@ export const listSwimmers = query({
   },
   returns: v.array(swimmerRow),
   handler: async (ctx, args) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
     // A super-user edits every swimmer; a coach edits only their own club's.
-    const canEdit = (s: { clubId?: Id<"clubs"> }): boolean =>
-      profile.role === "SUPER_USER" ||
-      (profile.clubId != null && s.clubId === profile.clubId);
+    const canEdit = (s: Doc<"swimmers">): boolean => managesSwimmer(profile, s);
 
     // Bounded read: a club roster is small, but cap defensively (guidelines).
     const LIMIT = 500;
@@ -248,15 +250,17 @@ export const listSwimmers = query({
         .withIndex("by_squad", (q) => q.eq("squadId", args.squadId!))
         .take(LIMIT);
       const loaded = await Promise.all(memberships.map((m) => ctx.db.get(m.swimmerId)));
-      swimmers = loaded.filter((s): s is NonNullable<typeof s> => s !== null);
+      // Own club only, even through another club's squad id.
+      swimmers = loaded.filter(
+        (s): s is NonNullable<typeof s> => s !== null && staffSeesSwimmer(profile, s),
+      );
       if (args.activeOnly) swimmers = swimmers.filter((s) => s.active);
-    } else if (args.activeOnly) {
-      swimmers = await ctx.db
-        .query("swimmers")
-        .withIndex("by_active", (q) => q.eq("active", true))
-        .take(LIMIT);
     } else {
-      swimmers = await ctx.db.query("swimmers").take(LIMIT);
+      // The coach's own club (the Admin, every club).
+      swimmers = await staffSwimmers(ctx, profile, {
+        activeOnly: args.activeOnly,
+        limit: LIMIT,
+      });
     }
 
     // Case-insensitive substring search on name, in memory (bounded set).
@@ -313,7 +317,9 @@ export const listSwimmers = query({
           dob: s.dob,
           gender: s.gender,
           active: s.active,
-          notes: s.notes,
+          // SENSITIVE: only someone who manages the swimmer reads the coach notes
+          // (never an assistant coach, never another club).
+          notes: canEdit(s) ? s.notes : undefined,
           clubId: s.clubId,
           clubName: await clubNameFor(s.clubId),
           createdAt: s.createdAt,
@@ -359,7 +365,8 @@ export const listForProfile = query({
     const LIMIT = 500;
     let swimmers;
     if (swimmerIds === "ALL") {
-      swimmers = await ctx.db.query("swimmers").take(LIMIT);
+      // Staff: their own club (the Admin, every club).
+      swimmers = await staffSwimmers(ctx, profile, { limit: LIMIT });
     } else {
       const loaded = await Promise.all(swimmerIds.map((id) => ctx.db.get(id)));
       swimmers = loaded.filter((s): s is NonNullable<typeof s> => s !== null);

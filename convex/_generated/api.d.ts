@@ -18,6 +18,7 @@ import type * as audit from "../audit.js";
 import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as clubs from "../clubs.js";
+import type * as coachPermissions from "../coachPermissions.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as emails from "../emails.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   authz: typeof authz;
   clubs: typeof clubs;
+  coachPermissions: typeof coachPermissions;
   crons: typeof crons;
   dashboard: typeof dashboard;
   emails: typeof emails;

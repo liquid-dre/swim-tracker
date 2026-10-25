@@ -3,6 +3,12 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { authorizeResultWrite, type SwimType } from "../lib/swim";
+import {
+  coachLevelOf,
+  isFullStaff,
+  juniorMaxAgeOf,
+  levelCoversSwimmer,
+} from "../lib/coachLevel";
 
 // Server-side authorization helpers. Every query and mutation authenticates
 // through these — access control is never trusted to the client (CLAUDE.md:
@@ -38,14 +44,13 @@ export async function requireSignedIn(
 }
 
 /**
- * Assert the caller has STAFF (coach-level) access and return their profile.
- * Coach screens (swimmers, squads, logging, cross-roster analysis) gate on this.
- * A SUPER_USER is a superset of a coach, so they pass too; a VIEWER is rejected
- * server-side (BRD §2) — the client never gets to decide. Club-scoped editing
- * (a coach only edits their own club) is layered on top in Phase 5; this gate is
- * the coarse "is this a staff member at all" check.
+ * Assert the caller is STAFF — the Admin or a coach of ANY level — and return
+ * their profile. The READ gate for coach screens (roster, analysis, attendance,
+ * meets, squads): an assistant (Senior / Junior) coach reads what a Super Coach
+ * reads. A VIEWER is rejected server-side (BRD §2). Never use this to gate a
+ * write — that is `requireCoach`.
  */
-export async function requireCoach(
+export async function requireStaff(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"profiles">> {
   const profile = await getProfile(ctx);
@@ -54,6 +59,79 @@ export async function requireCoach(
   }
   if (profile.role === "VIEWER") {
     throw new ConvexError("Only coaches can do that.");
+  }
+  return profile;
+}
+
+/**
+ * Assert the caller has FULL coach access — the Admin or a Super Coach — and
+ * return their profile. The WRITE gate for everything except a training note,
+ * and the read gate for staff-only-of-staff screens (Audit, viewer access).
+ *
+ * Deliberately fail-closed: an assistant coach is refused here, so a write that
+ * forgets to think about coach levels blocks them rather than letting them in.
+ * A read that assistants should see opts in by using `requireStaff` instead.
+ */
+export async function requireCoach(
+  ctx: QueryCtx | MutationCtx,
+): Promise<Doc<"profiles">> {
+  const profile = await requireStaff(ctx);
+  if (!isFullStaff(profile)) {
+    throw new ConvexError(
+      "Your coach role can read the club but only write training notes.",
+    );
+  }
+  return profile;
+}
+
+/**
+ * Whether `profile` MANAGES `swimmer` — may edit them, enter their times and see
+ * their sensitive fields. The Admin manages everyone; a Super Coach manages their
+ * own club's swimmers; assistants and viewers manage no one. The single copy of
+ * the rule `assertCoachManagesSwimmer`, `assertMayWriteResult` and every
+ * `editable` / `canEdit` flag read from.
+ */
+export function managesSwimmer(
+  profile: Doc<"profiles">,
+  swimmer: Doc<"swimmers">,
+): boolean {
+  if (profile.role === "SUPER_USER") return true;
+  if (coachLevelOf(profile) !== "SUPER") return false;
+  return profile.clubId != null && swimmer.clubId === profile.clubId;
+}
+
+/**
+ * Whether `profile` may write a SWIMMER training note on `swimmer` today: anyone
+ * who manages them, or an assistant coach of the swimmer's club whose level
+ * covers the swimmer's age group (lib/coachLevel.ts). Loads the club for its
+ * junior/senior split.
+ */
+export async function mayWriteNoteFor(
+  ctx: QueryCtx | MutationCtx,
+  profile: Doc<"profiles">,
+  swimmer: Doc<"swimmers">,
+): Promise<boolean> {
+  if (managesSwimmer(profile, swimmer)) return true;
+  const level = coachLevelOf(profile);
+  if (level === null || level === "SUPER") return false;
+  if (profile.clubId == null || swimmer.clubId !== profile.clubId) return false;
+  const club = await ctx.db.get(profile.clubId);
+  const today = new Date().toISOString().slice(0, 10);
+  return levelCoversSwimmer(level, swimmer.dob, today, juniorMaxAgeOf(club));
+}
+
+/**
+ * Assert the caller is the Admin or a SUPER coach OF `clubId` — the gate for a
+ * club's Permissions (join requests, coach levels, the age split).
+ */
+export async function requireSuperCoachOf(
+  ctx: QueryCtx | MutationCtx,
+  clubId: Id<"clubs">,
+): Promise<Doc<"profiles">> {
+  const profile = await requireCoach(ctx);
+  if (profile.role === "SUPER_USER") return profile;
+  if (profile.clubId !== clubId) {
+    throw new ConvexError("You can only manage your own club's permissions.");
   }
   return profile;
 }
@@ -78,8 +156,52 @@ export async function requireSuperUser(
 }
 
 /**
+ * Whether STAFF `profile` may read `swimmer`: the Admin reads every club; a
+ * coach of any level reads only their own club (docs/access-control.md, "own
+ * club only"). A coach with no club reads no one. The single copy of the staff
+ * read boundary — every staff listing filters through it or `staffSwimmers`.
+ */
+export function staffSeesSwimmer(
+  profile: Doc<"profiles">,
+  swimmer: Pick<Doc<"swimmers">, "clubId">,
+): boolean {
+  if (profile.role === "SUPER_USER") return true;
+  return profile.clubId != null && swimmer.clubId === profile.clubId;
+}
+
+/**
+ * The swimmers a STAFF caller may list, read through the narrowest index: the
+ * Admin's whole roster, or the coach's own club. `activeOnly` drops inactive
+ * swimmers. Bounded (a club roster is small; §11.1).
+ */
+export async function staffSwimmers(
+  ctx: QueryCtx | MutationCtx,
+  profile: Doc<"profiles">,
+  opts: { activeOnly?: boolean; limit?: number } = {},
+): Promise<Doc<"swimmers">[]> {
+  const limit = opts.limit ?? 1000;
+  let rows: Doc<"swimmers">[];
+  if (profile.role === "SUPER_USER") {
+    rows = opts.activeOnly
+      ? await ctx.db
+          .query("swimmers")
+          .withIndex("by_active", (q) => q.eq("active", true))
+          .take(limit)
+      : await ctx.db.query("swimmers").take(limit);
+  } else if (profile.clubId == null) {
+    rows = [];
+  } else {
+    rows = await ctx.db
+      .query("swimmers")
+      .withIndex("by_club", (q) => q.eq("clubId", profile.clubId))
+      .take(limit);
+  }
+  return opts.activeOnly ? rows.filter((s) => s.active) : rows;
+}
+
+/**
  * Assert the caller is signed in and MAY see this swimmer, returning their
- * profile. Coaches see everyone; a VIEWER sees only swimmers linked to them via
+ * profile. The Admin sees everyone; a coach sees their own club's swimmers; a VIEWER sees only swimmers linked to them via
  * `swimmerAccess` (BRD §5: "viewers are read-only and see only their linked
  * swimmer(s), enforced server-side"). This is the read gate for the swimmer-
  * scoped views a viewer is allowed into (Step 12.5 stroke profile onward); it
@@ -93,7 +215,15 @@ export async function requireSwimmerAccess(
   if (profile === null) {
     throw new ConvexError("You are not signed in.");
   }
-  if (profile.role !== "VIEWER") return profile; // coach / super-user
+  if (profile.role !== "VIEWER") {
+    // Staff: own club only (the Admin, every club).
+    if (profile.role === "SUPER_USER") return profile;
+    const swimmer = await ctx.db.get(swimmerId);
+    if (swimmer === null || !staffSeesSwimmer(profile, swimmer)) {
+      throw new ConvexError("That swimmer is in another club.");
+    }
+    return profile;
+  }
 
   const link = await ctx.db
     .query("swimmerAccess")
@@ -108,7 +238,7 @@ export async function requireSwimmerAccess(
 
 /**
  * Assert the caller MAY see EVERY swimmer in `swimmerIds`, returning their
- * profile. Coaches pass unconditionally; a VIEWER must be linked to all of them,
+ * profile. The Admin passes unconditionally; a coach must own every one; a VIEWER must be linked to all of them,
  * or the whole call is rejected — a group read can never smuggle in one swimmer
  * the viewer isn't linked to (the progression chart's multi-select gate). The
  * empty set is allowed (nothing to authorise).
@@ -118,7 +248,18 @@ export async function requireSwimmersAccess(
   swimmerIds: Id<"swimmers">[],
 ): Promise<Doc<"profiles">> {
   const profile = await requireSignedIn(ctx);
-  if (profile.role !== "VIEWER") return profile; // coach / super-user
+  if (profile.role === "SUPER_USER") return profile;
+  if (profile.role !== "VIEWER") {
+    // A coach: every swimmer must be in their own club — one from another club
+    // rejects the whole read, as an unlinked one does for a viewer.
+    for (const id of swimmerIds) {
+      const swimmer = await ctx.db.get(id);
+      if (swimmer === null || !staffSeesSwimmer(profile, swimmer)) {
+        throw new ConvexError("That swimmer is in another club.");
+      }
+    }
+    return profile;
+  }
 
   const links = await ctx.db
     .query("swimmerAccess")
@@ -145,7 +286,7 @@ export function assertCoachManagesSwimmer(
   swimmer: Doc<"swimmers">,
 ): void {
   if (profile.role === "SUPER_USER") return;
-  if (profile.role !== "COACH") {
+  if (!isFullStaff(profile)) {
     throw new ConvexError("Only coaches can do that.");
   }
   if (!profile.clubId) {
@@ -162,7 +303,8 @@ export function assertCoachManagesSwimmer(
  * Assert `profile` may WRITE a result of `targetSwimType` for `swimmer`, and
  * throw a clear message otherwise (§R15). The single seam every result
  * create/edit/delete authorizes through:
- *   - COACH / SUPER_USER: must MANAGE the swimmer (own-club coach, or super).
+ *   - COACH / SUPER_USER: must MANAGE the swimmer (own-club Super Coach, or
+ *     the Admin) — an assistant coach never manages, so never writes a time.
  *   - VIEWER (parent): may write ONLY a SCHOOL_GALA time, and only for a swimmer
  *     they are linked to; on an edit/delete the row must ALREADY be SCHOOL_GALA
  *     (`existingSwimType`), so a viewer can never touch — or retype — a meet row.
@@ -176,13 +318,13 @@ export async function assertMayWriteResult(
   targetSwimType: SwimType,
   existingSwimType?: SwimType,
 ): Promise<void> {
-  let managesSwimmer = false;
+  let manages = false;
   let linkedToSwimmer = false;
 
-  if (profile.role === "SUPER_USER") {
-    managesSwimmer = true;
-  } else if (profile.role === "COACH") {
-    managesSwimmer = profile.clubId != null && swimmer.clubId === profile.clubId;
+  if (profile.role !== "VIEWER") {
+    // Staff: only a manager (Admin / own-club Super Coach) — an assistant coach
+    // never enters a time.
+    manages = managesSwimmer(profile, swimmer);
   } else {
     // VIEWER — is this swimmer linked to them? (bounded single-row lookup)
     const link = await ctx.db
@@ -195,7 +337,7 @@ export async function assertMayWriteResult(
 
   const reason = authorizeResultWrite({
     role: profile.role,
-    managesSwimmer,
+    managesSwimmer: manages,
     linkedToSwimmer,
     targetSwimType,
     existingSwimType,
@@ -204,8 +346,10 @@ export async function assertMayWriteResult(
 }
 
 /**
- * The swimmer ids the caller may read: every swimmer for a coach, or just the
- * linked ones for a viewer. Null role-less callers throw. Bounded read — the
+ * The swimmer ids the caller may read: "ALL" for staff, or just the linked ones
+ * for a viewer. "ALL" means STAFF, not "every club" — a staff caller listing
+ * swimmers still narrows to their own club through `staffSwimmers` /
+ * `staffSeesSwimmer`; viewer-only features read it as "not a viewer". Null role-less callers throw. Bounded read — the
  * per-viewer link set is tiny and a club roster is small (§11.1).
  */
 export async function accessibleSwimmerIds(
@@ -222,4 +366,20 @@ export async function accessibleSwimmerIds(
     .withIndex("by_profile", (q) => q.eq("profileId", profile._id))
     .take(200);
   return { profile, swimmerIds: links.map((l) => l.swimmerId) };
+}
+
+/**
+ * The set of swimmer ids the caller may read, for reads that scan a global
+ * index (an event's results) and keep only readable rows: null for the Admin
+ * (no restriction), the own club's swimmers for a coach, the linked swimmers
+ * for a viewer.
+ */
+export async function readableSwimmerSet(
+  ctx: QueryCtx | MutationCtx,
+): Promise<{ profile: Doc<"profiles">; readable: Set<Id<"swimmers">> | null }> {
+  const { profile, swimmerIds } = await accessibleSwimmerIds(ctx);
+  if (swimmerIds !== "ALL") return { profile, readable: new Set(swimmerIds) };
+  if (profile.role === "SUPER_USER") return { profile, readable: null };
+  const own = await staffSwimmers(ctx, profile, { limit: 2000 });
+  return { profile, readable: new Set(own.map((s) => s._id)) };
 }

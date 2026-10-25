@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
 import { FilterBar, FilterField } from "@/components/ui/FilterBar";
 import { trailForHref } from "@/lib/nav";
-import type { Role } from "@/lib/nav";
+import type { StoredRole as Role } from "@/lib/nav";
 import { formatDateTime } from "@/lib/format";
 import {
   ACCESS_EVENT_META,

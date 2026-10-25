@@ -9,25 +9,56 @@ UI). Extends BRD §2, §5.9.
 
 | Role | Who | Powers |
 |---|---|---|
-| **SUPER_USER** | The system owner (one, or few) | Manages **global reference data** — qualifying standards, season start/end dates, tour dates. Sees everything. |
-| **COACH** | A club's coach — belongs to exactly one club (`profiles.clubId`) | **Edits** the swimmers in **their own club** (times, coach notes, sensitive fields). Reads **every** swimmer (all clubs) for cross-roster comparison. |
-| **VIEWER** | A swimmer or parent | Read-only, and **scoped to their linked swimmer(s) only** — they never see the name, times, or history of any swimmer they aren't coach-approved for. |
+| **SUPER_USER** ("Admin") | The system owner (one, or few) | Manages **global reference data** — qualifying standards, season dates, tour dates, galas — and clubs. Sees every club. Can act on any club's Permissions. |
+| **COACH**, level **SUPER** ("Super coach") | A club's lead coach — belongs to exactly one club (`profiles.clubId`) | **Edits** everything in **their own club** (swimmers, times, attendance, squads, sign-ups, viewer access) and runs the club's **Permissions**. |
+| **COACH**, level **SENIOR** / **JUNIOR** ("Senior / Junior coach") | An assistant coach of one club | **Reads** their own club like a Super coach, minus sensitive swimmer fields, Audit, viewer access and Permissions. **Writes only swimmer training notes** — for swimmers in their age group — and edits only notes they wrote. |
+| **VIEWER** | A swimmer or parent | Read-only, and **scoped to their linked swimmer(s) only**. |
 
-One coach ↔ one club (assumption — revisit if a coach must span clubs).
+`profiles.coachLevel` absent means SUPER, so coaches created before levels kept
+everything they had. One coach ↔ one club.
+
+### Coach levels and the age split
+
+A swimmer is a **junior** when their age **today** is at or under the club's
+`clubs.juniorMaxAge` (default **12**, set by the club's Super coaches in
+Permissions), and a **senior** otherwise. A Junior coach writes training notes
+on juniors, a Senior coach on seniors; the swimmer moves over on their
+birthday. One copy of the rule: `lib/coachLevel.ts` (`ageGroupFor`,
+`levelCoversSwimmer`), enforced by `mayWriteNoteFor` in `convex/authz.ts`.
+
+`requireCoach` is the **write** gate and refuses assistants (fail-closed — a
+write that forgets about levels blocks them); `requireStaff` is the **read**
+gate for any coach. `managesSwimmer` is the single "may edit this swimmer"
+rule (Admin, or own-club Super coach).
+
+### Joining a club
+
+Signing up as a **coach** asks for a club (names only — the list is public).
+The account is created as a VIEWER with a PENDING `coachRequests` row and sees a
+**waiting screen** until the club's Super coaches — or the Admin — approve it
+**with a level** (no default) or reject it (with an optional note the requester
+sees). A parent may ask later from the account menu and keeps their swimmers
+while waiting. Admin invites and "Assign coach" carry a level (default Super:
+how a club gets its first) and skip approval. A club can never lose its **last
+Super coach** to one of its own coaches; the Admin is exempt so they can put a
+club right. Every decision is a `coachPermissionEvents` row, shown as the
+club's history on `/permissions`.
 
 ## Who sees a swimmer at all
 
 A swimmer's data — **name, times, and history included** — is visible only to:
 
-- the swimmer's **own-club coach**,
+- **coaches of the swimmer's own club** (any level),
 - the **SUPER_USER**, and
 - the swimmer's **coach-approved linked viewer(s)** (parent/self).
 
-A **coach / super-user** additionally reads *every* swimmer (all clubs) so the
-cross-roster views work — comparison, the status matrix, season improvement, and
-group progression. A **viewer** gets none of that breadth: every viewer-facing
-read is restricted server-side to their own linked swimmer(s), so a parent can
-never see another family's name or time.
+**Own club only.** Every coach reads only their own club — the roster,
+comparison, the status matrix, season improvement, the dashboard, squads and
+the audit trails alike. One copy of that boundary: `staffSeesSwimmer` /
+`staffSwimmers` / `readableSwimmerSet` in `convex/authz.ts`. A coach with no
+club reads nothing. A swimmer or squad with **no club** is visible to the Admin
+only, who gives it one in **Admin › Unassigned** (squads whose members all
+share a club are filled in from them).
 
 The **one deliberate exception** is *Find a swimmer* (`/me/find`): a viewer may
 search the roster by name to **request** coach-approved access to their own
@@ -53,14 +84,15 @@ even to the swimmer/parent:
 
 ## Edit rules
 
-- Only **coaches** (and the SUPER_USER) write swimmer records. Viewers never write.
-- A coach may edit a swimmer **only when `swimmer.clubId === coach.clubId`**. Other
-  clubs' records are read-only to them (non-sensitive fields only — no DOB/notes).
-  This lets many clubs share one system: each coach logs times/notes for their own
-  swimmers and still sees how they compare against everyone, without being able to
-  touch other clubs' data.
-- **Standards, season start/end dates, tour dates** are written by the
-  **SUPER_USER only**; every other role reads them (read-only).
+- Only the **Admin** and a club's **Super coaches** write swimmer records,
+  times, attendance, squads, sign-ups and viewer access — a Super coach only
+  when `swimmer.clubId === coach.clubId`.
+- **Senior / Junior coaches** write one thing: a SWIMMER-scope training note on
+  a swimmer of their club in their age group. They never write squad notes, and
+  edit or delete only notes they wrote.
+- Viewers never write, except a parent's school-gala time for their own child.
+- **Standards, season dates, tour dates, galas and meets** are written by the
+  **SUPER_USER only**; every other role reads them.
 
 ## Access by email (viewer linking) — *implemented*
 
@@ -74,16 +106,15 @@ the swimmer's own-club coach (or the super-user) can add or revoke viewers.
 
 ## Permission matrix
 
-| Capability | Super-user | Coach (own club) | Coach (other club) | Swimmer/parent (own child) | Swimmer/parent (other swimmers) |
+| Capability | Admin | Super coach (own club) | Senior / Junior coach (own club) | Any coach (other club) | Swimmer/parent (own child) |
 |---|---|---|---|---|---|
-| Name, age band, times, history | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Cross-roster comparison / status matrix / season improvement | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Group progression | ✅ (any) | ✅ (any) | ✅ (any) | ✅ (own linked) | ❌ |
-| Search roster by name to *request* access (`/me/find`) | ✅ | ✅ | ✅ | ✅ | ✅ (name only, to request) |
-| Sensitive: DOB, height/weight | ✅ | ✅ | 🔒 | ✅ | 🔒 |
-| Coach notes | ✅ | ✅ | 🔒 | ✅ | 🔒 |
-| Projections | ✅ | ✅ | 🔒 | ❌ | ❌ |
-| Edit swimmer records | ✅ (all) | ✅ | ❌ | ❌ | ❌ |
+| Name, age band, times, history | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Comparison / status matrix / season improvement | ✅ (all clubs) | ✅ | ✅ | ❌ | ❌ |
+| Sensitive: coach notes, height/weight | ✅ | ✅ | 🔒 | ❌ | ✅ |
+| Training notes — write | ✅ | ✅ | ✅ (own age group, own notes) | ❌ | ❌ |
+| Times, attendance, squads, sign-ups — write | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Viewer access, Audit | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Permissions (join requests, levels, age split) | ✅ (any club) | ✅ | ❌ | ❌ | ❌ |
 | Edit standards / season dates / tour dates | ✅ | 👁 | 👁 | 👁 | 👁 |
 
 ## Build phases

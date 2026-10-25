@@ -8,7 +8,7 @@ product
 
 Swimming coaches and their swimmers/parents.
 
-- **Coaches** (primary, edit): manage a squad of swimmers, log meet/time-trial/practice results, and read progression against qualifying standards. They work in focused sessions, often poolside or right after a meet, scanning many swimmers × many events quickly. Density and scannability beat hand-holding.
+- **Coaches** (primary, edit): manage a squad of swimmers, log meet/time-trial/practice results, and read progression against qualifying standards. They work in focused sessions, often poolside or right after a meet, scanning many swimmers × many events quickly. Density and scannability beat hand-holding. A club's **super coaches** run everything there, including who else may coach; **senior and junior coaches** (assistants) read the whole club but only write training notes for their own age group.
 - **Viewers** (read-only): a swimmer or parent who sees only their linked swimmer(s). They check "where am I, and how close am I to the next cut?" occasionally, on phones as often as laptops.
 
 The job to be done: **turn a pile of race times into a clear read on each swimmer's personal bests, trajectory, and readiness to qualify** — without a spreadsheet.

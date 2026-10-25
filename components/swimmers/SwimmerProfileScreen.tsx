@@ -7,6 +7,7 @@ import { useMutation, useQuery } from "convex/react";
 import { CalendarClock, PlusCircle, Timer } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
+import { useStaffAccess } from "@/lib/useStaffAccess";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -88,6 +89,7 @@ export function SwimmerProfileScreen({
   // still sees when someone is waiting. Shares the query the Access panel uses
   // (Convex dedupes by args); only coaches who manage this swimmer may read it.
   const editable = data?.editable ?? false;
+  const { assistant } = useStaffAccess();
   const accessRequests = useQuery(
     api.swimmerAccess.listAccessRequestsForSwimmer,
     editable ? { swimmerId } : "skip",
@@ -203,7 +205,9 @@ export function SwimmerProfileScreen({
     },
   ];
 
-  if (editable) {
+  // Attendance reads for every staff member (an assistant coach included);
+  // marking it stays with whoever manages the swimmer, on the session screen.
+  if (editable || assistant) {
     tabs.push({
       value: "attendance",
       label: "Attendance",
@@ -215,7 +219,9 @@ export function SwimmerProfileScreen({
     });
   }
 
-  if (!viewerArea) {
+  // Viewer access is managed by full staff only — an assistant coach never sees
+  // which parents are linked, nor their emails (server-enforced too).
+  if (!viewerArea && !assistant) {
     tabs.push({
       value: "access",
       label: "Access",

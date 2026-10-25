@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { coachLevelLabel, type CoachLevel } from "./coachLevel";
 import {
   Award,
   BarChart3,
@@ -24,6 +25,8 @@ import {
   Trophy,
   TrendingUp,
   UserCheck,
+  UserCog,
+  UserRoundX,
   Users,
   UsersRound,
   Waves,
@@ -38,7 +41,24 @@ import {
   in every query/mutation regardless (see convex/authz.ts).
 */
 
-export type Role = "SUPER_USER" | "COACH" | "VIEWER";
+/**
+ * The NAV access key — not the stored role. A COACH profile maps to "COACH" (a
+ * Super Coach) or "ASSISTANT_COACH" (Senior / Junior) by its level; derive it
+ * with `accessRole`, never from `profile.role` directly.
+ */
+export type Role = "SUPER_USER" | "COACH" | "ASSISTANT_COACH" | "VIEWER";
+
+/** The role as STORED on a profile (and snapshotted on audit rows). */
+export type StoredRole = "SUPER_USER" | "COACH" | "VIEWER";
+
+/** A profile's nav access key (lib/coachLevel.ts: absent level = SUPER). */
+export function accessRole(profile: {
+  role: StoredRole;
+  coachLevel?: CoachLevel;
+}): Role {
+  if (profile.role !== "COACH") return profile.role;
+  return (profile.coachLevel ?? "SUPER") === "SUPER" ? "COACH" : "ASSISTANT_COACH";
+}
 
 export type NavLeaf = {
   label: string;
@@ -49,6 +69,10 @@ export type NavLeaf = {
   /** Highlight only on an EXACT path match — for a parent route (e.g. /me) that
    *  also has children (/me/progress…), so it doesn't stay lit on every child. */
   exact?: boolean;
+  /** A COACH item an assistant coach may NOT reach: a screen whose job is to
+   *  write (Log a time, Squads, Schedule) or that is Super-Coach-only (Audit,
+   *  Permissions). Also bars the route, nested routes included. */
+  fullStaffOnly?: boolean;
 };
 
 export type NavGroup = {
@@ -56,6 +80,8 @@ export type NavGroup = {
   icon: LucideIcon;
   items: NavLeaf[];
   roles?: Role[];
+  /** As on a leaf: the whole group is closed to an assistant coach. */
+  fullStaffOnly?: boolean;
 };
 
 export type NavNode =
@@ -132,8 +158,8 @@ export const NAV: NavNode[] = [
     items: [
       { label: "Roster", href: "/swimmers", icon: Users },
       { label: "My swimmers", href: "/my-swimmers", icon: UserCheck },
-      { label: "Squads", href: "/squads", icon: UsersRound },
-      { label: "Log a time", href: "/log", icon: Timer },
+      { label: "Squads", href: "/squads", icon: UsersRound, fullStaffOnly: true },
+      { label: "Log a time", href: "/log", icon: Timer, fullStaffOnly: true },
     ],
   },
   {
@@ -182,7 +208,12 @@ export const NAV: NavNode[] = [
     roles: ["COACH"],
     items: [
       { label: "Calendar", href: "/attendance", icon: CalendarCheck, exact: true },
-      { label: "Schedule", href: "/attendance/schedule", icon: CalendarClock },
+      {
+        label: "Schedule",
+        href: "/attendance/schedule",
+        icon: CalendarClock,
+        fullStaffOnly: true,
+      },
       { label: "Insights", href: "/attendance/insights", icon: BarChart3 },
     ],
   },
@@ -197,11 +228,22 @@ export const NAV: NavNode[] = [
     label: "Audit",
     icon: ScrollText,
     roles: ["COACH"],
+    fullStaffOnly: true,
     items: [
       { label: "Access log", href: "/audit/access", icon: ShieldCheck },
       { label: "Time-entry log", href: "/audit/times", icon: ClipboardList },
       { label: "Deleted times", href: "/audit/deletions", icon: Trash2 },
     ],
+  },
+  // The club's own Permissions: coach join requests and coach levels. Super
+  // Coach (and Admin) only — server-enforced by requireSuperCoachOf.
+  {
+    kind: "item",
+    label: "Permissions",
+    href: "/permissions",
+    icon: UserCog,
+    roles: ["COACH"],
+    fullStaffOnly: true,
   },
   // Super-user only (access-control Phase 4). Reserved under /admin, which
   // isRouteAllowed keeps coaches out of.
@@ -213,6 +255,7 @@ export const NAV: NavNode[] = [
     items: [
       { label: "Clubs & coaches", href: "/admin/clubs", icon: Building2 },
       { label: "Galas", href: "/admin/galas", icon: CalendarDays },
+      { label: "Unassigned", href: "/admin/unassigned", icon: UserRoundX },
     ],
   },
 ];
@@ -222,22 +265,38 @@ export function homeForRole(role: Role): string {
   return role === "VIEWER" ? "/me/swimmers" : "/dashboard";
 }
 
-/** Human label for a role, shown in the shell's user menu. */
-export function roleLabel(role: Role): string {
+/**
+ * Human label for a STORED role, shown in the shell's user menu and audit logs.
+ * A coach reads as their level ("Super coach") when it is known; an audit row
+ * that snapshotted only the role reads plain "Coach".
+ */
+export function roleLabel(
+  role: StoredRole,
+  coachLevel?: CoachLevel | null,
+): string {
   switch (role) {
     case "SUPER_USER":
       return "Admin";
     case "COACH":
-      return "Coach";
+      return coachLevel ? coachLevelLabel(coachLevel) : "Coach";
     case "VIEWER":
       return "Viewer";
   }
 }
 
+/** Every href an assistant coach is barred from (and its nested routes). */
+const FULL_STAFF_ONLY_HREFS: string[] = NAV.flatMap((node) => {
+  if (node.kind === "item") return node.fullStaffOnly ? [node.href] : [];
+  return node.items
+    .filter((it) => node.fullStaffOnly || it.fullStaffOnly)
+    .map((it) => it.href);
+});
+
 /**
  * The route-access boundary, mirrored server-side in every Convex function.
  *   - VIEWER: only their own home (`/me/*`).
  *   - COACH: everything except `/me/*` and the super-user `/admin/*` area.
+ *   - ASSISTANT_COACH: the COACH area minus every `fullStaffOnly` screen.
  *   - SUPER_USER: everything except `/me/*` (they own `/admin/*` too).
  * `/me` is exclusively the viewer's, so staff landing there is bounced home.
  * Deny-by-default: a brand-new coach route is coach-visible, a new `/admin`
@@ -248,7 +307,11 @@ export function isRouteAllowed(role: Role, pathname: string): boolean {
   const underAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
   if (role === "VIEWER") return underViewerHome;
   if (role === "SUPER_USER") return !underViewerHome;
-  return !underViewerHome && !underAdmin; // COACH
+  if (underViewerHome || underAdmin) return false;
+  if (role === "ASSISTANT_COACH") {
+    return !FULL_STAFF_ONLY_HREFS.some((href) => isRouteActive(pathname, href));
+  }
+  return true; // COACH
 }
 
 /**
@@ -256,10 +319,17 @@ export function isRouteAllowed(role: Role, pathname: string): boolean {
  * SUPER_USER is a superset of a coach, so they see every coach item too (but
  * never viewer-only items, which live under the viewer's `/me` home).
  */
-function allowed(roles: Role[] | undefined, role: Role): boolean {
+function allowed(
+  roles: Role[] | undefined,
+  role: Role,
+  fullStaffOnly = false,
+): boolean {
   if (!roles) return true;
   if (roles.includes(role)) return true;
-  return role === "SUPER_USER" && roles.includes("COACH");
+  if (role === "SUPER_USER") return roles.includes("COACH");
+  // An assistant coach sees the coach IA, minus the screens that write.
+  if (role === "ASSISTANT_COACH") return roles.includes("COACH") && !fullStaffOnly;
+  return false;
 }
 
 /**
@@ -269,12 +339,15 @@ function allowed(roles: Role[] | undefined, role: Role): boolean {
 export function navForRole(role: Role): NavNode[] {
   const out: NavNode[] = [];
   for (const node of NAV) {
-    if (!allowed(node.roles, role)) continue;
+    if (!allowed(node.roles, role, node.fullStaffOnly)) continue;
     if (node.kind === "item") {
       out.push(node);
       continue;
     }
-    const items = node.items.filter((it) => allowed(it.roles, role));
+    // A leaf inherits its group's allow-list when it has none of its own.
+    const items = node.items.filter((it) =>
+      allowed(it.roles ?? node.roles, role, it.fullStaffOnly),
+    );
     if (items.length > 0) out.push({ ...node, items });
   }
   return out;

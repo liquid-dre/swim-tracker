@@ -26,6 +26,7 @@ import {
   type CalendarGalaTour,
   type MeetPin,
 } from "./CalendarMeets";
+import { useStaffAccess } from "@/lib/useStaffAccess";
 import type { CalendarDay, CalendarSession } from "./types";
 import {
   STATUS_META,
@@ -87,6 +88,10 @@ export function AttendanceCalendarScreen({
 }) {
   const router = useRouter();
   const isCoach = role === "coach";
+  // Scheduling and marking are full-staff work; an assistant coach reads the
+  // calendar and its month summary but opens no session to mark.
+  const { fullStaff } = useStaffAccess();
+  const canManage = isCoach && fullStaff;
   const href = isCoach ? "/attendance" : "/me/attendance";
 
   const todayDate = parseIso(today) ?? new Date();
@@ -246,7 +251,7 @@ export function AttendanceCalendarScreen({
             : "Your training sessions and attendance."
         }
         actions={
-          isCoach ? (
+          canManage ? (
             <Button variant="secondary" size="sm" onClick={() => setNewOpen(true)}>
               <CalendarPlus className="size-4" aria-hidden />
               New session
@@ -363,7 +368,7 @@ export function AttendanceCalendarScreen({
               today={today}
               days={days!}
               variant={variant}
-              onOpenSession={isCoach ? onOpenSession : undefined}
+              onOpenSession={canManage ? onOpenSession : undefined}
               meetsByDate={meetsByDate}
               onOpenMeet={setOpenPin}
             />
@@ -373,7 +378,7 @@ export function AttendanceCalendarScreen({
               today={today}
               days={days!}
               variant={variant}
-              onOpenSession={isCoach ? onOpenSession : undefined}
+              onOpenSession={canManage ? onOpenSession : undefined}
               meetsByDate={meetsByDate}
               onOpenMeet={setOpenPin}
             />
@@ -394,7 +399,7 @@ export function AttendanceCalendarScreen({
         meetsHref={isCoach ? "/meets" : "/me/meets"}
       />
 
-      {isCoach && (
+      {canManage && (
         <SessionForm
           key={newOpen ? "open" : "closed"}
           open={newOpen}

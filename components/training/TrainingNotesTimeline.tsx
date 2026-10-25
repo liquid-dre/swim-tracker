@@ -43,8 +43,13 @@ export function TrainingNotesTimeline({
 }) {
   const data = useQuery(api.trainingNotes.getSwimmerTrainingNotes, { swimmerId });
   const editable = data?.editable ?? false;
-  // The squad picker is a coach concept; only fetch it when the caller may write.
-  const squads = useQuery(api.squads.listSquads, editable ? {} : "skip");
+  const canWriteSquadNotes = data?.canWriteSquadNotes ?? false;
+  // The squad picker is a coach concept; only fetch it when the caller may write
+  // squad notes (an assistant coach writes swimmer notes only).
+  const squads = useQuery(
+    api.squads.listSquads,
+    editable && canWriteSquadNotes ? {} : "skip",
+  );
   const deleteNote = useMutation(api.trainingNotes.deleteTrainingNote);
 
   const [composerOpen, setComposerOpen] = useState(false);
@@ -100,7 +105,7 @@ export function TrainingNotesTimeline({
               key={note._id}
               note={note}
               last={i === notes.length - 1}
-              editable={editable}
+              editable={note.canModify}
               onEdit={() => openEdit(note)}
               onDelete={() => setDeleting(note)}
             />
@@ -120,6 +125,7 @@ export function TrainingNotesTimeline({
           swimmer={{ _id: swimmerId, name: swimmerName }}
           squads={squadOptions}
           note={editing}
+          allowSquadScope={canWriteSquadNotes}
         />
       )}
 
