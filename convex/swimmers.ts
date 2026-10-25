@@ -1,10 +1,12 @@
 import { ConvexError, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import {
   accessibleSwimmerIds,
   assertCoachManagesSwimmer,
+  managesSwimmer,
   requireCoach,
+  requireStaff,
   requireSignedIn,
   requireSuperUser,
 } from "./authz";
@@ -231,11 +233,9 @@ export const listSwimmers = query({
   },
   returns: v.array(swimmerRow),
   handler: async (ctx, args) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
     // A super-user edits every swimmer; a coach edits only their own club's.
-    const canEdit = (s: { clubId?: Id<"clubs"> }): boolean =>
-      profile.role === "SUPER_USER" ||
-      (profile.clubId != null && s.clubId === profile.clubId);
+    const canEdit = (s: Doc<"swimmers">): boolean => managesSwimmer(profile, s);
 
     // Bounded read: a club roster is small, but cap defensively (guidelines).
     const LIMIT = 500;
@@ -313,7 +313,9 @@ export const listSwimmers = query({
           dob: s.dob,
           gender: s.gender,
           active: s.active,
-          notes: s.notes,
+          // SENSITIVE: only someone who manages the swimmer reads the coach notes
+          // (never an assistant coach, never another club).
+          notes: canEdit(s) ? s.notes : undefined,
           clubId: s.clubId,
           clubName: await clubNameFor(s.clubId),
           createdAt: s.createdAt,

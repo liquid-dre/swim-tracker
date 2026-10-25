@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  accessRole,
   isLeafActive,
   isRouteAllowed,
   navForRole,
@@ -199,5 +200,47 @@ describe("isLeafActive — a leaf lights on its own path and nested children", (
   it("highlights a sibling section only on its own path", () => {
     expect(isLeafActive("/me/compare", compare)).toBe(true);
     expect(isLeafActive("/me/swimmers", compare)).toBe(false);
+  });
+});
+
+describe("assistant (Senior / Junior) coaches", () => {
+  it("derive their access key from the coach level; absent level = Super", () => {
+    expect(accessRole({ role: "COACH" })).toBe("COACH");
+    expect(accessRole({ role: "COACH", coachLevel: "SUPER" })).toBe("COACH");
+    expect(accessRole({ role: "COACH", coachLevel: "JUNIOR" })).toBe("ASSISTANT_COACH");
+    expect(accessRole({ role: "COACH", coachLevel: "SENIOR" })).toBe("ASSISTANT_COACH");
+    expect(accessRole({ role: "VIEWER" })).toBe("VIEWER");
+  });
+
+  it("see the read screens but none that write or are Super-Coach-only", () => {
+    const hrefs = hrefsFor("ASSISTANT_COACH");
+    for (const href of ["/dashboard", "/swimmers", "/progression", "/status", "/meets", "/attendance"]) {
+      expect(hrefs).toContain(href);
+    }
+    for (const href of [
+      "/log",
+      "/squads",
+      "/attendance/schedule",
+      "/audit/access",
+      "/permissions",
+      "/admin/clubs",
+    ]) {
+      expect(hrefs).not.toContain(href);
+    }
+  });
+
+  it("are barred from those routes, nested ones included", () => {
+    expect(isRouteAllowed("ASSISTANT_COACH", "/swimmers/abc")).toBe(true);
+    expect(isRouteAllowed("ASSISTANT_COACH", "/log")).toBe(false);
+    expect(isRouteAllowed("ASSISTANT_COACH", "/audit/times")).toBe(false);
+    expect(isRouteAllowed("ASSISTANT_COACH", "/permissions")).toBe(false);
+    expect(isRouteAllowed("ASSISTANT_COACH", "/me")).toBe(false);
+    expect(isRouteAllowed("ASSISTANT_COACH", "/admin/galas")).toBe(false);
+  });
+
+  it("leave Permissions to Super Coaches and the Admin", () => {
+    expect(hrefsFor("COACH")).toContain("/permissions");
+    expect(hrefsFor("SUPER_USER")).toContain("/permissions");
+    expect(isRouteAllowed("COACH", "/permissions")).toBe(true);
   });
 });

@@ -6,6 +6,7 @@ import {
   accessibleSwimmerIds,
   assertCoachManagesSwimmer,
   requireCoach,
+  requireStaff,
   requireSwimmerAccess,
 } from "./authz";
 import { assertManagesClub, attendanceBySwimmer, rosterSwimmers } from "./attendanceShared";
@@ -506,7 +507,7 @@ export const getAttendanceMonthSummary = query({
     ratePct: v.union(v.number(), v.null()),
   }),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    await requireStaff(ctx);
     const from = cleanIsoDate(args.from);
     const monthEnd = cleanIsoDate(args.to);
     if (from === null || monthEnd === null) {

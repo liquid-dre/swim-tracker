@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { requireStaff } from "./authz";
 import {
   computeAge,
   computeMatrixCell,
@@ -168,7 +168,7 @@ export const getCoachDashboard = query({
     roster: v.array(rosterRow),
   }),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    await requireStaff(ctx);
 
     const today = new Date().toISOString().slice(0, 10);
     const pbCutoff = new Date(Date.now() - PB_WINDOW_DAYS * 86_400_000)

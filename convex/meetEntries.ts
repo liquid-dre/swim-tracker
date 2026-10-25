@@ -6,6 +6,7 @@ import {
   accessibleSwimmerIds,
   assertCoachManagesSwimmer,
   requireCoach,
+  requireStaff,
   requireSuperUser,
   requireSwimmerAccess,
 } from "./authz";
@@ -157,7 +158,7 @@ export const getMeetSignups = query({
     lines: v.array(lineRow),
   }),
   handler: async (ctx, { meetId }) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
     const meet = await loadMeetOrThrow(ctx, meetId);
 
     const entries = profile.clubId
@@ -265,7 +266,7 @@ export const getEntryCounts = query({
     }),
   ),
   handler: async (ctx, { from, to }) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
     if (!profile.clubId) return [];
 
     const entries = await ctx.db

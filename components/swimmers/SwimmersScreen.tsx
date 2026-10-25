@@ -5,6 +5,7 @@ import { useMutation, useQuery } from "convex/react";
 import { Search, UserPlus } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
+import { useStaffAccess } from "@/lib/useStaffAccess";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -42,6 +43,8 @@ export function SwimmersScreen({
     ...(myClubOnly ? { myClubOnly: true } : {}),
   });
   const setActive = useMutation(api.swimmers.setSwimmerActive);
+  // An assistant coach reads the roster but adds no one (server-enforced).
+  const { fullStaff } = useStaffAccess();
 
   async function toggleActive(id: Id<"swimmers">, next: boolean) {
     await notify.promise(setActive({ swimmerId: id, active: next }), {
@@ -56,9 +59,11 @@ export function SwimmersScreen({
         title={title}
         breadcrumb={trailForHref(href)}
         actions={
-          <Button variant="primary" onClick={() => setEditing("new")}>
-            <UserPlus className="size-4" /> Add swimmer
-          </Button>
+          fullStaff ? (
+            <Button variant="primary" onClick={() => setEditing("new")}>
+              <UserPlus className="size-4" /> Add swimmer
+            </Button>
+          ) : undefined
         }
       />
 

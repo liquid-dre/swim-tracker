@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { requireStaff } from "./authz";
 import { cleanIsoDate, resolveReportingWindow, todayIso } from "./attendanceLib";
 
 /*
@@ -88,7 +88,7 @@ export const getAttendanceInsights = query({
     ),
   }),
   handler: async (ctx, args) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
     const emptyResult = (from: string, to: string) => ({
       from,
       to,

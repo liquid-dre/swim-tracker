@@ -43,6 +43,7 @@ export function TrainingNoteComposer({
   squads,
   fixedSquad,
   note,
+  allowSquadScope = true,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -55,6 +56,8 @@ export function TrainingNoteComposer({
   fixedSquad?: SquadOption;
   /** Present => edit mode; scope is fixed to the note's own scope. */
   note?: EditableTrainingNote | null;
+  /** False for an assistant coach, who writes swimmer notes only. */
+  allowSquadScope?: boolean;
 }) {
   const createNote = useMutation(api.trainingNotes.createTrainingNote);
   const updateNote = useMutation(api.trainingNotes.updateTrainingNote);
@@ -69,7 +72,8 @@ export function TrainingNoteComposer({
       : swimmer
         ? "SWIMMER"
         : "SQUAD";
-  const scopeLocked = isEdit || fixedSquad != null || swimmer == null;
+  const scopeLocked =
+    isEdit || fixedSquad != null || swimmer == null || !allowSquadScope;
 
   const [scope, setScope] = useState<Scope>(initialScope);
   const [squadId, setSquadId] = useState<Id<"squads"> | "">(

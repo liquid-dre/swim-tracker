@@ -2,7 +2,11 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
-import { accessibleSwimmerIds, requireSwimmerAccess } from "./authz";
+import {
+  accessibleSwimmerIds,
+  managesSwimmer,
+  requireSwimmerAccess,
+} from "./authz";
 import {
   computeMatrixCell,
   computePersonalBests,
@@ -217,11 +221,7 @@ export const getSwimmerProfile = query({
     const swimmer = await ctx.db.get(args.swimmerId);
     if (!swimmer) throw new ConvexError("Swimmer not found.");
 
-    const editable =
-      profile.role === "SUPER_USER" ||
-      (profile.role === "COACH" &&
-        profile.clubId != null &&
-        swimmer.clubId === profile.clubId);
+    const editable = managesSwimmer(profile, swimmer);
 
     const results = await loadResults(ctx, args.swimmerId);
     const personalBests = computePersonalBests(results as ResultForPB[]);

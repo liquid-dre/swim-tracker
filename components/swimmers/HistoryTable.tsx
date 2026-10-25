@@ -7,7 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { Course, SwimType } from "@/lib/swim";
 import { formatTime } from "@/lib/swim";
 import { formatShortDate, formatDateTime } from "@/lib/format";
-import { roleLabel, type Role } from "@/lib/nav";
+import { roleLabel, type StoredRole as Role } from "@/lib/nav";
 import { Segmented } from "@/components/ui/Segmented";
 import { Select } from "@/components/ui/Select";
 import { SchoolGalaBadge } from "@/components/ui/SchoolGalaBadge";

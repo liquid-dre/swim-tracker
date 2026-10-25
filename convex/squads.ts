@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { assertCoachManagesSwimmer, requireCoach } from "./authz";
+import { assertCoachManagesSwimmer, requireCoach, requireStaff } from "./authz";
 
 // Squad management (BRD §5, Step 4). Coaches only. Membership is many-to-many
 // via the `squadMemberships` join table — a swimmer can be in several squads.
@@ -26,9 +26,12 @@ export const createSquad = mutation({
   args: { name: v.string(), description: v.optional(v.string()) },
   returns: v.id("squads"),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireCoach(ctx);
     return await ctx.db.insert("squads", {
       name: cleanName(args.name),
+      // A coach's squad belongs to their club; the Admin's stays unassigned
+      // until given one in Admin › Unassigned.
+      ...(profile.clubId ? { clubId: profile.clubId } : {}),
       description: cleanDescription(args.description),
     });
   },
@@ -131,7 +134,7 @@ export const listSquads = query({
     }),
   ),
   handler: async (ctx) => {
-    await requireCoach(ctx);
+    await requireStaff(ctx);
     const squads = await ctx.db.query("squads").take(500);
     squads.sort((a, b) => a.name.localeCompare(b.name));
     return await Promise.all(

@@ -4,9 +4,12 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import {
   assertCoachManagesSwimmer,
+  mayWriteNoteFor,
   requireCoach,
+  requireStaff,
   requireSwimmerAccess,
 } from "./authz";
+import { isAssistantCoach, isFullStaff } from "../lib/coachLevel";
 
 /*
   Training notes (§R16). Dated coaching notes about training FOCUS, scoped to a
@@ -18,10 +21,11 @@ import {
   deletion is deliberately de-emphasised (still possible, for a genuine mistake).
 
   Access:
-    • Writes are coach-only. A SWIMMER note authorises through the same
-      own-club write gate as every other swimmer write (assertCoachManagesSwimmer);
-      a SQUAD note gates on requireCoach, matching how squads themselves are edited
-      (squads carry no club boundary).
+    • Writes are staff-only (authorizeNoteWrite). A SWIMMER note is open to
+      whoever manages the swimmer AND to an assistant (Senior / Junior) coach of
+      the swimmer's club for their own age group — the one write an assistant
+      has. A SQUAD note is full-staff only, on the coach's own club's squad. An
+      assistant edits or deletes only notes they wrote.
     • getSwimmerTrainingNotes is role-scoped (requireSwimmerAccess): a coach reads
       any swimmer, a viewer only their linked swimmer(s). It merges the swimmer's
       personal notes with the squad notes of every squad they belong to.
@@ -68,26 +72,56 @@ function cleanBody(body: string): string {
 }
 
 /**
- * Assert the caller (already known to be a coach) may WRITE this note's scope,
- * and return the coach's profile. A SWIMMER note needs own-club write access to
- * that swimmer; a SQUAD note only needs coach-hood (squads are club-agnostic,
- * like every other squad mutation). Shared by create / update / delete.
+ * Assert the caller may WRITE a note of this scope, and return their profile.
+ * Shared by create / update / delete.
+ *
+ *   - SWIMMER note: anyone who manages the swimmer (Admin, own-club Super Coach),
+ *     or an assistant coach of the swimmer's club whose level covers the
+ *     swimmer's age group today (`mayWriteNoteFor`).
+ *   - SQUAD note: full staff only — a squad can mix juniors and seniors, so an
+ *     assistant never writes one — and a coach only on their own club's squad.
+ *   - `existing`: on an edit / delete, an assistant may touch only a note they
+ *     wrote themselves; a Super Coach still moderates every note.
  */
 async function authorizeNoteWrite(
   ctx: MutationCtx,
   scope: "SQUAD" | "SWIMMER",
   ids: { squadId?: Id<"squads">; swimmerId?: Id<"swimmers"> },
+  existing?: Doc<"trainingNotes">,
 ): Promise<Doc<"profiles">> {
-  const profile = await requireCoach(ctx);
+  const profile = await requireStaff(ctx);
   if (scope === "SWIMMER") {
     if (!ids.swimmerId) throw new ConvexError("Pick a swimmer for this note.");
     const swimmer = await ctx.db.get(ids.swimmerId);
     if (!swimmer) throw new ConvexError("Swimmer not found.");
-    assertCoachManagesSwimmer(profile, swimmer);
+    if (!(await mayWriteNoteFor(ctx, profile, swimmer))) {
+      throw new ConvexError(
+        isAssistantCoach(profile)
+          ? "Your coach role covers a different age group."
+          : "You can only edit swimmers in your own club.",
+      );
+    }
   } else {
+    if (!isFullStaff(profile)) {
+      throw new ConvexError("Squad notes are written by the club's super coaches.");
+    }
     if (!ids.squadId) throw new ConvexError("Pick a squad for this note.");
     const squad = await ctx.db.get(ids.squadId);
     if (!squad) throw new ConvexError("Squad not found.");
+    if (
+      profile.role !== "SUPER_USER" &&
+      squad.clubId !== undefined &&
+      squad.clubId !== profile.clubId
+    ) {
+      throw new ConvexError("You can only write notes on your own club's squads.");
+    }
+  }
+  if (
+    existing !== undefined &&
+    isAssistantCoach(profile) &&
+    existing.authorId !== profile._id
+  ) {
+    throw new ConvexError("You can only change notes you wrote.");
   }
   return profile;
 }
@@ -139,10 +173,12 @@ export const updateTrainingNote = mutation({
     const note = await ctx.db.get(args.noteId);
     if (!note) throw new ConvexError("Note not found.");
     // Re-authorise against the note's OWN scope (never trust the client's claim).
-    await authorizeNoteWrite(ctx, note.scope, {
-      squadId: note.squadId,
-      swimmerId: note.swimmerId,
-    });
+    await authorizeNoteWrite(
+      ctx,
+      note.scope,
+      { squadId: note.squadId, swimmerId: note.swimmerId },
+      note,
+    );
 
     const patch: Partial<{
       focus: string | undefined;
@@ -166,10 +202,12 @@ export const deleteTrainingNote = mutation({
   handler: async (ctx, args) => {
     const note = await ctx.db.get(args.noteId);
     if (!note) return null; // already gone — treat as success
-    await authorizeNoteWrite(ctx, note.scope, {
-      squadId: note.squadId,
-      swimmerId: note.swimmerId,
-    });
+    await authorizeNoteWrite(
+      ctx,
+      note.scope,
+      { squadId: note.squadId, swimmerId: note.swimmerId },
+      note,
+    );
     await ctx.db.delete(args.noteId);
     return null;
   },
@@ -193,7 +231,20 @@ const trainingNote = v.object({
   authorName: v.string(),
   createdAt: v.number(),
   updatedAt: v.union(v.number(), v.null()),
+  // Whether the CALLER may edit / delete this note: the timeline's edit controls
+  // are per note, because an assistant may change only the notes they wrote.
+  canModify: v.boolean(),
 });
+
+/** The read-side mirror of authorizeNoteWrite's SQUAD branch, for edit controls. */
+function mayModifySquadNote(
+  profile: Doc<"profiles">,
+  squad: Doc<"squads">,
+): boolean {
+  if (profile.role === "SUPER_USER") return true;
+  if (!isFullStaff(profile)) return false;
+  return squad.clubId === undefined || squad.clubId === profile.clubId;
+}
 
 /** Newest-first: by the phase date, then by when it was written (stable). */
 function newestFirst(
@@ -234,6 +285,8 @@ export const getSwimmerTrainingNotes = query({
     // super-user). Drives the composer + per-note edit controls; a viewer is
     // read-only.
     editable: v.boolean(),
+    // Whether the composer may offer "A squad" — full staff only.
+    canWriteSquadNotes: v.boolean(),
     notes: v.array(trainingNote),
   }),
   handler: async (ctx, args) => {
@@ -243,11 +296,9 @@ export const getSwimmerTrainingNotes = query({
     const swimmer = await ctx.db.get(args.swimmerId);
     if (!swimmer) throw new ConvexError("Swimmer not found.");
 
+    // An assistant coach may add notes when the swimmer is in their age group.
     const editable =
-      profile.role === "SUPER_USER" ||
-      (profile.role === "COACH" &&
-        profile.clubId != null &&
-        swimmer.clubId === profile.clubId);
+      profile.role !== "VIEWER" && (await mayWriteNoteFor(ctx, profile, swimmer));
 
     // Personal (SWIMMER-scope) notes for this swimmer.
     const personal = await ctx.db
@@ -264,6 +315,7 @@ export const getSwimmerTrainingNotes = query({
     const squadNotes: Array<{
       note: Doc<"trainingNotes">;
       squadName: string;
+      squad: Doc<"squads">;
     }> = [];
     for (const m of memberships) {
       const squad = await ctx.db.get(m.squadId);
@@ -272,7 +324,7 @@ export const getSwimmerTrainingNotes = query({
         .query("trainingNotes")
         .withIndex("by_squad", (q) => q.eq("squadId", m.squadId))
         .take(NOTES_LIMIT);
-      for (const note of notes) squadNotes.push({ note, squadName: squad.name });
+      for (const note of notes) squadNotes.push({ note, squadName: squad.name, squad });
     }
 
     const authorName = authorNameResolver(ctx);
@@ -291,10 +343,12 @@ export const getSwimmerTrainingNotes = query({
           authorName: await authorName(note.authorId),
           createdAt: note.createdAt,
           updatedAt: note.updatedAt ?? null,
+          canModify:
+            editable && (isFullStaff(profile) || note.authorId === profile._id),
         })),
       )),
       ...(await Promise.all(
-        squadNotes.map(async ({ note, squadName }) => ({
+        squadNotes.map(async ({ note, squadName, squad }) => ({
           _id: note._id,
           scope: "SQUAD" as const,
           squadId: note.squadId ?? null,
@@ -306,12 +360,13 @@ export const getSwimmerTrainingNotes = query({
           authorName: await authorName(note.authorId),
           createdAt: note.createdAt,
           updatedAt: note.updatedAt ?? null,
+          canModify: mayModifySquadNote(profile, squad),
         })),
       )),
     ];
 
     shaped.sort(newestFirst);
-    return { editable, notes: shaped };
+    return { editable, canWriteSquadNotes: isFullStaff(profile), notes: shaped };
   },
 });
 
@@ -323,9 +378,10 @@ export const getSquadTrainingNotes = query({
   args: { squadId: v.id("squads") },
   returns: v.array(trainingNote),
   handler: async (ctx, args) => {
-    await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
     const squad = await ctx.db.get(args.squadId);
     if (!squad) throw new ConvexError("Squad not found.");
+    const canModify = mayModifySquadNote(profile, squad);
 
     const notes = await ctx.db
       .query("trainingNotes")
@@ -346,6 +402,7 @@ export const getSquadTrainingNotes = query({
         authorName: await authorName(note.authorId),
         createdAt: note.createdAt,
         updatedAt: note.updatedAt ?? null,
+        canModify,
       })),
     );
 

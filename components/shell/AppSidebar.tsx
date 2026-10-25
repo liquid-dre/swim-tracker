@@ -30,6 +30,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
+  accessRole,
   isGroupActive,
   isLeafActive,
   navForRole,
@@ -74,7 +75,7 @@ export function AppSidebar() {
   // never see the coach tree flash by (the content is held by RoleGuard). The
   // real role passes through so a SUPER_USER gets the Admin group (navForRole),
   // not a coach-collapsed view.
-  const role: Role | undefined = profile == null ? undefined : profile.role;
+  const role: Role | undefined = profile == null ? undefined : accessRole(profile);
   const nav = role ? navForRole(role) : [];
 
   return (
@@ -439,7 +440,7 @@ function SidebarUser({
               {profile?.name ?? "Loading…"}
             </span>
             <span className="truncate text-xs text-ink-muted">
-              {role ? roleLabel(role) : ""}
+              {profile ? roleLabel(profile.role, profile.coachLevel) : ""}
               {profile?.email ? ` · ${profile.email}` : ""}
             </span>
           </div>

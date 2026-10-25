@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useCurrentProfile } from "@/lib/useCurrentProfile";
-import { homeForRole, isRouteAllowed, type Role } from "@/lib/nav";
+import { accessRole, homeForRole, isRouteAllowed, type Role } from "@/lib/nav";
 
 /*
   Route guard for the app shell (Step 15). The server is the real boundary —
@@ -22,7 +22,7 @@ export function RoleGuard({ children }: { children: React.ReactNode }) {
   // `undefined` = loading; `null` = signed in but not yet provisioned (transient,
   // auth.ts creates the profile on first sign-in). Either way, role is unknown.
   const role: Role | null =
-    profile === undefined || profile === null ? null : profile.role;
+    profile === undefined || profile === null ? null : accessRole(profile);
   const allowed = role !== null && isRouteAllowed(role, pathname);
 
   useEffect(() => {

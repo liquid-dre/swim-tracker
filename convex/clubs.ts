@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { requireCoach, requireSignedIn, requireSuperUser } from "./authz";
+import { requireSignedIn, requireStaff, requireSuperUser } from "./authz";
 
 // Club administration (access-control Phase 4c). A club owns swimmers and is the
 // edit boundary for coaches (Phase 5). Only the SUPER_USER creates clubs and
@@ -58,7 +58,7 @@ export const listClubs = query({
     }),
   ),
   handler: async (ctx) => {
-    await requireCoach(ctx); // staff (coach or super-user)
+    await requireStaff(ctx); // staff (coach or super-user)
     const clubs = await ctx.db.query("clubs").take(200);
     const out = [];
     for (const club of clubs) {

@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { requireCoach } from "./authz";
+import { requireCoach, requireStaff } from "./authz";
 import { assertManagesClub } from "./attendanceShared";
 import {
   datesForPattern,
@@ -368,7 +368,7 @@ export const listPatterns = query({
     }),
   ),
   handler: async (ctx) => {
-    const profile = await requireCoach(ctx);
+    const profile = await requireStaff(ctx);
     if (!profile.clubId) return [];
     const patterns = await ctx.db
       .query("sessionPatterns")

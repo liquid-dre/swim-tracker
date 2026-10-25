@@ -28,6 +28,13 @@ const role = v.union(
   v.literal("COACH"),
   v.literal("VIEWER"),
 );
+// A COACH's level inside their club (lib/coachLevel.ts). Absent on a profile =
+// SUPER, so coaches created before levels existed keep full access.
+const coachLevel = v.union(
+  v.literal("SUPER"),
+  v.literal("SENIOR"),
+  v.literal("JUNIOR"),
+);
 const swimType = v.union(
   v.literal("MEET"),
   v.literal("TIME_TRIAL"),
@@ -66,6 +73,10 @@ export default defineSchema({
   clubs: defineTable({
     name: v.string(),
     createdAt: v.number(),
+    // The junior/senior split for assistant coaches: a swimmer this age or
+    // younger (today) is a junior. Absent = 12 (lib/coachLevel.ts). Set by the
+    // club's Super Coaches in Permissions.
+    juniorMaxAge: v.optional(v.number()),
   }),
 
   // App users beyond the auth table; the auth provider supplies identity.
@@ -79,6 +90,9 @@ export default defineSchema({
     role,
     // The club a COACH manages (their edit scope). Unset for SUPER_USER/VIEWER.
     clubId: v.optional(v.id("clubs")),
+    // A COACH's level in that club. Absent = SUPER. SENIOR/JUNIOR read the club
+    // but write only swimmer training notes for their age group.
+    coachLevel: v.optional(coachLevel),
     // Last dashboard visit (epoch ms) — anchors the "since you were last
     // here" digest. Unset until the first visit.
     lastSeenAt: v.optional(v.number()),
@@ -359,7 +373,10 @@ export default defineSchema({
   squads: defineTable({
     name: v.string(),
     description: v.optional(v.string()),
-  }),
+    // The owning club. Optional only until the backfill (Admin › Unassigned)
+    // has given every legacy squad one; new squads always carry it.
+    clubId: v.optional(v.id("clubs")),
+  }).index("by_club", ["clubId"]),
 
   squadMemberships: defineTable({
     swimmerId: v.id("swimmers"),
@@ -390,9 +407,34 @@ export default defineSchema({
     createdBy: v.id("profiles"),
     redeemedAt: v.optional(v.number()),
     redeemedBy: v.optional(v.id("profiles")),
+    // The level the redeemer gets. Absent = SUPER (how a club gets its first).
+    coachLevel: v.optional(coachLevel),
   })
     .index("by_token", ["token"])
     .index("by_club", ["clubId"]),
+
+  // Self-service coach requests. A user signing up as a coach (or a viewer
+  // asking later from the account menu) picks a club; that club's Super Coaches
+  // — or the Admin — approve with a level, or reject. Kept after the decision
+  // (not deleted) so the requester's waiting screen can show a rejection and the
+  // club can see who was turned away. At most one PENDING row per profile.
+  coachRequests: defineTable({
+    profileId: v.id("profiles"),
+    clubId: v.id("clubs"),
+    status: v.union(
+      v.literal("PENDING"),
+      v.literal("APPROVED"),
+      v.literal("REJECTED"),
+      v.literal("CANCELLED"),
+    ),
+    reason: v.optional(v.string()), // rejection reason, shown to the requester
+    approvedLevel: v.optional(coachLevel),
+    decidedBy: v.optional(v.id("profiles")),
+    decidedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_club_status", ["clubId", "status"])
+    .index("by_profile", ["profileId"]),
 
   // Self-service viewer access requests (access-control P2). A signed-in viewer
   // who has found their swimmer asks the owning club's coach for read access; the
