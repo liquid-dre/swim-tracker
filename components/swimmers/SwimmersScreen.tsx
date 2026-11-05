@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { Search, UserPlus } from "lucide-react";
+import { NotebookPen, Search, UserPlus } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
 import { useStaffAccess } from "@/lib/useStaffAccess";
@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { notify } from "@/lib/notify";
 import { trailForHref } from "@/lib/nav";
+import { BulkTrainingNoteSheet } from "@/components/training/BulkTrainingNoteSheet";
 import { RosterTable, type RosterRow } from "./RosterTable";
 import { SwimmerForm } from "./SwimmerForm";
 
@@ -36,6 +37,9 @@ export function SwimmersScreen({
   const [scope, setScope] = useState<Scope>("active");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<EditTarget>(null);
+  // "One note, many swimmers" — the roster is the one screen every coach level
+  // shares, so the bulk composer lives here rather than on Squads.
+  const [bulkNoteOpen, setBulkNoteOpen] = useState(false);
 
   const swimmers = useQuery(api.swimmers.listSwimmers, {
     activeOnly: scope === "active",
@@ -43,8 +47,9 @@ export function SwimmersScreen({
     ...(myClubOnly ? { myClubOnly: true } : {}),
   });
   const setActive = useMutation(api.swimmers.setSwimmerActive);
-  // An assistant coach reads the roster but adds no one (server-enforced).
-  const { fullStaff } = useStaffAccess();
+  // An assistant coach reads the roster but adds no one (server-enforced);
+  // every coach level writes training notes, so the bulk composer is theirs too.
+  const { fullStaff, assistant } = useStaffAccess();
 
   async function toggleActive(id: Id<"swimmers">, next: boolean) {
     await notify.promise(setActive({ swimmerId: id, active: next }), {
@@ -59,10 +64,17 @@ export function SwimmersScreen({
         title={title}
         breadcrumb={trailForHref(href)}
         actions={
-          fullStaff ? (
-            <Button variant="primary" onClick={() => setEditing("new")}>
-              <UserPlus className="size-4" /> Add swimmer
-            </Button>
+          fullStaff || assistant ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" onClick={() => setBulkNoteOpen(true)}>
+                <NotebookPen className="size-4" /> Note for several
+              </Button>
+              {fullStaff && (
+                <Button variant="primary" onClick={() => setEditing("new")}>
+                  <UserPlus className="size-4" /> Add swimmer
+                </Button>
+              )}
+            </div>
           ) : undefined
         }
       />
@@ -115,6 +127,13 @@ export function SwimmersScreen({
           not listed.
         </p>
       )}
+
+      <BulkTrainingNoteSheet
+        key={bulkNoteOpen ? "open" : "closed"}
+        open={bulkNoteOpen}
+        onOpenChange={setBulkNoteOpen}
+        today={today}
+      />
 
       <SwimmerForm
         key={editing === null ? "closed" : editing === "new" ? "new" : editing._id}

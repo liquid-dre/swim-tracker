@@ -79,6 +79,12 @@ export default function LoginPage() {
           required
           placeholder="••••••••"
         />
+        <Link
+          href="/forgot-password"
+          className="-mt-1 self-end text-sm font-medium text-brand-500 hover:text-brand-600"
+        >
+          Forgot password?
+        </Link>
         {error && (
           <p role="alert" className="text-sm text-error-600">
             {error}

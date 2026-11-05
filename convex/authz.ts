@@ -101,23 +101,41 @@ export function managesSwimmer(
 }
 
 /**
- * Whether `profile` may write a SWIMMER training note on `swimmer` today: anyone
- * who manages them, or an assistant coach of the swimmer's club whose level
- * covers the swimmer's age group (lib/coachLevel.ts). Loads the club for its
- * junior/senior split.
+ * The "may write a SWIMMER training note" rule, resolved ONCE for a caller and
+ * returned as a synchronous predicate: anyone who manages the swimmer, or an
+ * assistant coach of the swimmer's club whose level covers the swimmer's age
+ * group today (lib/coachLevel.ts). The club's junior/senior split is loaded
+ * here, once, so a batch of two hundred swimmers is not two hundred club reads.
+ * `mayWriteNoteFor` is the one-swimmer convenience over this same rule.
+ */
+export async function noteWriterFor(
+  ctx: QueryCtx | MutationCtx,
+  profile: Doc<"profiles">,
+): Promise<(swimmer: Doc<"swimmers">) => boolean> {
+  const level = coachLevelOf(profile);
+  const assistant = level !== null && level !== "SUPER";
+  const club =
+    assistant && profile.clubId != null ? await ctx.db.get(profile.clubId) : null;
+  const juniorMaxAge = juniorMaxAgeOf(club);
+  const today = new Date().toISOString().slice(0, 10);
+  return (swimmer) => {
+    if (managesSwimmer(profile, swimmer)) return true;
+    if (!assistant) return false;
+    if (profile.clubId == null || swimmer.clubId !== profile.clubId) return false;
+    return levelCoversSwimmer(level, swimmer.dob, today, juniorMaxAge);
+  };
+}
+
+/**
+ * Whether `profile` may write a SWIMMER training note on `swimmer` today —
+ * `noteWriterFor` for a single swimmer, so the two can never drift.
  */
 export async function mayWriteNoteFor(
   ctx: QueryCtx | MutationCtx,
   profile: Doc<"profiles">,
   swimmer: Doc<"swimmers">,
 ): Promise<boolean> {
-  if (managesSwimmer(profile, swimmer)) return true;
-  const level = coachLevelOf(profile);
-  if (level === null || level === "SUPER") return false;
-  if (profile.clubId == null || swimmer.clubId !== profile.clubId) return false;
-  const club = await ctx.db.get(profile.clubId);
-  const today = new Date().toISOString().slice(0, 10);
-  return levelCoversSwimmer(level, swimmer.dob, today, juniorMaxAgeOf(club));
+  return (await noteWriterFor(ctx, profile))(swimmer);
 }
 
 /**

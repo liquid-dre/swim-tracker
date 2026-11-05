@@ -24,7 +24,13 @@ A swimmer is a **junior** when their age **today** is at or under the club's
 Permissions), and a **senior** otherwise. A Junior coach writes training notes
 on juniors, a Senior coach on seniors; the swimmer moves over on their
 birthday. One copy of the rule: `lib/coachLevel.ts` (`ageGroupFor`,
-`levelCoversSwimmer`), enforced by `mayWriteNoteFor` in `convex/authz.ts`.
+`levelCoversSwimmer`), enforced by `noteWriterFor` in `convex/authz.ts`
+(`mayWriteNoteFor` is the one-swimmer form of it). The same predicate gates
+**bulk entry** — "Note for several" on the Roster writes one personal note per
+ticked swimmer (`createTrainingNotesBatch`), checks every id before writing
+any, and its picker (`listNoteRecipients`) offers only the swimmers the coach
+may write for: a Junior coach sees juniors, a Senior coach seniors, a Super
+coach the whole club, the Admin every club.
 
 `requireCoach` is the **write** gate and refuses assistants (fail-closed — a
 write that forgets about levels blocks them); `requireStaff` is the **read**

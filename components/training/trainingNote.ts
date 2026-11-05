@@ -15,6 +15,8 @@ export type TrainingNote = {
   authorName: string;
   createdAt: number;
   updatedAt: number | null;
+  // Copies written in one go (≥ 2 from the bulk composer); null to a viewer.
+  batchCount: number | null;
 };
 
 // The subset the composer seeds from when EDITING an existing note. Scope is
