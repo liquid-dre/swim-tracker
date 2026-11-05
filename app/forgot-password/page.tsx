@@ -12,6 +12,7 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { AuthShell } from "@/components/marketing/AuthShell";
+import { notify } from "@/lib/notify";
 
 /*
   Forgot password — Convex Auth's built-in reset flow, in two steps on one
@@ -32,13 +33,13 @@ import { AuthShell } from "@/components/marketing/AuthShell";
 type Step = "request" | "verify";
 
 const signInFooter = (
-  <>
-    Remembered it?{" "}
-    <Link href="/login" className="font-medium text-brand-500 hover:text-brand-600">
-      Sign in
-    </Link>
-  </>
+  <Link href="/login" className="font-medium text-brand-500 hover:text-brand-600">
+    Back to sign in
+  </Link>
 );
+
+const inlineAction =
+  "inline-block rounded px-1 py-1 font-medium text-brand-500 outline-none hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring";
 
 export default function ForgotPasswordPage() {
   const { signIn } = useAuthActions();
@@ -49,6 +50,20 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
+  // How many codes this page has asked for, so the notice can say "a new code".
+  const [sends, setSends] = useState(0);
+
+  // Deliberately the same outcome whether or not the address exists — see
+  // the note above. Returns once the request has been made (or refused).
+  async function sendCode(to: string) {
+    try {
+      await signIn("password", { email: to, flow: "reset" });
+    } catch {
+      // Unknown address, or email failed to send: nothing to show.
+    }
+    setSends((n) => n + 1);
+  }
 
   async function requestCode(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,15 +71,18 @@ export default function ForgotPasswordPage() {
     if (normalised === "") return;
     setSubmitting(true);
     setError(null);
-    try {
-      await signIn("password", { email: normalised, flow: "reset" });
-    } catch {
-      // Deliberately the same outcome as success — see the note above.
-    } finally {
-      setEmail(normalised);
-      setStep("verify");
-      setSubmitting(false);
-    }
+    await sendCode(normalised);
+    setEmail(normalised);
+    setStep("verify");
+    setSubmitting(false);
+  }
+
+  async function resendCode() {
+    if (resending) return;
+    setResending(true);
+    setError(null);
+    await sendCode(email);
+    setResending(false);
   }
 
   async function verifyCode(event: React.FormEvent<HTMLFormElement>) {
@@ -81,6 +99,7 @@ export default function ForgotPasswordPage() {
         newPassword,
         flow: "reset-verification",
       });
+      notify.success("Password updated");
       router.push("/");
     } catch (err) {
       // A ConvexError is written for the user (the password rule); anything
@@ -88,7 +107,7 @@ export default function ForgotPasswordPage() {
       setError(
         err instanceof ConvexError && typeof err.data === "string"
           ? err.data
-          : "That code is wrong or has expired. Request a new one and try again.",
+          : "That code is wrong or has expired. Send a new code and try again.",
       );
       setSubmitting(false);
     }
@@ -102,8 +121,9 @@ export default function ForgotPasswordPage() {
         footer={signInFooter}
       >
         <p className="text-sm leading-relaxed text-ink-muted">
-          Ask your club&rsquo;s coach or the site admin to reset your access.
-          Once email is set up, you&rsquo;ll be able to reset it here yourself.
+          Ask your club&rsquo;s coach, or whoever runs Swim Tracker for your
+          club, to reset your access. Once email is set up, you&rsquo;ll be able
+          to reset it here yourself.
         </p>
       </AuthShell>
     );
@@ -116,11 +136,17 @@ export default function ForgotPasswordPage() {
         subtitle="Enter the code we sent and choose a new password."
         footer={signInFooter}
       >
-        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-600">
+        {/* role="status": autoFocus lands on the code field, so this is read
+            on arrival rather than skipped. */}
+        <div
+          role="status"
+          className="mb-4 flex items-start gap-2.5 rounded-xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-600"
+        >
           <MailCheck aria-hidden className="mt-0.5 size-4 shrink-0" strokeWidth={2} />
           <p>
             If <span className="font-semibold">{email}</span> has an account,
-            we&rsquo;ve sent it an 8-digit code. It expires in 15 minutes.
+            we&rsquo;ve sent it {sends > 1 ? "a new" : "an"} 8-digit code. It
+            expires in 15 minutes.
           </p>
         </div>
         <form className="flex flex-col gap-4" onSubmit={verifyCode}>
@@ -131,7 +157,7 @@ export default function ForgotPasswordPage() {
             autoComplete="one-time-code"
             required
             autoFocus
-            placeholder="12345678"
+            placeholder="1234 5678"
             className="tabular-nums tracking-wider"
           />
           <Input
@@ -152,21 +178,29 @@ export default function ForgotPasswordPage() {
           <Button type="submit" className="w-full" loading={submitting}>
             {submitting ? "Resetting…" : "Reset password"}
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            loading={resending}
+            onClick={resendCode}
+          >
+            {resending ? "Sending…" : "Send a new code"}
+          </Button>
         </form>
         <p className="mt-5 text-sm text-ink-muted">
-          Nothing arrived? Check spam, or if you signed up with a different
-          email,{" "}
+          Nothing arrived? Check spam. Signed up with a different email?{" "}
           <button
             type="button"
             onClick={() => {
               setStep("request");
               setError(null);
             }}
-            className="font-medium text-brand-500 hover:text-brand-600"
+            className={inlineAction}
           >
-            try that one
+            Use that one
           </button>
-          . Your coach can tell you which address was invited.
+          . Your coach can check which email is on your account.
         </p>
       </AuthShell>
     );
@@ -193,8 +227,7 @@ export default function ForgotPasswordPage() {
         <Button
           type="submit"
           className="w-full"
-          loading={submitting}
-          disabled={available === undefined}
+          loading={submitting || available === undefined}
         >
           {submitting ? "Sending…" : "Send code"}
         </Button>

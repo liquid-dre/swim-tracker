@@ -17,6 +17,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/Textarea";
 import { errorMessage, notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,8 @@ import { cn } from "@/lib/utils";
 
 type Recipient = { _id: Id<"swimmers">; name: string; age: number };
 type Group = { key: string; name: string; swimmers: Recipient[] };
+/** A group as rendered: its full membership plus the rows a search shows. */
+type ShownGroup = Group & { shown: Recipient[] };
 
 export function BulkTrainingNoteSheet({
   open,
@@ -88,19 +91,21 @@ export function BulkTrainingNoteSheet({
   }, [groups]);
 
   const needle = search.trim().toLowerCase();
-  const visibleGroups = useMemo(
+  const searching = needle !== "";
+  // A group keeps its FULL membership (for the count) and carries the rows the
+  // search shows (what select-all acts on) — so the header never claims more
+  // than it does.
+  const visibleGroups: ShownGroup[] = useMemo(
     () =>
-      needle === ""
+      searching
         ? groups
-        : groups
             .map((g) => ({
               ...g,
-              swimmers: g.swimmers.filter((s) =>
-                s.name.toLowerCase().includes(needle),
-              ),
+              shown: g.swimmers.filter((s) => s.name.toLowerCase().includes(needle)),
             }))
-            .filter((g) => g.swimmers.length > 0),
-    [groups, needle],
+            .filter((g) => g.shown.length > 0)
+        : groups.map((g) => ({ ...g, shown: g.swimmers })),
+    [groups, needle, searching],
   );
 
   function toggle(id: Id<"swimmers">, on: boolean) {
@@ -113,11 +118,12 @@ export function BulkTrainingNoteSheet({
   }
 
   // A group's select-all acts on the swimmers currently SHOWN in it, so a
-  // search then "all of Seniors" ticks exactly what the coach is looking at.
-  function toggleGroup(group: Group, on: boolean) {
+  // search then "all of Seniors" ticks exactly what the coach is looking at —
+  // and the header says so while a search is active.
+  function toggleGroup(group: ShownGroup, on: boolean) {
     setSelected((prev) => {
       const next = new Set(prev);
-      for (const s of group.swimmers) {
+      for (const s of group.shown) {
         if (on) next.add(s._id);
         else next.delete(s._id);
       }
@@ -170,27 +176,34 @@ export function BulkTrainingNoteSheet({
           <SheetTitle>Add a note to several swimmers</SheetTitle>
           <SheetDescription>
             One note, added to each selected swimmer&rsquo;s timeline as their own
-            personal note.{bandText ? ` ${bandText}` : ""}
+            personal note — visible to them and to their viewers.
+            {bandText ? ` ${bandText}` : ""}
           </SheetDescription>
         </SheetHeader>
 
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
           <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 pb-2">
             {/* ── Who ─────────────────────────────────────────────────── */}
-            <fieldset className="flex min-w-0 flex-col gap-2">
+            <div
+              role="group"
+              aria-labelledby="bulk-note-who"
+              className="flex min-w-0 flex-col gap-2"
+            >
               <div className="flex items-end justify-between gap-3">
-                <legend className="text-sm font-medium text-gray-700">
+                <span id="bulk-note-who" className="text-sm font-medium text-gray-700">
                   Swimmers
-                </legend>
-                <p className="text-xs tabular-nums text-ink-muted" aria-live="polite">
-                  {count} of {total} selected
+                </span>
+                <p className="flex items-center gap-1.5 text-xs text-ink-muted">
+                  <span aria-live="polite" className="tabular-nums">
+                    {count} of {total} selected
+                  </span>
                   {count > 0 && (
                     <>
-                      {" · "}
+                      <span aria-hidden>·</span>
                       <button
                         type="button"
                         onClick={() => setSelected(new Set())}
-                        className="font-medium text-brand-500 hover:text-brand-600"
+                        className="rounded px-1 py-1 font-medium text-brand-500 outline-none hover:text-brand-600 focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         Clear
                       </button>
@@ -211,26 +224,31 @@ export function BulkTrainingNoteSheet({
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Find a swimmer"
                     aria-label="Find a swimmer"
-                    className="h-11 lg:h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-base text-ink placeholder:text-ink-muted outline-none transition-[border-color] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
+                    className="h-11 lg:h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 text-base text-ink placeholder:text-ink-muted outline-none transition-[border-color,box-shadow] [transition-duration:var(--dur-1)] hover:border-gray-400 focus:border-brand-300 focus:shadow-focus-ring"
                   />
                 </div>
               )}
 
-              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+              {/* Capped so the note fields stay a flick away on a sixty-swimmer
+                  club; squad headers stick while the list scrolls under them. */}
+              <div className="max-h-[40vh] overflow-y-auto rounded-xl border border-gray-200 bg-white">
                 {loading ? (
-                  <ul className="divide-y divide-gray-100" aria-busy>
+                  <ul aria-busy aria-label="Loading swimmers">
                     {[0, 1, 2, 3].map((i) => (
-                      <li key={i} className="h-11 animate-pulse bg-white" />
+                      <li key={i} className="flex min-h-11 items-center gap-3 px-3 lg:min-h-9">
+                        <Skeleton className="size-4" />
+                        <Skeleton className="h-3 w-40" />
+                      </li>
                     ))}
                   </ul>
                 ) : total === 0 ? (
-                  <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                  <p role="status" className="px-4 py-8 text-center text-sm text-ink-muted">
                     {band
                       ? "None of the club's active swimmers are in your age group right now."
                       : "No active swimmers to write to yet."}
                   </p>
                 ) : visibleGroups.length === 0 ? (
-                  <p className="px-4 py-8 text-center text-sm text-ink-muted">
+                  <p role="status" className="px-4 py-8 text-center text-sm text-ink-muted">
                     No swimmer matches &ldquo;{search.trim()}&rdquo;.
                   </p>
                 ) : (
@@ -238,6 +256,7 @@ export function BulkTrainingNoteSheet({
                     <RecipientGroup
                       key={group.key}
                       group={group}
+                      searching={searching}
                       selected={selected}
                       onToggle={toggle}
                       onToggleGroup={(on) => toggleGroup(group, on)}
@@ -245,7 +264,7 @@ export function BulkTrainingNoteSheet({
                   ))
                 )}
               </div>
-            </fieldset>
+            </div>
 
             {/* ── What ────────────────────────────────────────────────── */}
             <Input
@@ -302,64 +321,76 @@ export function BulkTrainingNoteSheet({
 // One squad: a select-all header row, then its members
 // ---------------------------------------------------------------------------
 
+const CHECKBOX =
+  "size-4 shrink-0 rounded border-gray-300 accent-brand-500 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1";
+
 function RecipientGroup({
   group,
+  searching,
   selected,
   onToggle,
   onToggleGroup,
 }: {
-  group: Group;
+  group: ShownGroup;
+  searching: boolean;
   selected: Set<Id<"swimmers">>;
   onToggle: (id: Id<"swimmers">, on: boolean) => void;
   onToggleGroup: (on: boolean) => void;
 }) {
+  // The count is always over the WHOLE squad; select-all acts on what is shown.
   const picked = group.swimmers.filter((s) => selected.has(s._id)).length;
-  const all = picked === group.swimmers.length;
-  const some = picked > 0 && !all;
+  const shownPicked = group.shown.filter((s) => selected.has(s._id)).length;
+  const allShown = shownPicked === group.shown.length;
+  const someShown = shownPicked > 0 && !allShown;
 
   // `indeterminate` is a DOM property, not an attribute.
   const headRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (headRef.current) headRef.current.indeterminate = some;
-  }, [some]);
+    if (headRef.current) headRef.current.indeterminate = someShown;
+  }, [someShown]);
 
   return (
     <div className="border-b border-gray-100 last:border-b-0">
-      <label className="flex cursor-pointer items-center gap-3 bg-surface-2 px-3 py-2">
+      <label className="sticky top-0 z-10 flex min-h-11 cursor-pointer items-center gap-3 border-b border-gray-100 bg-surface-2 px-3 py-1.5 focus-within:bg-gray-100 lg:min-h-9">
         <input
           ref={headRef}
           type="checkbox"
-          checked={all}
+          checked={allShown}
           onChange={(e) => onToggleGroup(e.target.checked)}
-          aria-label={`Select everyone in ${group.name}`}
-          className="size-4 accent-brand-500"
+          aria-label={
+            searching
+              ? `Select the ${group.shown.length} shown in ${group.name}`
+              : `Select everyone in ${group.name}`
+          }
+          className={CHECKBOX}
         />
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
           {group.name}
         </span>
         <span className="text-xs tabular-nums text-ink-muted">
           {picked}/{group.swimmers.length}
+          {searching && ` · ${group.shown.length} shown`}
         </span>
       </label>
       <ul>
-        {group.swimmers.map((s) => {
+        {group.shown.map((s) => {
           const on = selected.has(s._id);
           return (
             <li key={s._id}>
               <label
                 className={cn(
-                  "flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-50",
-                  on && "bg-brand-50/60",
+                  "flex min-h-11 cursor-pointer items-center gap-3 px-3 py-1.5 transition-colors [transition-duration:var(--dur-1)] hover:bg-gray-50 focus-within:bg-gray-50 lg:min-h-9",
+                  on && "bg-brand-50/60 hover:bg-brand-50",
                 )}
               >
                 <input
                   type="checkbox"
                   checked={on}
                   onChange={(e) => onToggle(s._id, e.target.checked)}
-                  className="size-4 accent-brand-500"
+                  className={CHECKBOX}
                 />
                 <span className="min-w-0 flex-1 truncate text-sm text-ink">{s.name}</span>
-                <span className="text-xs tabular-nums text-ink-faint">{s.age}</span>
+                <span className="text-xs tabular-nums text-ink-muted">{s.age}</span>
               </label>
             </li>
           );

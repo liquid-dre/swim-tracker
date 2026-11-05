@@ -67,7 +67,7 @@ export function SwimmersScreen({
           fullStaff || assistant ? (
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="secondary" onClick={() => setBulkNoteOpen(true)}>
-                <NotebookPen className="size-4" /> Note for several
+                <NotebookPen className="size-4" /> Note to several swimmers
               </Button>
               {fullStaff && (
                 <Button variant="primary" onClick={() => setEditing("new")}>
