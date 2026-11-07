@@ -105,6 +105,18 @@ const tourDatesValidator = v.object({
   LEVEL_2: v.optional(v.string()),
 });
 
+// The exact age a swimmer is judged at, per gala WITH a tour date (§4.9). Set
+// only where `tourDates` is, so a surface can say "L2: judged at 11 on 2 Apr
+// 2027" beside a header that reads "age 10" — the one fact that explains a bar
+// stopping short of a cut the today's-age standards table says it beats.
+const tourAgesValidator = v.object({
+  SANS: v.optional(v.number()),
+  SANY: v.optional(v.number()),
+  SANJ: v.optional(v.number()),
+  LEVEL_3: v.optional(v.number()),
+  LEVEL_2: v.optional(v.number()),
+});
+
 /**
  * Tag a raw standards row with its gala code and course so the pure resolvers
  * can filter it, dropping pre-migration and orphaned rows. Cuts are NEVER used
@@ -1263,6 +1275,7 @@ type StrokeProfileResult = {
   hasStandards: boolean;
   agedUpAt: string | null;
   tourDates: TourDateByGala;
+  tourAges: Partial<Record<GalaCode, number>>;
   qualifyingWindows: Partial<
     Record<GalaCode, { qualifyingFrom: string | null; qualifyingTo: string | null }>
   >;
@@ -1294,6 +1307,8 @@ export const getStrokeProfile = query({
       // Which tiers are pinned to a tour day, so the age-up note can say
       // which cuts a birthday does NOT move.
       tourDates: tourDatesValidator,
+      // The age each pinned tier judges this swimmer at (absent where no date).
+      tourAges: tourAgesValidator,
       // The window every bar on the wheel was measured in (§4.9).
       qualifyingWindows: qualifyingWindowsValidator,
     }),
@@ -1476,6 +1491,11 @@ export const getStrokeProfile = query({
         ? null
         : recentBirthday(swimmer.dob, today),
       tourDates: tourDatesByGala(profileGalas),
+      tourAges: Object.fromEntries(
+        profileGalas
+          .filter((g) => g.tourDate)
+          .map((g) => [g.code as GalaCode, ages[g.code as GalaCode]]),
+      ),
       qualifyingWindows: qualifyingWindowsByGala(profileGalas),
     };
   },
