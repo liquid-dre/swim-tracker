@@ -311,6 +311,38 @@ describe("stroke profile wheel rings (§5)", () => {
     expect(free.calibratedRadius).toBeCloseTo(3, 10);
   });
 
+  test("reports the age each tour-dated gala judges the swimmer at", async () => {
+    const { t, ids, asCoach } = await setup();
+    const { swimmer } = await seedWheel(t, ids, {
+      swimmerAge: 10,
+      events: [
+        {
+          distance: 100,
+          stroke: "FREE",
+          label: "100 Free",
+          cuts: { LEVEL_2: 70_000, LEVEL_3: 65_000, SANJ: 62_000 },
+          pbMs: 66_000,
+        },
+      ],
+    });
+    // Born 1 Jan: a tour on 2 Jan next year falls after their 11th birthday.
+    const nextYear = new Date().getUTCFullYear() + 1;
+    await t.run(async (ctx) => {
+      const l2 = (await ctx.db.query("galas").collect()).find(
+        (g) => g.code === "LEVEL_2",
+      )!;
+      await ctx.db.patch(l2._id, { tourDate: `${nextYear}-01-02`, tourName: "L2" });
+    });
+
+    const profile = await asCoach.query(api.analysis.getStrokeProfile, {
+      swimmerId: swimmer,
+    });
+    expect(profile!.swimmer.age).toBe(10);
+    expect(profile!.tourDates).toEqual({ LEVEL_2: `${nextYear}-01-02` });
+    // Only the pinned gala carries an age, and it is the age ON TOUR DAY.
+    expect(profile!.tourAges).toEqual({ LEVEL_2: 11 });
+  });
+
   test("a 17-year-old gets a two-ring wheel even though age-graded rows exist for that age", async () => {
     const { t, ids, asCoach } = await setup();
     const { swimmer } = await seedWheel(t, ids, {
