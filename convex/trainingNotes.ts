@@ -3,13 +3,19 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import {
-  assertCoachManagesSwimmer,
   mayWriteNoteFor,
-  requireCoach,
+  noteWriterFor,
   requireStaff,
   requireSwimmerAccess,
+  staffSwimmers,
 } from "./authz";
-import { isAssistantCoach, isFullStaff } from "../lib/coachLevel";
+import {
+  coachLevelOf,
+  isAssistantCoach,
+  isFullStaff,
+  juniorMaxAgeOf,
+} from "../lib/coachLevel";
+import { computeAge } from "../lib/swim";
 import { ownsSquad } from "./squads";
 
 /*
@@ -31,6 +37,11 @@ import { ownsSquad } from "./squads";
       any swimmer, a viewer only their linked swimmer(s). It merges the swimmer's
       personal notes with the squad notes of every squad they belong to.
     • getSquadTrainingNotes is coach-only (squad management).
+    • createTrainingNotesBatch writes ONE note to MANY swimmers as N independent
+      SWIMMER notes sharing a `batchId` — the same rule per swimmer as a single
+      note (`noteWriterFor`), checked for every id before anything is written,
+      so a batch is all-or-nothing. listNoteRecipients is the picker behind it:
+      only swimmers the caller may write for, grouped by squad.
 */
 
 const FOCUS_MAX = 80;
@@ -211,6 +222,157 @@ export const deleteTrainingNote = mutation({
 });
 
 // ---------------------------------------------------------------------------
+// Bulk entry — one note, many swimmers
+// ---------------------------------------------------------------------------
+
+/** A sanity cap, not a product limit: a club roster is a few dozen. */
+export const BATCH_MAX_SWIMMERS = 200;
+
+export const createTrainingNotesBatch = mutation({
+  args: {
+    swimmerIds: v.array(v.id("swimmers")),
+    focus: v.optional(v.string()),
+    body: v.string(),
+    noteDate: v.optional(v.string()), // defaults to today
+  },
+  returns: v.object({ created: v.number(), batchId: v.string() }),
+  handler: async (ctx, args) => {
+    const profile = await requireStaff(ctx);
+    const ids = Array.from(new Set(args.swimmerIds));
+    if (ids.length === 0) throw new ConvexError("Pick at least one swimmer.");
+    if (ids.length > BATCH_MAX_SWIMMERS) {
+      throw new ConvexError(
+        `A note can go to at most ${BATCH_MAX_SWIMMERS} swimmers at once.`,
+      );
+    }
+    // Validate the note once — it is the same note on every timeline.
+    const focus = cleanFocus(args.focus);
+    const body = cleanBody(args.body);
+    const noteDate = cleanNoteDate(args.noteDate);
+
+    // Authorise EVERY swimmer before writing ANY: a stale picker, or a swimmer
+    // who turned 13 overnight, fails the whole batch by name rather than
+    // leaving half the squad noted.
+    const mayWrite = await noteWriterFor(ctx, profile);
+    const swimmers: Doc<"swimmers">[] = [];
+    for (const id of ids) {
+      const swimmer = await ctx.db.get(id);
+      if (!swimmer) throw new ConvexError("One of the swimmers no longer exists.");
+      if (!mayWrite(swimmer)) {
+        throw new ConvexError(
+          isAssistantCoach(profile)
+            ? `${swimmer.name} is outside the age group your coach role covers.`
+            : `${swimmer.name} is not in your club.`,
+        );
+      }
+      swimmers.push(swimmer);
+    }
+
+    const batchId = crypto.randomUUID();
+    const createdAt = Date.now();
+    for (const swimmer of swimmers) {
+      await ctx.db.insert("trainingNotes", {
+        scope: "SWIMMER",
+        swimmerId: swimmer._id,
+        authorId: profile._id,
+        focus,
+        body,
+        noteDate,
+        batchId,
+        createdAt,
+      });
+    }
+    return { created: swimmers.length, batchId };
+  },
+});
+
+const recipient = v.object({
+  _id: v.id("swimmers"),
+  name: v.string(),
+  age: v.number(),
+});
+
+/**
+ * The bulk composer's picker: every ACTIVE swimmer the caller may write a
+ * note for, grouped by squad (a swimmer in two squads is listed under both —
+ * selection is by swimmer, so ticking one ticks the other), with the squadless
+ * in their own group. Swimmers outside the caller's reach are OMITTED, not
+ * disabled: nothing the coach does on this screen changes a swimmer's age or
+ * club. `ageBand` is set for an assistant coach so the sheet can state the
+ * rule once instead of leaving the gaps a mystery.
+ */
+export const listNoteRecipients = query({
+  args: {},
+  returns: v.object({
+    ageBand: v.union(
+      v.null(),
+      v.object({
+        level: v.union(v.literal("SENIOR"), v.literal("JUNIOR")),
+        juniorMaxAge: v.number(),
+      }),
+    ),
+    squads: v.array(
+      v.object({
+        _id: v.id("squads"),
+        name: v.string(),
+        swimmers: v.array(recipient),
+      }),
+    ),
+    unsquadded: v.array(recipient),
+  }),
+  handler: async (ctx) => {
+    const profile = await requireStaff(ctx);
+    const mayWrite = await noteWriterFor(ctx, profile);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const eligible = (await staffSwimmers(ctx, profile, { activeOnly: true }))
+      .filter(mayWrite)
+      .map((s) => ({ _id: s._id, name: s.name, age: computeAge(s.dob, today) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const byId = new Map(eligible.map((s) => [s._id, s]));
+
+    // The caller's own club's squads (the Admin: every club's).
+    const squads =
+      profile.role === "SUPER_USER"
+        ? await ctx.db.query("squads").take(500)
+        : profile.clubId == null
+          ? []
+          : await ctx.db
+              .query("squads")
+              .withIndex("by_club", (q) => q.eq("clubId", profile.clubId))
+              .take(500);
+    squads.sort((a, b) => a.name.localeCompare(b.name));
+
+    const placed = new Set<Id<"swimmers">>();
+    const groups = [];
+    for (const squad of squads) {
+      const memberships = await ctx.db
+        .query("squadMemberships")
+        .withIndex("by_squad", (q) => q.eq("squadId", squad._id))
+        .take(1000);
+      const members = memberships
+        .map((m) => byId.get(m.swimmerId))
+        .filter((s): s is NonNullable<typeof s> => s !== undefined)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      // A squad with nobody the caller may write for is left out: for a junior
+      // coach, the seniors squad is not an empty group, it is not theirs.
+      if (members.length === 0) continue;
+      for (const m of members) placed.add(m._id);
+      groups.push({ _id: squad._id, name: squad.name, swimmers: members });
+    }
+    const unsquadded = eligible.filter((s) => !placed.has(s._id));
+
+    const level = coachLevelOf(profile);
+    let ageBand: { level: "SENIOR" | "JUNIOR"; juniorMaxAge: number } | null = null;
+    if (level === "SENIOR" || level === "JUNIOR") {
+      const club = profile.clubId != null ? await ctx.db.get(profile.clubId) : null;
+      ageBand = { level, juniorMaxAge: juniorMaxAgeOf(club) };
+    }
+    return { ageBand, squads: groups, unsquadded };
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Shared shaping
 // ---------------------------------------------------------------------------
 
@@ -231,7 +393,27 @@ const trainingNote = v.object({
   // Whether the CALLER may edit / delete this note: the timeline's edit controls
   // are per note, because an assistant may change only the notes they wrote.
   canModify: v.boolean(),
+  // How many swimmers this note was written to in one go (≥ 2 when it came
+  // from the bulk composer), STAFF ONLY — a viewer always gets null, so a
+  // parent reads it as the personal note it is on their swimmer's timeline.
+  batchCount: v.union(v.number(), v.null()),
 });
+
+/** Count the copies in a batch once per batch across a timeline. */
+function batchCountResolver(ctx: QueryCtx, enabled: boolean) {
+  const cache = new Map<string, number>();
+  return async (batchId: string | undefined): Promise<number | null> => {
+    if (!enabled || batchId === undefined) return null;
+    const cached = cache.get(batchId);
+    if (cached !== undefined) return cached;
+    const copies = await ctx.db
+      .query("trainingNotes")
+      .withIndex("by_batch", (q) => q.eq("batchId", batchId))
+      .take(BATCH_MAX_SWIMMERS + 1);
+    cache.set(batchId, copies.length);
+    return copies.length;
+  };
+}
 
 /** The read-side mirror of authorizeNoteWrite's SQUAD branch, for edit controls. */
 function mayModifySquadNote(
@@ -323,6 +505,7 @@ export const getSwimmerTrainingNotes = query({
     }
 
     const authorName = authorNameResolver(ctx);
+    const batchCount = batchCountResolver(ctx, profile.role !== "VIEWER");
 
     const shaped = [
       ...(await Promise.all(
@@ -340,6 +523,7 @@ export const getSwimmerTrainingNotes = query({
           updatedAt: note.updatedAt ?? null,
           canModify:
             editable && (isFullStaff(profile) || note.authorId === profile._id),
+          batchCount: await batchCount(note.batchId),
         })),
       )),
       ...(await Promise.all(
@@ -356,6 +540,7 @@ export const getSwimmerTrainingNotes = query({
           createdAt: note.createdAt,
           updatedAt: note.updatedAt ?? null,
           canModify: mayModifySquadNote(profile, squad),
+          batchCount: null,
         })),
       )),
     ];
@@ -401,6 +586,7 @@ export const getSquadTrainingNotes = query({
         createdAt: note.createdAt,
         updatedAt: note.updatedAt ?? null,
         canModify,
+        batchCount: null,
       })),
     );
 

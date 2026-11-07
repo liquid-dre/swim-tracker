@@ -14,7 +14,7 @@ The values below are placeholders.
 | `SITE_URL` | yes | App URL, e.g. `https://swim-tracker-three.vercel.app`. Used for auth redirects and email links. |
 | `CONVEX_SITE_URL` | auto | Provided by Convex; used in `auth.config.ts`. No action. |
 | `SUPER_USER_EMAILS` | yes (this app) | Comma-separated admin emails promoted to super-user on sign-in. e.g. `you@example.com`. |
-| `RESEND_API_KEY` | for email | Resend API key (`re_...`). Unset ⇒ invite emails are silently skipped. |
+| `RESEND_API_KEY` | for email | Resend API key (`re_...`). Unset ⇒ invite emails are silently skipped and password reset is unavailable. |
 | `EMAIL_FROM` | for email | Verified sender, e.g. `Swim Tracker <admin@your-domain>`. |
 
 Set the email ones with:
@@ -38,11 +38,15 @@ npx convex env set SUPER_USER_EMAILS "you@example.com"
 
 ## Email (Resend)
 
-The app sends **transactional invite emails only** (access-control Phase 7): when
-a coach grants a swimmer/parent viewer access, `convex/emails.ts` (a scheduled
-internal action) sends them a sign-up / open link via Resend. There is no other
-outbound mail — no verification or password-reset emails. With `RESEND_API_KEY` /
-`EMAIL_FROM` unset the grant still works; it just doesn't email.
+The app sends **transactional email only**: invites (when a coach grants a
+swimmer/parent viewer access, or the Admin invites a coach, `convex/emails.ts`
+sends a sign-up / open link) and **password-reset codes**
+(`convex/passwordReset.ts`, Convex Auth's built-in reset flow: an 8-digit code
+that expires in 15 minutes, entered with the new password on `/forgot-password`).
+There is no sign-up verification mail. With `RESEND_API_KEY` / `EMAIL_FROM` unset
+an invite still works, it just doesn't email — but a password reset **cannot**:
+the forgot-password page checks `passwordResetAvailable` and tells the person to
+ask their coach or the admin instead of pretending a code was sent.
 
 **Deliverability:** the `EMAIL_FROM` domain must be **verified in Resend** (SPF +
 DKIM), or messages will bounce or land in spam.

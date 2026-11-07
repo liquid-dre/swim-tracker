@@ -2,6 +2,8 @@ import { ConvexError } from "convex/values";
 import { convexAuth } from "@convex-dev/auth/server";
 import { Password } from "@convex-dev/auth/providers/Password";
 
+import { ResendPasswordReset } from "./passwordReset";
+
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [
     // Email + password. We capture `name` from the sign-up form (in addition
@@ -24,6 +26,10 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
           throw new ConvexError("Password must be at least 8 characters.");
         }
       },
+      // "Forgot password": an emailed one-time code, verified before the new
+      // password is stored (convex/passwordReset.ts). The same 8-character rule
+      // above applies to the replacement.
+      reset: ResendPasswordReset,
     }),
   ],
   callbacks: {

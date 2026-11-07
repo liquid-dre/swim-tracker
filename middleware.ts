@@ -6,7 +6,12 @@ import {
 
 // Public front door: the marketing landing (/) and the auth pages. Everything
 // else is the protected app shell.
-const isPublicPage = createRouteMatcher(["/", "/login", "/signup"]);
+const isPublicPage = createRouteMatcher([
+  "/",
+  "/login",
+  "/signup",
+  "/forgot-password",
+]);
 
 export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
   const authenticated = await convexAuth.isAuthenticated();

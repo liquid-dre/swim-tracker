@@ -674,12 +674,19 @@ export default defineSchema({
     focus: v.optional(v.string()), // short title, e.g. "Streamlining & underwater"
     body: v.string(), // the note itself
     noteDate: v.string(), // ISO date the phase applies from
+    // Set when the note was written to several swimmers in one go (the bulk
+    // composer): every copy in that batch shares the id. Each copy is still an
+    // ordinary SWIMMER note — edited and deleted on its own — the batch id only
+    // records that they were born together, so staff can see "written for 12
+    // swimmers" and a later "edit every copy" needs no migration.
+    batchId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.optional(v.number()),
   })
     .index("by_swimmer", ["swimmerId"])
     .index("by_squad", ["squadId"])
-    .index("by_date", ["noteDate"]),
+    .index("by_date", ["noteDate"])
+    .index("by_batch", ["batchId"]),
 
   // ── Session attendance (§R18) ──────────────────────────────────────────────
   // A named recurring template a coach defines once ("Evening — Mon–Fri 4:30pm,

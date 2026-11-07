@@ -114,6 +114,18 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   own their own selection (`useState`), via the shared `TargetTierToggle` (a styled dropdown, since five
   galas plus "All" no longer fit a segmented control). *A persisted coach-level default does not exist —
   earlier revisions of this file claimed it did.*
+- **Bulk training notes are N personal notes, not a third scope.** "Note for several" on the Roster
+  (every coach level) writes one `SWIMMER` note per ticked swimmer through `createTrainingNotesBatch`,
+  each stamped with a shared `batchId`; copies are edited and deleted on their own. The picker
+  (`listNoteRecipients`) is grouped by squad and lists only swimmers the caller may write for —
+  own club, and for a Senior/Junior coach their age band today — **omitting** the rest, never
+  disabling them. The save re-checks every id with `noteWriterFor` (the same rule `mayWriteNoteFor`
+  uses for one swimmer) and is all-or-nothing. Staff see "written for N swimmers" on each copy;
+  a viewer sees a plain Personal note and never the count.
+- **Password reset is Convex Auth's built-in code flow** (`convex/passwordReset.ts`, `/forgot-password`):
+  email → 8-digit code → new password, sent through the same Resend keys as invites. The request step
+  always reads "if that email has an account" — never confirm or deny an address — and the page says
+  resets are unavailable when email isn't configured. There is no signed-in change-password screen.
 - **Course selector on qualifying surfaces.** Because both courses qualify, the status matrix and Road
   carry a **Long / Short / Best-of-both** control, defaulting to Best-of-both.
 
