@@ -28,6 +28,7 @@ import { COURSE_LABEL, GalaTag, MeetProgrammeTable } from "./meetShared";
 import { ImportMeetSheet } from "./ImportMeetSheet";
 import { MeetForm } from "./MeetForm";
 import { MeetEntriesSheet } from "./MeetEntriesSheet";
+import { MeetQualifying } from "./MeetQualifying";
 import { MeetReports } from "./MeetReports";
 import { ViewerMeetEntries } from "./ViewerMeetEntries";
 
@@ -237,6 +238,15 @@ export function MeetDetailScreen({
           upcoming={isUpcoming(meet, today)}
         />
       )}
+
+      {/* The meet's own entry standards, when it publishes them (e.g. HAS
+          Championships): who qualified, and in what. Above the programme
+          because it decides what anyone can be entered in. */}
+      <MeetQualifying
+        meetId={meetId}
+        meetStartDate={meet.startDate}
+        canEdit={canEdit}
+      />
 
       {movedDays > 0 && (
         <p className="rounded-2xl border border-warning-500/30 bg-warning-50 px-4 py-3 text-sm text-warning-ink">

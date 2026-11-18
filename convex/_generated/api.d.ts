@@ -27,6 +27,7 @@ import type * as galas from "../galas.js";
 import type * as http from "../http.js";
 import type * as meetEntries from "../meetEntries.js";
 import type * as meetEntriesShared from "../meetEntriesShared.js";
+import type * as meetQualifying from "../meetQualifying.js";
 import type * as meetReports from "../meetReports.js";
 import type * as meets from "../meets.js";
 import type * as passwordReset from "../passwordReset.js";
@@ -73,6 +74,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   meetEntries: typeof meetEntries;
   meetEntriesShared: typeof meetEntriesShared;
+  meetQualifying: typeof meetQualifying;
   meetReports: typeof meetReports;
   meets: typeof meets;
   "migrations/galaStandards": typeof migrations_galaStandards;

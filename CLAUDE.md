@@ -267,6 +267,16 @@ colour-only meaning. Active nav state = `bg-brand-50 text-brand-500`.
   dropping a programme line with sign-ups needs an explicit confirmation and is refused outright when
   any of them has a time; an entry with a time cannot be removed until that time goes through the
   tombstoned `deleteResult`, which then frees the entry back to a plan.
+- **A meet may publish its OWN qualifying table (`meetQualifying`, `lib/meetQualifying.ts`)** — e.g. the
+  HAS Championships' per-age entry times. It is **not a gala**: never in `GALA_ORDER`, never a chart line or
+  tier badge. One table per meet, one course (HAS 2026 = long course; the document states none, the club
+  chose), super-user attaches it from a published preset (`MEET_QUALIFYING_PRESETS`, copied onto the meet,
+  transcribed verbatim even where columns look inverted). Verdict = fastest official MEET swim (via
+  `fastestMeetSwimInWindow`) from the table's `qualifyingFrom` through the **day before the meet** — the
+  meet itself never qualifies for itself; age = exact age on the meet's **first day**; the youngest
+  column is an "& under" catch-all, the oldest "& over". An event off the table has no cut (never
+  "qualified"). Derived at read time, never stored per swimmer; viewers see only linked swimmers, coaches
+  their own club. Shown on the meet page for both roles.
 - **Meet summaries (`meetReports`) are club-scoped and STAFF-ONLY** — a coach's post-meet report file
   (Convex storage), never parsed. Every function is `requireCoach`, so a viewer is refused server-side;
   another club never sees it; type and size come from the `_storage` row, not the client. A refused
