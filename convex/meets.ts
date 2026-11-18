@@ -626,6 +626,15 @@ export const deleteMeet = mutation({
       await ctx.db.patch(result._id, { meetId: undefined });
     }
 
+    // The meet's own qualifying table is reference data ABOUT the meet (the
+    // super-user's, like the programme) — it goes with the meet. Every verdict
+    // read from it is derived, so nothing a swimmer did is lost.
+    const tables = await ctx.db
+      .query("meetQualifying")
+      .withIndex("by_meet", (q) => q.eq("meetId", meetId))
+      .take(10);
+    for (const table of tables) await ctx.db.delete(table._id);
+
     await ctx.db.delete(meetId);
     return null;
   },

@@ -325,6 +325,40 @@ export default defineSchema({
   // but "Sharks Borrowdale's report on the 1st seeded gala" belongs to Sharks.
   // Viewers never read this table — it names other people's children and says
   // which of them went slower than seed.
+  // A meet's OWN qualifying table (lib/meetQualifying.ts) — e.g. the HAS
+  // Championships' per-age entry standards. NOT a gala: it never joins
+  // GALA_ORDER or a chart. One row per meet, global reference data like the
+  // meet itself (super-user writes, every role reads); the per-swimmer verdict
+  // is derived at read time, so it can never go stale against a new swim.
+  meetQualifying: defineTable({
+    meetId: v.id("meets"),
+    title: v.string(),
+    // One table, one course — the document's or the importer's choice, never
+    // borrowed across pools (§4.2).
+    course,
+    // First day a meet swim counts, inclusive. The window always ENDS the day
+    // before the meet starts; absent = no lower bound.
+    qualifyingFrom: v.optional(v.string()),
+    // Which published preset the cuts were copied from, for provenance.
+    presetKey: v.optional(v.string()),
+    cuts: v.array(
+      v.object({
+        gender: v.union(v.literal("M"), v.literal("F")),
+        distance,
+        stroke,
+        age: v.number(),
+        band: v.union(
+          v.literal("EXACT"),
+          v.literal("AND_UNDER"),
+          v.literal("AND_OVER"),
+        ),
+        timeMs: v.number(),
+      }),
+    ),
+    updatedAt: v.number(),
+    updatedBy: v.id("profiles"),
+  }).index("by_meet", ["meetId"]),
+
   meetReports: defineTable({
     meetId: v.id("meets"),
     clubId: v.id("clubs"),
